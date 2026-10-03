@@ -18,7 +18,7 @@ jobs:
           pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
           pip install -r requirements-dev.txt
       - name: Check the JavaScript parses
-        run: node --check boneseg/static/app.js
+        run: for f in boneseg/static/js/*.js; do node --check "$f"; done
       - name: Run tests
         # The tests use the 'classic' backbone, so no model weights are downloaded
         run: pytest -q
