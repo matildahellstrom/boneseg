@@ -86,5 +86,19 @@ def error_png(pred: np.ndarray, ref: np.ndarray, max_side: int = 1600) -> bytes:
     return to_png_bytes(Image.fromarray(rgba, "RGBA"))
 
 
+def labels_png(labels: np.ndarray, colors: list[tuple[int, int, int]], max_side: int = 1600, fill_alpha: int = 80) -> bytes:
+    """A label map (0 background, k for structure k) as fills with solid outlines in each structure's colour."""
+    shape = display_shape(*labels.shape, max_side)
+    small = np.asarray(_resize(Image.fromarray(labels.astype(np.uint8), "L"), shape, nearest=True))
+    rgba = np.zeros(small.shape + (4,), np.uint8)
+    for k, color in enumerate(colors, start=1):
+        m = small == k
+        if not m.any():
+            continue
+        rgba[m] = (*color, fill_alpha)
+        rgba[m & ~ndi.binary_erosion(m)] = (*color, 255)
+    return to_png_bytes(Image.fromarray(rgba, "RGBA"))
+
+
 def mask_full_png(mask: np.ndarray) -> bytes:
     return to_png_bytes(Image.fromarray(mask.astype(np.uint8) * 255, "L"))

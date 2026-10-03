@@ -15,7 +15,7 @@ from ..head import segment_with_head
 from ..pipeline import StackRequest, run_stack
 from ..segment import SegmentationSettings, segment_with_prototypes, suggest_click, uncertainty_map
 from .context import AppContext
-from .models import SegmentRequest, StackJobRequest
+from .models import MultiSegmentRequest, SegmentRequest, StackJobRequest
 
 
 def router(ctx: AppContext) -> APIRouter:
@@ -82,6 +82,45 @@ def router(ctx: AppContext) -> APIRouter:
                           "n_neg": len(req.neg), "stats": out["stats"], "evaluation": out.get("evaluation"),
                           "points": {"pos": [list(p) for p in req.pos], "neg": [list(p) for p in req.neg]}})
         return out
+
+    @r.post("/api/datasets/{ds_id}/segment_multi")
+    def segment_multi_endpoint(ds_id: str, req: MultiSegmentRequest):
+        """Several structures on one slice, each from its own clicks, with shared background clicks."""
+        from ..segment import segment_multi
+
+        t0 = time.time()
+        ds = store.get(ds_id)
+        settings = SegmentationSettings.from_dict(req.settings)
+        classes = [{"name": st.name, "pos": st.pos} for st in req.structures if st.pos]
+        with store.compute_lock:
+            emb = store.embedding(ds_id, req.channel, req.z, settings)
+            res = segment_multi(emb, classes, req.neg, settings, ds.volume.pixel_um)
+        roi = store.roi_mask(ds_id)
+        labels = np.where(roi, res.labels, 0).astype(np.uint8) if roi is not None else res.labels
+        img = store.plane(ds_id, req.channel, req.z, settings.clip_low, settings.clip_high)
+        colors = [tuple(int(c.color.lstrip("#")[i:i + 2], 16) for i in (0, 2, 4)) if len(c.color.lstrip("#")) == 6 else (0, 200, 240)
+                  for c in req.structures if c.pos]
+        stats = [{"name": n, "color": req.structures[[st.name for st in req.structures].index(n)].color,
+                  **quantify.summarize_mask(labels == k + 1, img, ds.volume.pixel_um, roi)} for k, n in enumerate(res.names)]
+        ds.results[("multi", req.channel, req.z)] = {"labels": labels, "names": res.names}
+        return {"labels_png": render.data_url(render.labels_png(labels, colors, req.max_side)), "structures": stats,
+                "thresholds": res.thresholds, "timing": {"total_s": round(time.time() - t0, 3)}}
+
+    @r.get("/api/datasets/{ds_id}/export/labels")
+    def export_labels(ds_id: str, c: int = 0, z: int = 0):
+        """The last multi-structure result as a label TIFF (0 background, k for structure k) with a legend in its name."""
+        import io as _io
+
+        ds = store.get(ds_id)
+        res = ds.results.get(("multi", c, z))
+        if res is None:
+            raise HTTPException(404, "Segment several structures on this slice first")
+        buf = _io.BytesIO()
+        py, px = ds.volume.pixel_um
+        tifffile.imwrite(buf, res["labels"], imagej=True, resolution=(1 / px, 1 / py), metadata={"unit": "um", "Labels": res["names"]})
+        legend = "_".join(f"{k + 1}-{n}" for k, n in enumerate(res["names"]))[:120].replace(" ", "")
+        stem = f"{Path(ds.volume.name).stem}_c{c}_z{z}_labels_{legend}"
+        return Response(buf.getvalue(), media_type="image/tiff", headers={"Content-Disposition": f'attachment; filename="{stem}.tif"'})
 
     @r.get("/api/datasets/{ds_id}/export/mask")
     def export_mask(ds_id: str, c: int = 0, z: int = 0, fmt: str = "png"):

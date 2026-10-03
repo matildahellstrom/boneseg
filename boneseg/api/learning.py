@@ -25,7 +25,7 @@ def router(ctx: AppContext) -> APIRouter:
 
     @r.put("/api/datasets/{ds_id}/annotations")
     def put_annotation(ds_id: str, req: AnnotationRequest):
-        store.set_annotation(ds_id, req.channel, req.z, req.pos, req.neg)
+        store.set_annotation(ds_id, req.channel, req.z, req.pos, req.neg, req.extra)
         return {"ok": True}
 
     @r.get("/api/datasets/{ds_id}/labels")

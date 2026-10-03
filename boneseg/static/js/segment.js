@@ -14,6 +14,7 @@ async function runSegment() {
   if (!S.ds) return;
   const p = pts();
   const profile = $("profileSelect").value || null;
+  if (S.method === "clicks" && !profile && isMulti()) { runMulti(); return; }
   if (S.method === "clicks" && !p.pos.length && !profile) { toast("Click the structure you want first, or pick a profile"); return; }
   const seq = ++S.seq;
   busy(true, S.result ? "Updating…" : "Computing features…");
@@ -45,6 +46,9 @@ async function runSegment() {
 
 function showResults(out) {
   $("resultsSection").classList.remove("hidden");
+  $("labelsExport").classList.add("hidden");
+  $("editBtn").classList.remove("hidden");
+  $("saveLabelBtn").classList.remove("hidden");
   const s = out.stats;
   const cards = [
     ["Area", `${fmt(s.area_um2)} µm²`],
@@ -77,9 +81,48 @@ function showResults(out) {
   $("timing").textContent = `Threshold ${out.threshold.toFixed(3)} (${src}) · features ${out.timing.embed_s.toFixed(2)} s · total ${out.timing.total_s.toFixed(2)} s`;
 }
 
+async function runMulti() {
+  const p = pts();
+  const structures = S.structures.map((st, k) => ({ name: st.name, color: st.color, pos: posList(p, k) }));
+  if (!structures.some((st) => st.pos.length)) { toast("Click examples of at least one structure"); return; }
+  const seq = ++S.seq;
+  busy(true, "Segmenting structures…");
+  try {
+    const out = await api(`/api/datasets/${S.ds.id}/segment_multi`, {
+      method: "POST", body: { channel: S.c, z: S.z, structures, neg: p.neg, settings: settings() },
+    });
+    if (seq !== S.seq) return;
+    S.layers.mask = await loadImage(out.labels_png);
+    delete S.layers.heat; delete S.layers.unc; delete S.layers.err;
+    S.result = { multi: true, ...out };
+    showMultiResults(out);
+    draw();
+    status(`Segmented ${out.structures.length} structures on slice ${S.z} in ${out.timing.total_s.toFixed(2)} s`);
+  } catch (e) {
+    if (seq === S.seq) toast(e.message, true);
+  } finally {
+    if (seq === S.seq) busy(false);
+  }
+}
+
+function showMultiResults(out) {
+  $("resultsSection").classList.remove("hidden");
+  $("statCards").innerHTML = out.structures.map((st) => `<div class="card" style="border-left:3px solid ${st.color}"><div class="k">${st.name}</div>
+    <div class="v">${(100 * st.area_fraction).toFixed(1)}%</div><div class="k">${st.n_objects} objects · ${fmt(st.area_um2)} µm²</div></div>`).join("");
+  $("evalBox").classList.add("hidden");
+  $("suggestionBox").classList.add("hidden");
+  $("labelsExport").classList.remove("hidden");
+  // Brush corrections and labels work on a single mask, so they are hidden for several structures
+  $("editBtn").classList.add("hidden");
+  $("saveLabelBtn").classList.add("hidden");
+  $("timing").textContent = "Each pixel goes to the structure it resembles most, if it clears that structure's threshold. Stack runs, labels and histomorphometry use the first structure.";
+  updateHint();
+}
+
 function addPoint(kind, y, x) {
-  pts()[kind].push([Math.round(y), Math.round(x)]);
-  S.history.push({ key: key(), kind });
+  const list = kind === "pos" ? posList(pts(), S.active) : pts().neg;
+  list.push([Math.round(y), Math.round(x)]);
+  S.history.push({ key: key(), kind, struct: kind === "pos" ? S.active : null });
   persistClicks();
   updateCounts();
   draw();
@@ -89,14 +132,13 @@ function addPoint(kind, y, x) {
 function removeNearest(y, x) {
   const p = pts();
   let best = null;
-  for (const kind of ["pos", "neg"]) {
-    p[kind].forEach(([py, px], i) => {
-      const d = (py - y) ** 2 + (px - x) ** 2;
-      if (!best || d < best.d) best = { kind, i, d };
-    });
-  }
+  const lists = [p.neg, ...S.structures.map((_, k) => posList(p, k))];
+  lists.forEach((list) => list.forEach(([py, px], i) => {
+    const d = (py - y) ** 2 + (px - x) ** 2;
+    if (!best || d < best.d) best = { list, i, d };
+  }));
   if (!best) return;
-  p[best.kind].splice(best.i, 1);
+  best.list.splice(best.i, 1);
   persistClicks();
   updateCounts();
   draw();
@@ -107,7 +149,7 @@ function undo() {
   const h = S.history.pop();
   if (!h) return;
   const p = S.points[h.key];
-  p?.[h.kind].pop();
+  if (p) (h.kind === "pos" ? posList(p, h.struct || 0) : p.neg).pop();
   persistClicks(h.key);
   updateCounts();
   draw();
@@ -116,7 +158,7 @@ function undo() {
 
 function updateCounts() {
   const p = pts();
-  $("nPos").textContent = p.pos.length;
+  $("nPos").textContent = posList(p, S.active).length;
   $("nNeg").textContent = p.neg.length;
   updateHint();
 }
@@ -148,4 +190,56 @@ function autoBackground() {
   updateCounts();
   draw();
   if ($("autoRun").checked && pts().pos.length) scheduleSegment();
+}
+
+// ---------------------------------------------------------------------------------------------
+// Structures: several things to segment on the same slice
+function renderStructures() {
+  const box = $("structList");
+  box.innerHTML = "";
+  S.structures.forEach((st, k) => {
+    const b = document.createElement("button");
+    b.className = "struct" + (k === S.active ? " active" : "");
+    b.title = k === S.active ? "Object clicks go to this structure" : "Click to send object clicks to this structure";
+    b.innerHTML = `<span class="sw" style="background:${st.color}"></span>${st.name}${k > 0 ? '<span class="x" title="Remove this structure">✕</span>' : ""}`;
+    b.onclick = (e) => {
+      if (e.target.classList.contains("x")) { removeStructure(k); return; }
+      S.active = k; renderStructures(); updateCounts();
+    };
+    box.appendChild(b);
+  });
+  const add = document.createElement("button");
+  add.className = "struct add";
+  add.textContent = "+ Structure";
+  add.title = "Segment another structure on the same slice, such as a second cell type";
+  add.onclick = () => {
+    const name = prompt("Name of the new structure", `Structure ${S.structures.length + 1}`);
+    if (!name) return;
+    S.structures.push({ name: name.trim().slice(0, 40), color: STRUCT_COLORS[S.structures.length % STRUCT_COLORS.length] });
+    S.active = S.structures.length - 1;
+    renderStructures(); updateCounts();
+  };
+  box.appendChild(add);
+  $("modePos").lastChild.textContent = isMulti() ? S.structures[S.active].name : "Object";
+  $("modePos").querySelector(".dot").style.background = S.structures[S.active].color;
+}
+
+function removeStructure(k) {
+  if (!confirm(`Remove ${S.structures[k].name} and its clicks on every slice?`)) return;
+  S.structures.splice(k, 1);
+  for (const [kk, p] of Object.entries(S.points)) {
+    if (p.extra && p.extra.length >= k) { p.extra.splice(k - 1, 1); persistClicks(kk); }
+  }
+  S.active = Math.min(S.active, S.structures.length - 1);
+  renderStructures(); updateCounts(); draw();
+  if (S.result) scheduleSegment(0);
+}
+
+function structuresFromAnnotations(points) {
+  // Rebuild the structure list from saved clicks, in the order they were added
+  const out = [{ name: "Object", color: STRUCT_COLORS[0] }];
+  for (const p of Object.values(points)) {
+    (p.extra || []).forEach((e, i) => { if (!out[i + 1] && e.name) out[i + 1] = { name: e.name, color: e.color || STRUCT_COLORS[(i + 1) % STRUCT_COLORS.length] }; });
+  }
+  return out.filter(Boolean);
 }

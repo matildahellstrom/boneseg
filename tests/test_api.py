@@ -394,3 +394,21 @@ def test_empty_mask_gives_null_not_error(client):
     r = client.post(f"/api/datasets/{ds['id']}/segment", json=body)
     assert r.status_code == 200, r.text
     assert r.json()["stats"]["n_objects"] == 0 and r.json()["evaluation"]["hd95_um"] is None
+
+
+def test_multi_structure_endpoint(client):
+    ds, gt, centers = upload_stack(client, n_z=1, with_reference=False)
+    did = ds["id"]
+    body = {"channel": 0, "z": 0, "neg": bg_points(gt), "settings": SETTINGS,
+            "structures": [{"name": "big cells", "color": "#ff8800", "pos": [list(c) for c in centers[:2]]},
+                           {"name": "small cells", "color": "#00ff88", "pos": [list(c) for c in centers[2:4]]},
+                           {"name": "empty", "pos": []}]}
+    r = client.post(f"/api/datasets/{did}/segment_multi", json=body)
+    assert r.status_code == 200, r.text
+    out = r.json()
+    assert [s["name"] for s in out["structures"]] == ["big cells", "small cells"] and out["labels_png"].startswith("data:image/png")
+    labels = tifffile.imread(io.BytesIO(client.get(f"/api/datasets/{did}/export/labels", params={"c": 0, "z": 0}).content))
+    assert labels.shape == gt.shape and set(np.unique(labels)) <= {0, 1, 2}
+    # Clicks for extra structures are saved with the slice
+    client.put(f"/api/datasets/{did}/annotations", json={"channel": 0, "z": 0, "pos": [[1, 2]], "neg": [], "extra": [{"name": "s2", "color": "#fff", "pos": [[3, 4]]}]})
+    assert client.get(f"/api/datasets/{did}/annotations").json()["0:0"]["extra"][0]["pos"] == [[3, 4]]

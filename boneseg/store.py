@@ -335,11 +335,15 @@ class Store:
         p = self.ds_dir(ds_id) / "annotations.json"
         return json.loads(p.read_text()) if p.exists() else {}
 
-    def set_annotation(self, ds_id: str, c: int, z: int, pos: list, neg: list) -> dict:
+    def set_annotation(self, ds_id: str, c: int, z: int, pos: list, neg: list, extra: list | None = None) -> dict:
         ann = self.get_annotations(ds_id)
         key = f"{int(c)}:{int(z)}"
-        if pos or neg:
-            ann[key] = {"pos": [[int(round(a)), int(round(b))] for a, b in pos], "neg": [[int(round(a)), int(round(b))] for a, b in neg]}
+        pts = lambda ps: [[int(round(a)), int(round(b))] for a, b in ps]
+        extra = [{"name": str(e.get("name", ""))[:60], "color": str(e.get("color", ""))[:16], "pos": pts(e.get("pos", []))} for e in (extra or [])]
+        if pos or neg or any(e["pos"] for e in extra):
+            ann[key] = {"pos": pts(pos), "neg": pts(neg)}
+            if extra:
+                ann[key]["extra"] = extra
         else:
             ann.pop(key, None)
         (self.ds_dir(ds_id) / "annotations.json").write_text(json.dumps(ann))

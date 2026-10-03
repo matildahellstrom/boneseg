@@ -25,6 +25,8 @@ const S = {
   method: "clicks",    // "clicks" or "learned"
   labels: [],          // [{channel, z}] slices with a saved corrected mask
   head: null,          // Info about the learned model for the current channel
+  structures: [{ name: "Object", color: "#22d27a" }],
+  active: 0,           // Index of the structure that object clicks go to
   roiDraft: null,      // Corners of a region being drawn, in full-resolution pixels
   sideY: null,         // Row of the side view, in full-resolution pixels
   editing: false,
@@ -62,6 +64,16 @@ function busy(on, text = "Working…") { $("busy").classList.toggle("hidden", !o
 const key = () => `${S.c}:${S.z}`;
 const pts = () => (S.points[key()] ||= { pos: [], neg: [] });
 
+// Structures: the first one uses p.pos, further ones live in p.extra[k - 1].pos
+const STRUCT_COLORS = ["#22d27a", "#ffa53a", "#c78bff", "#ff5ad2", "#ffe14a", "#5ad1ff"];
+function posList(p, k) {
+  if (!k) return p.pos;
+  p.extra ||= [];
+  p.extra[k - 1] ||= { pos: [] };
+  return p.extra[k - 1].pos;
+}
+const isMulti = () => S.structures.length > 1;
+
 // Clicks are saved on the server per slice, so a reload keeps them
 const saveTimers = {};
 function persistClicks(k = key()) {
@@ -71,7 +83,8 @@ function persistClicks(k = key()) {
   saveTimers[k] = setTimeout(() => {
     const [c, z] = k.split(":").map(Number);
     const p = S.points[k] || { pos: [], neg: [] };
-    api(`/api/datasets/${dsId}/annotations`, { method: "PUT", body: { channel: c, z, pos: p.pos, neg: p.neg } }).catch((e) => toast(`Could not save clicks: ${e.message}`, true));
+    const extra = S.structures.slice(1).map((st, i) => ({ name: st.name, color: st.color, pos: p.extra?.[i]?.pos || [] }));
+    api(`/api/datasets/${dsId}/annotations`, { method: "PUT", body: { channel: c, z, pos: p.pos, neg: p.neg, extra } }).catch((e) => toast(`Could not save clicks: ${e.message}`, true));
   }, 400);
 }
 

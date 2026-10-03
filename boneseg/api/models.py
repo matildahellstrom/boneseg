@@ -45,6 +45,22 @@ class AnnotationRequest(BaseModel):
     z: int
     pos: list[tuple[float, float]] = Field(default_factory=list)
     neg: list[tuple[float, float]] = Field(default_factory=list)
+    extra: list[dict] = Field(default_factory=list)  # Further structures: [{"name", "color", "pos"}]
+
+
+class StructureSpec(BaseModel):
+    name: str
+    color: str = "#00c8f0"
+    pos: list[tuple[float, float]] = Field(default_factory=list)
+
+
+class MultiSegmentRequest(BaseModel):
+    channel: int = 0
+    z: int = 0
+    structures: list[StructureSpec]
+    neg: list[tuple[float, float]] = Field(default_factory=list)
+    settings: dict = Field(default_factory=dict)
+    max_side: int = 1600
 
 
 class LabelRequest(BaseModel):

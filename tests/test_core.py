@@ -303,3 +303,31 @@ def test_channel_intensities():
     # Labels line up with the object table
     table = quantify.object_table(mask, None).sort_values("label")
     assert table["label"].tolist() == t["label"].tolist()
+
+
+def test_segment_multi_separates_two_structures():
+    # Bright round cells and dim square blocks on a dark background
+    h, w = 200, 260
+    yy, xx = np.mgrid[:h, :w]
+    img = np.full((h, w), 0.1, np.float32)
+    cells = ((yy - 60) ** 2 + (xx - 60) ** 2 < 20 ** 2) | ((yy - 140) ** 2 + (xx - 70) ** 2 < 18 ** 2)
+    blocks = np.zeros((h, w), bool)
+    blocks[40:90, 160:220] = True
+    blocks[120:170, 150:200] = True
+    img[cells] = 0.9
+    img[blocks] = 0.45
+    img += np.random.default_rng(0).normal(0, 0.03, img.shape).astype(np.float32)
+    s = SegmentationSettings(backbone="classic", vit_size=504)
+    emb = segment.embed_image(get_backbone("classic"), np.clip(img, 0, 1), s)
+    neg = [(10, 10), (190, 10), (10, 130), (190, 250), (100, 120)]
+    cp, bp = [(60, 60), (140, 70)], [(65, 190), (145, 175)]
+    res = segment.segment_multi(emb, [{"name": "cells", "pos": cp}, {"name": "blocks", "pos": bp}], neg, s)
+    assert res.names == ["cells", "blocks"] and len(res.thresholds) == 2
+    # Segmenting both together should do about as well as segmenting each alone
+    single_cells = metrics.dice(segment.segment(emb, cp, neg + bp, s).mask, cells)
+    single_blocks = metrics.dice(segment.segment(emb, bp, neg + cp, s).mask, blocks)
+    assert metrics.dice(res.labels == 1, cells) > single_cells - 0.1
+    assert metrics.dice(res.labels == 2, blocks) > single_blocks - 0.1
+    assert not np.any((res.labels == 1) & (res.labels == 2))
+    with pytest.raises(ValueError):
+        segment.segment_multi(emb, [{"name": "x", "pos": []}], [], s)

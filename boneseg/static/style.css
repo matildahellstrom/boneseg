@@ -160,3 +160,9 @@ dialog.wide { max-width: 860px; width: 92vw; }
 @media (max-width: 700px) { .study-grid { grid-template-columns: 1fr; } }
 .hint { margin: 0; padding: 6px 8px; border-left: 3px solid var(--accent); background: var(--bg); border-radius: 4px; }
 .hint:empty { display: none; }
+.structs { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+.struct { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--line); background: transparent; color: var(--text); cursor: pointer; }
+.struct.active { border-color: var(--accent); background: var(--bg); }
+.struct .sw { width: 9px; height: 9px; border-radius: 50%; }
+.struct .x { color: var(--muted); margin-left: 2px; }
+.struct.add { color: var(--accent); border-style: dashed; }

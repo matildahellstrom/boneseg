@@ -86,8 +86,9 @@ function draw() {
   }
   if ($("showPoints").checked && !S.editing) {
     const p = S.points[key()] || { pos: [], neg: [] };
-    for (const [kind, color] of [["pos", "#22d27a"], ["neg", "#ff5a6e"]]) {
-      for (const pt of p[kind]) {
+    const groups = [[p.neg, "#ff5a6e"], ...S.structures.map((st, k) => [posList(p, k), st.color])];
+    for (const [list, color] of groups) {
+      for (const pt of list) {
         const [sx, sy] = toScreen(pt);
         ctx.beginPath();
         ctx.arc(sx, sy, 5.5, 0, Math.PI * 2);
