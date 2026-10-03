@@ -14,7 +14,7 @@
     <div class="topbar-right">
       <span class="pill" id="devicePill" title="Where the model runs">…</span>
       <button class="ghost" id="studyBtn" title="Compare stack results between groups of samples">Compare samples</button>
-      <button class="ghost" id="helpBtn" title="Keyboard shortcuts and tips">?</button>
+      <button class="ghost" id="helpBtn" title="Keyboard shortcuts and tips" aria-label="Help and keyboard shortcuts">?</button>
     </div>
   </header>
 
@@ -24,7 +24,7 @@
       <section>
         <h2>1. Image</h2>
         <label class="dropzone" id="dropzone">
-          <input type="file" id="fileInput" accept=".ims,.tif,.tiff,.png,.jpg,.jpeg,.npy" hidden>
+          <input type="file" id="fileInput" aria-label="Choose a microscopy file" accept=".ims,.tif,.tiff,.png,.jpg,.jpeg,.npy" hidden>
           <strong>Drop a microscopy file</strong>
           <span class="muted small">Imaris .ims, TIFF stack, PNG, JPG or .npy</span>
         </label>
@@ -32,7 +32,7 @@
         <details class="small">
           <summary>Open a large file from disk instead</summary>
           <p class="muted">Large Imaris files open in place without copying. Paste the full path on this computer.</p>
-          <div class="row"><input type="text" id="pathInput" placeholder="/path/to/file.ims"><button id="pathBtn">Open</button></div>
+          <div class="row"><input type="text" id="pathInput" placeholder="/path/to/file.ims" aria-label="Full path of a file on this computer"><button id="pathBtn">Open</button></div>
         </details>
         <div class="dataset-list" id="datasetList"></div>
       </section>
@@ -110,7 +110,7 @@
         <span class="small muted" id="zoomLabel" title="Zoom relative to the full-resolution image">100%</span></span>
       </div>
       <div class="viewer" id="viewer">
-        <canvas id="canvas"></canvas>
+        <canvas id="canvas" role="img" aria-label="Microscopy image. Click to add points."></canvas>
         <div class="empty-state" id="emptyState">
           <h1>Segment bone microscopy with a few clicks</h1>
           <ol>
@@ -120,14 +120,14 @@
           </ol>
           <button id="demoBtn">Try a synthetic demo image</button>
         </div>
-        <div class="busy hidden" id="busy"><div class="spinner"></div><span id="busyText">Working…</span></div>
+        <div class="busy hidden" id="busy" role="status" aria-live="polite"><div class="spinner"></div><span id="busyText">Working…</span></div>
         <div class="cursor-info small" id="cursorInfo"></div>
       </div>
       <div class="side hidden" id="sidePanel">
         <div class="side-head small"><span id="sideLabel">Side view</span><span class="muted">Alt-click the image to move the cut · click here to jump to a slice</span></div>
         <div class="side-img"><img id="sideImg" alt="Side view through all slices"><div class="side-z" id="sideZ"></div></div>
       </div>
-      <div class="statusbar small" id="statusbar">Ready</div>
+      <div class="statusbar small" id="statusbar" role="status" aria-live="polite">Ready</div>
     </section>
 
     <!-- Right: settings, results and stack processing -->
@@ -252,7 +252,7 @@
     <form method="dialog"><button class="primary">Close</button></form>
   </dialog>
 
-  <div class="toast hidden" id="toast"></div>
+  <div class="toast hidden" id="toast" role="alert" aria-live="assertive"></div>
   <script src="/static/app.js"></script>
 </body>
 </html>

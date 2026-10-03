@@ -213,6 +213,7 @@ async function loadPlane(fit = false) {
   $("zValue").textContent = `${S.z} / ${S.ds.n_z - 1}${S.ds.voxel_size_known ? ` · ${(S.z * S.ds.voxel_um[0]).toFixed(1)} µm` : ""}`;
   $("contrastValue").textContent = `${S.low}–${S.high}%`;
   const url = `/api/datasets/${S.ds.id}/plane?c=${S.c}&z=${S.z}&low=${S.low}&high=${S.high}`;
+  canvas.setAttribute("aria-label", `${S.ds.name}, channel ${S.c} (${S.ds.channel_names[S.c]}), slice ${S.z} of ${S.ds.n_z - 1}. Click to add points.`);
   busy(true, "Loading slice…");
   try {
     S.base = await loadImage(url);
@@ -800,7 +801,7 @@ async function loadStudy() {
   const groups = [...new Set(out.rows.map((r) => r.group).filter(Boolean))];
   $("groupNames").innerHTML = groups.map((g) => `<option value="${g}">`).join("");
   $("studyRows").innerHTML = out.rows.map((r) => `<tr><td title="${r.name}">${r.name.length > 34 ? r.name.slice(0, 32) + "…" : r.name}</td>
-      <td><input type="text" list="groupNames" value="${r.group}" data-id="${r.dataset_id}" placeholder="group"></td>
+      <td><input type="text" list="groupNames" value="${r.group}" data-id="${r.dataset_id}" placeholder="group" aria-label="Group of ${r.name}"></td>
       <td class="num">${r.has_stack_run ? val(r[metric]) : '<span class="muted">no stack run</span>'}</td></tr>`).join("");
   $("studyRows").querySelectorAll("input").forEach((inp) => {
     inp.onchange = async () => {
