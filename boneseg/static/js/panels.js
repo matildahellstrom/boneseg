@@ -12,7 +12,7 @@ async function loadSide() {
   if (S.sideY == null) S.sideY = Math.round(S.ds.height / 2);
   const seq = ++sideSeq;
   const job = S.lastJob && S.lastJob.ds === S.ds.id && S.lastJob.c === S.c
-    ? `&job_id=${S.lastJob.id}&colors=${encodeURIComponent(S.structures.map((st) => st.color).join(","))}` : "";
+    ? `&job_id=${S.lastJob.id}${isMulti() ? `&colors=${encodeURIComponent(S.structures.map((st) => st.color).join(","))}` : ""}` : "";
   try {
     const img = await loadImage(`/api/datasets/${S.ds.id}/xz?c=${S.c}&y=${S.sideY}&low=${S.low}&high=${S.high}${job}`);
     if (seq !== sideSeq) return;
