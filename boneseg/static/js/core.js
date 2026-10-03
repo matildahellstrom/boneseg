@@ -76,17 +76,32 @@ const isMulti = () => S.structures.length > 1;
 
 // Clicks are saved on the server per slice, so a reload keeps them
 const saveTimers = {};
+function clickBody(k) {
+  const [c, z] = k.split(":").map(Number);
+  const p = S.points[k] || { pos: [], neg: [] };
+  const extra = S.structures.slice(1).map((st, i) => ({ name: st.name, color: st.color, pos: p.extra?.[i]?.pos || [] }));
+  return { channel: c, z, pos: p.pos, neg: p.neg, extra };
+}
+
 function persistClicks(k = key()) {
   if (!S.ds) return;
-  clearTimeout(saveTimers[k]);
+  clearTimeout(saveTimers[k]?.timer);
   const dsId = S.ds.id;
-  saveTimers[k] = setTimeout(() => {
-    const [c, z] = k.split(":").map(Number);
-    const p = S.points[k] || { pos: [], neg: [] };
-    const extra = S.structures.slice(1).map((st, i) => ({ name: st.name, color: st.color, pos: p.extra?.[i]?.pos || [] }));
-    api(`/api/datasets/${dsId}/annotations`, { method: "PUT", body: { channel: c, z, pos: p.pos, neg: p.neg, extra } }).catch((e) => toast(`Could not save clicks: ${e.message}`, true));
+  const timer = setTimeout(() => {
+    delete saveTimers[k];
+    api(`/api/datasets/${dsId}/annotations`, { method: "PUT", body: clickBody(k) }).catch((e) => toast(`Could not save clicks: ${e.message}`, true));
   }, 400);
+  saveTimers[k] = { timer, dsId };
 }
+
+// Saves still waiting on their timer are sent when the page closes, so the last clicks are not lost
+window.addEventListener("pagehide", () => {
+  for (const [k, { timer, dsId }] of Object.entries(saveTimers)) {
+    clearTimeout(timer);
+    navigator.sendBeacon(`/api/datasets/${dsId}/annotations`, new Blob([JSON.stringify(clickBody(k))], { type: "application/json" }));
+    delete saveTimers[k];
+  }
+});
 
 function loadImage(src) {
   return new Promise((resolve, reject) => {

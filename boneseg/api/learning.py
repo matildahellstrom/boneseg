@@ -23,6 +23,7 @@ def router(ctx: AppContext) -> APIRouter:
     def get_annotations(ds_id: str):
         return store.get_annotations(ds_id)
 
+    @r.post("/api/datasets/{ds_id}/annotations")  # For navigator.sendBeacon, which can only POST, when the page closes
     @r.put("/api/datasets/{ds_id}/annotations")
     def put_annotation(ds_id: str, req: AnnotationRequest):
         store.set_annotation(ds_id, req.channel, req.z, req.pos, req.neg, req.extra)

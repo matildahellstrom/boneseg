@@ -169,6 +169,7 @@ def test_two_structures(page, server):
     click_cells(page, stack)
     wait_result(page)
     page.click(".struct.add")
+    page.wait_for_function("S.structures.length === 2", timeout=5000)
     assert page.evaluate("S.structures.map(s => s.name)") == ["Object", "Bone matrix"]
     bone = ndi.gaussian_filter(stack[6, 0].astype(float), 3)
     rng = np.random.default_rng(0)
