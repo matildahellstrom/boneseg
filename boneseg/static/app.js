@@ -94,6 +94,7 @@ function syncSettingLabels() {
   const mode = $("thrMode").value;
   $("topPercentRow").classList.toggle("hidden", mode !== "top_percent");
   $("manualRow").classList.toggle("hidden", mode !== "manual");
+  $("thrHint").classList.toggle("hidden", mode !== "clicks");
   $("topPercentValue").textContent = `${$("topPercent").value}%`;
   $("manualValue").textContent = (+$("manualThr").value).toFixed(2);
   $("lambdaValue").textContent = (+$("lambda").value).toFixed(2);
@@ -292,7 +293,8 @@ function showResults(out) {
       $("sugNeg").onclick = () => addPoint("neg", sug[0], sug[1]);
     }
   }
-  $("timing").textContent = `Threshold ${out.threshold.toFixed(3)} · features ${out.timing.embed_s.toFixed(2)} s · total ${out.timing.total_s.toFixed(2)} s`;
+  const src = { clicks: "from your clicks", "carried over": "from the profile", top_percent: "fixed share", manual: "manual", otsu: "Otsu" }[out.threshold_source] || out.threshold_source;
+  $("timing").textContent = `Threshold ${out.threshold.toFixed(3)} (${src}) · features ${out.timing.embed_s.toFixed(2)} s · total ${out.timing.total_s.toFixed(2)} s`;
 }
 
 function addPoint(kind, y, x) {
@@ -517,7 +519,7 @@ async function runStack() {
       method: "POST",
       body: {
         channel: S.c, ref_z: S.z, pos: p.pos, neg: p.neg, profile_id: profile, settings: settings(),
-        z_start: +$("zStart").value, z_end: +$("zEnd").value, z_step: +$("zStep").value, adaptive: $("adaptive").checked,
+        z_start: +$("zStart").value, z_end: +$("zEnd").value, z_step: +$("zStep").value,
       },
     });
     S.job = job.id;

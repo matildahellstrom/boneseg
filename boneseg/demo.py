@@ -8,11 +8,13 @@ import scipy.ndimage as ndi
 import tifffile
 
 
-def make_demo_stack(n_z: int = 12, h: int = 384, w: int = 512, seed: int = 7) -> tuple[np.ndarray, dict]:
+def make_demo_stack(n_z: int = 12, h: int = 384, w: int = 512, seed: int = 7, depth_degradation: float = 0.0) -> tuple[np.ndarray, dict]:
     """Returns a (Z, C, Y, X) float32 array with three channels:
     0, a bone matrix channel with trabecular texture,
     1, a TRAP-like channel with bright multinucleated cells that drift and change size with depth,
-    2, the expert segmentation of the cells in channel 1."""
+    2, the expert segmentation of the cells in channel 1.
+    depth_degradation from 0 to 1 mimics a confocal stack imaged from the top: deeper slices get
+    dimmer, blurrier and noisier, which changes how the cells look with depth."""
     rng = np.random.default_rng(seed)
     # Trabecular bone: thresholded smooth noise, shared by all slices with a slow drift
     base = ndi.gaussian_filter(rng.normal(size=(n_z + 8, h, w)), sigma=(3, 14, 14))
@@ -44,6 +46,10 @@ def make_demo_stack(n_z: int = 12, h: int = 384, w: int = 512, seed: int = 7) ->
         trap = 0.1 + 0.15 * bone + 0.55 * ndi.gaussian_filter(gt.astype(np.float32), 1.2)
         # Granular texture inside the cells and speckle everywhere
         trap += 0.12 * gt * rng.random((h, w)) + 0.06 * rng.normal(size=(h, w))
+        if depth_degradation > 0:
+            d = depth_degradation * z / max(1, n_z - 1)
+            trap = ndi.gaussian_filter(trap, 0.3 + 2.5 * d) * (1 - 0.7 * d) + (0.1 + 0.25 * d) * rng.normal(size=(h, w)) * d
+            matrix = ndi.gaussian_filter(matrix, 0.3 + 2.5 * d) * (1 - 0.7 * d)
         out[z, 0] = np.clip(matrix, 0, 1)
         out[z, 1] = np.clip(trap, 0, 1)
         out[z, 2] = gt.astype(np.float32)

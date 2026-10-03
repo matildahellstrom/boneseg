@@ -105,11 +105,13 @@
         <p class="muted small" id="backboneHint"></p>
         <label>Threshold
           <select id="thrMode">
+            <option value="clicks">From my clicks (recommended)</option>
             <option value="otsu">Automatic (Otsu)</option>
             <option value="top_percent">Fixed share of the image</option>
             <option value="manual">Manual</option>
           </select>
         </label>
+        <p class="muted small" id="thrHint">Placed halfway between the scores at your object and background clicks. Needs at least one background click.</p>
         <label class="hidden" id="topPercentRow">Share of image <span class="value" id="topPercentValue">10%</span><input type="range" id="topPercent" min="1" max="60" step="1" value="10"></label>
         <label class="hidden" id="manualRow">Threshold <span class="value" id="manualValue">0.50</span><input type="range" id="manualThr" min="0" max="1" step="0.01" value="0.5"></label>
         <label>Background weight λ <span class="value" id="lambdaValue">0.8</span><input type="range" id="lambda" min="0" max="2" step="0.05" value="0.8"></label>
@@ -145,7 +147,7 @@
           <label class="small">To <input type="number" id="zEnd" min="0" value="0"></label>
           <label class="small">Every <input type="number" id="zStep" min="1" value="1"></label>
         </div>
-        <label class="toggle small" title="Adds confident regions from each finished slice to the prototypes, so the segmentation follows gradual changes through the stack"><input type="checkbox" id="adaptive"> Adapt to each slice as it goes</label>
+        <p class="muted small">Scores are standardized per slice, so the threshold from your clicks carries over even when deeper slices are dimmer.</p>
         <div class="row"><button class="primary" id="stackBtn">Run stack</button><button class="ghost hidden" id="cancelBtn">Cancel</button></div>
         <div class="job hidden" id="jobBox">
           <div class="bar"><span id="jobBar"></span></div>

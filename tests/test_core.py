@@ -139,3 +139,43 @@ def test_fill_holes_only_fills_small_interior_holes():
     mask[30:45, 30:45] = False      # Big interior hole, 225 px
     out = segment.postprocess(mask, classic_settings(fill_holes_um2=20), (1.0, 1.0))
     assert out[21, 21] and not out[37, 37] and not out[0, 0]
+
+
+def test_calibrate_threshold():
+    assert segment.calibrate_threshold([0.9, 0.8], [0.1, 0.3]) == pytest.approx(0.55)
+    assert segment.calibrate_threshold([0.9], []) is None
+    # With many clicks, one stray background click does not decide the threshold
+    many_pos = [0.9] * 10
+    many_neg = [0.1] * 9 + [0.95]
+    assert segment.calibrate_threshold(many_pos, many_neg) < 0.9
+
+
+def test_clicks_threshold_beats_otsu_and_carries_over(blobs):
+    img, gt, centers = blobs
+    bb = get_backbone("classic")
+    s_clicks = classic_settings(threshold_mode="clicks")
+    emb = segment.embed_image(bb, img, s_clicks)
+    negs = background_points(gt, 8)
+    res = segment.segment(emb, centers[:3], negs, s_clicks)
+    assert res.threshold_source == "clicks"
+    # Carrying the raw threshold to a similar image without clicks
+    img2, gt2, _ = make_blobs(seed=3)
+    emb2 = segment.embed_image(bb, img2 * 0.7, s_clicks)  # Dimmer image
+    pos, neg = segment.prototypes(emb, centers[:3]), segment.prototypes(emb, negs)
+    res2 = segment.segment_with_prototypes(emb2, pos, neg, s_clicks, raw_threshold=res.raw_threshold)
+    assert res2.threshold_source == "carried over" and metrics.dice(res2.mask, gt2) > 0.5
+    # Without background clicks, the clicks mode falls back to Otsu
+    res3 = segment.segment(emb, centers[:3], [], s_clicks)
+    assert res3.threshold_source.startswith("otsu")
+
+
+def test_score_norm_does_not_change_clicked_slice(blobs):
+    img, gt, centers = blobs
+    bb = get_backbone("classic")
+    negs = background_points(gt, 6)
+    masks = []
+    for norm in ("none", "robust"):
+        s = classic_settings(threshold_mode="clicks", score_norm=norm)
+        emb = segment.embed_image(bb, img, s)
+        masks.append(segment.segment(emb, centers[:3], negs, s).mask)
+    assert metrics.dice(*masks) > 0.99

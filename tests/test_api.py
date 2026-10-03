@@ -94,8 +94,8 @@ def test_profiles_and_stack_job(client):
     r = client.post(f"/api/datasets/{ds['id']}/segment", json={"channel": 0, "z": 2, "profile_id": pid, "settings": {"backbone": "dinov2_s14"}})
     assert r.status_code == 400 and "backbone" in r.json()["detail"]
 
-    for adaptive in (False, True):
-        r = client.post(f"/api/datasets/{ds['id']}/stack", json={"channel": 0, "profile_id": pid, "adaptive": adaptive, "ref_z": 1, "settings": SETTINGS})
+    for body in ({"profile_id": pid}, {"pos": [list(c) for c in centers], "neg": bg_points(gt)}):
+        r = client.post(f"/api/datasets/{ds['id']}/stack", json={"channel": 0, "ref_z": 1, "settings": SETTINGS, **body})
         job = r.json()
         for _ in range(100):
             job = client.get(f"/api/jobs/{job['id']}").json()
