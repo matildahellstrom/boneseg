@@ -217,7 +217,31 @@ function stepZ(d) {
   if (z !== S.z) { S.z = z; loadPlane(); }
 }
 
+// Panel sections fold away when their heading is clicked; the choice is remembered per browser
+function bindCollapsibleSections() {
+  let folded = [];
+  try { folded = JSON.parse(localStorage.getItem("boneseg-folded") || "[]"); } catch (_) { /* storage unavailable */ }
+  document.querySelectorAll(".panel section[id]").forEach((sec) => {
+    const h = sec.querySelector(":scope > h2");
+    if (!h) return;
+    h.setAttribute("role", "button");
+    h.tabIndex = 0;
+    const apply = () => h.setAttribute("aria-expanded", String(!sec.classList.contains("collapsed")));
+    if (folded.includes(sec.id)) sec.classList.add("collapsed");
+    apply();
+    const toggleSec = () => {
+      sec.classList.toggle("collapsed");
+      apply();
+      const now = [...document.querySelectorAll(".panel section.collapsed[id]")].map((x) => x.id);
+      try { localStorage.setItem("boneseg-folded", JSON.stringify(now)); } catch (_) { /* storage unavailable */ }
+    };
+    h.addEventListener("click", toggleSec);
+    h.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleSec(); } });
+  });
+}
+
 async function init() {
+  bindCollapsibleSections();
   renderStructures();
   try { if (localStorage.getItem("boneseg-theme") === "light") document.documentElement.dataset.theme = "light"; } catch (_) { /* storage unavailable */ }
   bind();

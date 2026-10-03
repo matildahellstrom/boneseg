@@ -167,3 +167,7 @@ dialog.wide { max-width: 860px; width: 92vw; }
 .struct .x { color: var(--muted); margin-left: 2px; }
 .struct.add { color: var(--accent); border-style: dashed; }
 #histoStackText a { color: var(--accent); }
+.panel section[id] > h2 { cursor: pointer; user-select: none; display: flex; justify-content: space-between; align-items: center; }
+.panel section[id] > h2::after { content: "▾"; color: var(--muted); font-size: 11px; transition: transform .15s; }
+section.collapsed > h2::after { transform: rotate(-90deg); }
+section.collapsed > :not(h2) { display: none !important; }
