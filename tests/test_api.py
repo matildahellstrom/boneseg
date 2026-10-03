@@ -280,3 +280,31 @@ def test_open_by_path_can_be_disabled(tmp_path):
     off = TestClient(create_app(tmp_path / "d2", allow_paths=False))
     assert off.post("/api/datasets/from-path", json={"path": str(tmp_path / "a.npy")}).status_code == 403
     assert off.get("/api/health").json()["allow_paths"] is False
+
+
+def test_learned_model_as_profile(client, tmp_path):
+    ds, gt, centers = upload_stack(client, n_z=3)
+    did = ds["id"]
+    client.patch(f"/api/datasets/{did}", json={"reference_channel": 1})
+    body = {"channel": 0, "z": 0, "pos": [list(c) for c in centers], "neg": bg_points(gt), "settings": SETTINGS}
+    client.post(f"/api/datasets/{did}/segment", json=body)
+    client.post(f"/api/datasets/{did}/labels", json={"channel": 0, "z": 0})
+    assert client.post(f"/api/datasets/{did}/head/export", json={"channel": 0, "name": "x"}).status_code == 400
+    client.post(f"/api/datasets/{did}/head", json={"channel": 0, "settings": SETTINGS})
+    r = client.post(f"/api/datasets/{did}/head/export", json={"channel": 0, "name": "Learned cells"})
+    assert r.status_code == 200, r.text
+    prof = r.json()
+    assert prof["kind"] == "learned"
+    # A second dataset segments with the learned profile and no clicks
+    ds2, _, _ = upload_stack(client, n_z=2)
+    client.patch(f"/api/datasets/{ds2['id']}", json={"reference_channel": 1})
+    r = client.post(f"/api/datasets/{ds2['id']}/segment", json={"channel": 0, "z": 1, "profile_id": prof["id"], "settings": SETTINGS})
+    assert r.status_code == 200 and r.json()["threshold_source"].startswith("learned") and r.json()["evaluation"]["dice"] > 0.5
+    # Batch with the learned profile from the command line
+    from boneseg.__main__ import main
+    store_root = client.app.state.store.root
+    src = next((store_root / "datasets" / ds2["id"]).glob("*.tif"))
+    main(["batch", str(src), "--profile", prof["id"], "--channel", "0", "--reference", "1", "--out", str(tmp_path / "o"), "--data-dir", str(store_root)])
+    import pandas as pd
+    out = pd.read_csv(tmp_path / "o" / "summary.csv")
+    assert out["status"].iloc[0] == "ok" and out["mean_dice_vs_reference"].iloc[0] > 0.5

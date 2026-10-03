@@ -688,6 +688,7 @@ async function refreshHead() {
 
 function showHeadInfo() {
   const h = S.head;
+  $("exportHeadBtn").classList.toggle("hidden", !h);
   if (!h) { $("trainResult").textContent = ""; return; }
   const cv = h.cv[h.cv.chosen];
   $("trainResult").innerHTML = `Model trained on ${h.trained_on.length} slice${h.trained_on.length > 1 ? "s" : ""} (${h.kind === "mlp" ? "small neural network" : "linear"}).`
@@ -840,7 +841,7 @@ async function refreshProfiles(selectId) {
   const sel = $("profileSelect");
   const current = selectId ?? sel.value;
   sel.innerHTML = `<option value="">None, use my clicks</option>` +
-    S.profiles.map((p) => `<option value="${p.id}" title="${p.description || p.source}">${p.name} · ${p.backbone}</option>`).join("");
+    S.profiles.map((p) => `<option value="${p.id}" title="${p.description || p.source}">${p.name} · ${p.kind === "learned" ? "learned model" : p.backbone}</option>`).join("");
   sel.value = S.profiles.some((p) => p.id === current) ? current : "";
   $("deleteProfileBtn").classList.toggle("hidden", !sel.value);
   fillHistoControls();
@@ -851,10 +852,12 @@ async function saveProfile() {
   if (!name) { toast("Give the profile a name"); return; }
   const p = pts();
   try {
-    const prof = await api("/api/profiles", {
-      method: "POST",
-      body: { name, description: $("profileDesc").value, dataset_id: S.ds.id, channel: S.c, z: S.z, pos: p.pos, neg: p.neg, settings: settings() },
-    });
+    const prof = S.profileFromHead
+      ? await api(`/api/datasets/${S.ds.id}/head/export`, { method: "POST", body: { channel: S.c, name, description: $("profileDesc").value } })
+      : await api("/api/profiles", {
+        method: "POST",
+        body: { name, description: $("profileDesc").value, dataset_id: S.ds.id, channel: S.c, z: S.z, pos: p.pos, neg: p.neg, settings: settings() },
+      });
     $("profileDialog").close();
     toast(`Saved profile ${prof.name}`);
     await refreshProfiles();
@@ -991,9 +994,17 @@ function bind() {
     $("deleteProfileBtn").classList.toggle("hidden", !$("profileSelect").value);
     const prof = S.profiles.find((p) => p.id === $("profileSelect").value);
     if (prof && prof.backbone !== $("backboneSelect").value) { $("backboneSelect").value = prof.backbone; syncSettingLabels(); }
+    if (prof?.kind === "learned" && prof.vit_size) $("vitSize").value = prof.vit_size;
     if (prof || pts().pos.length) scheduleSegment(0);
   };
+  $("exportHeadBtn").onclick = () => {
+    S.profileFromHead = true;
+    $("profileName").value = "";
+    $("profileDesc").value = S.ds ? `Learned from ${S.head.trained_on.length} labelled slices of ${S.ds.name}` : "";
+    $("profileDialog").showModal();
+  };
   $("saveProfileBtn").onclick = () => {
+    S.profileFromHead = false;
     if (!pts().pos.length) { toast("Add object clicks first"); return; }
     $("profileName").value = "";
     $("profileDesc").value = S.ds ? `${S.ds.channel_names[S.c]}` : "";

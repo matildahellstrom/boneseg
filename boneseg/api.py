@@ -19,7 +19,7 @@ from pydantic import BaseModel, Field
 
 from . import __version__, metrics, quantify, render
 from .backbone import BACKBONE_LABELS, dino_weights_cached, pick_device
-from .head import Head, segment_with_head, train_head
+from .head import Head, head_from_profile, head_to_profile_dict, segment_with_head, train_head
 from .pipeline import StackRequest, run_stack
 from .segment import Profile, SegmentationSettings, prototypes, segment_with_prototypes, suggest_click, uncertainty_map
 from .store import Store
@@ -74,6 +74,12 @@ class LabelRequest(BaseModel):
     channel: int
     z: int
     mask_png: str | None = None   # Data URL of an edited mask at any resolution; None saves the last result
+
+
+class ProfileFromHeadRequest(BaseModel):
+    channel: int
+    name: str
+    description: str = ""
 
 
 class HeadRequest(BaseModel):
@@ -233,6 +239,8 @@ def create_app(data_dir: str | Path | None = None, allow_paths: bool = True) -> 
         Also returns the profile's calibrated raw threshold, if any."""
         if profile_id:
             prof = store.load_profile(profile_id)
+            if prof.head:
+                raise ValueError("This profile holds a learned model; it is used without clicks")
             if prof.backbone != settings.backbone or prof.layer_from_end != settings.layer_from_end:
                 raise ValueError(f"Profile '{prof.name}' was made with {BACKBONE_LABELS.get(prof.backbone, prof.backbone)} "
                                  f"(block {prof.layer_from_end} from the end). Switch to that backbone to use it.")
@@ -251,6 +259,19 @@ def create_app(data_dir: str | Path | None = None, allow_paths: bool = True) -> 
         emb = store.embedding(ds_id, channel, z, settings)
         return prototypes(emb, pos_pts), prototypes(emb, neg_pts), None
 
+    def _learned_profile_head(profile_id, settings) -> Head | None:
+        """The learned model stored in a profile, checked against the current settings, or None."""
+        if not profile_id:
+            return None
+        prof = store.load_profile(profile_id)
+        if not prof.head:
+            return None
+        head = head_from_profile(prof)
+        if not head.compatible(settings):
+            raise ValueError(f"Profile '{prof.name}' holds a model trained with {BACKBONE_LABELS.get(head.backbone, head.backbone)} at "
+                             f"{head.vit_size} px, block {head.layer_from_end} from the end. Switch to those settings to use it")
+        return head
+
     def _load_head(ds_id, channel, settings) -> Head:
         path = store.head_path(ds_id, channel)
         if not path.exists():
@@ -267,8 +288,9 @@ def create_app(data_dir: str | Path | None = None, allow_paths: bool = True) -> 
         ds = store.get(ds_id)
         settings = SegmentationSettings.from_dict(req.settings)
         with store.compute_lock:
-            if req.method == "learned":
-                head = _load_head(ds_id, req.channel, settings)
+            profile_head = _learned_profile_head(req.profile_id, settings)
+            if req.method == "learned" or profile_head is not None:
+                head = profile_head or _load_head(ds_id, req.channel, settings)
                 emb = store.embedding(ds_id, req.channel, req.z, settings)
                 t_embed = time.time() - t0
                 res = segment_with_head(head, emb, settings, ds.volume.pixel_um)
@@ -353,7 +375,9 @@ def create_app(data_dir: str | Path | None = None, allow_paths: bool = True) -> 
         if not z_list:
             raise ValueError("The slice range is empty")
         ref_z = req.ref_z if req.ref_z is not None else z_list[0]
-        head = _load_head(ds_id, req.channel, settings) if req.method == "learned" else None
+        head = _learned_profile_head(req.profile_id, settings)
+        if head is None and req.method == "learned":
+            head = _load_head(ds_id, req.channel, settings)
         with store.compute_lock:
             if head is not None:
                 import torch
@@ -458,6 +482,21 @@ def create_app(data_dir: str | Path | None = None, allow_paths: bool = True) -> 
         head.save(store.head_path(ds_id, req.channel))
         return {**head.info(), "seconds": round(time.time() - t0, 2)}
 
+    @app.post("/api/datasets/{ds_id}/head/export")
+    def export_head(ds_id: str, req: ProfileFromHeadRequest):
+        path = store.head_path(ds_id, req.channel)
+        if not path.exists():
+            raise ValueError("Train a model on this channel first")
+        head = Head.load(path)
+        ds = store.get(ds_id)
+        s = SegmentationSettings(backbone=head.backbone, layer_from_end=head.layer_from_end, vit_size=head.vit_size)
+        prof = Profile(name=req.name.strip() or "Learned model", backbone=head.backbone, layer_from_end=head.layer_from_end,
+                       pos=np.zeros((0, head.dim), np.float32), neg=np.zeros((0, head.dim), np.float32), settings=s.to_dict(),
+                       description=req.description, source=f"{ds.volume.name}, channel {req.channel}, {len(head.trained_on)} labelled slices",
+                       head=head_to_profile_dict(head))
+        pid = store.save_profile(prof)
+        return {"id": pid, **[p for p in store.list_profiles() if p["id"] == pid][0]}
+
     @app.get("/api/datasets/{ds_id}/head")
     def head_info(ds_id: str, c: int = 0):
         """The learned model for a channel, or null when none has been trained."""
@@ -517,6 +556,9 @@ def create_app(data_dir: str | Path | None = None, allow_paths: bool = True) -> 
             if spec.source == "profile":
                 if not spec.profile_id:
                     raise ValueError("Pick a profile")
+                ph = _learned_profile_head(spec.profile_id, settings)
+                if ph is not None:
+                    return segment_with_head(ph, emb, settings, ds.volume.pixel_um).mask
                 pos, neg, thr = _prototypes_for(ds_id, spec.channel, z, [], [], spec.profile_id, settings)
                 return segment_with_prototypes(emb, pos, neg, settings, ds.volume.pixel_um, raw_threshold=thr).mask
         raise ValueError(f"Unknown mask source {spec.source}")

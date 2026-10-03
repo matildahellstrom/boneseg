@@ -33,6 +33,12 @@ def run_batch(files: list[str | Path], profile: Profile, channel: int, out_dir: 
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     settings = SegmentationSettings.from_dict({**profile.settings, "backbone": profile.backbone, "layer_from_end": profile.layer_from_end})
+    head = None
+    if profile.head:
+        from .head import head_from_profile
+
+        head = head_from_profile(profile)
+        settings = SegmentationSettings.from_dict({**settings.to_dict(), "vit_size": head.vit_size})
     backbone = get_backbone(settings.backbone)
     pos, neg = profile.tensors()
     rows = []
@@ -59,7 +65,7 @@ def run_batch(files: list[str | Path], profile: Profile, channel: int, out_dir: 
                             get_embedding=lambda z: embed_image(backbone, image(z), settings), get_image=image,
                             get_reference=(lambda z: vol.get_plane(reference, z) > 0) if reference is not None else (lambda z: None),
                             voxel_um=vol.voxel_um, out_dir=target,
-                            progress=lambda p, m: None)
+                            progress=lambda p, m: None, head=head)
             summary = out["summary"]
             row = {"file": f.name, "status": "ok", "seconds": round(time.time() - t0, 1), **{k: v for k, v in summary.items() if k != "z_processed"}}
             log(f"{f.name}: {summary.get('n_slices', 0)} slices, volume {summary.get('volume_um3', 0):.0f} um3, "

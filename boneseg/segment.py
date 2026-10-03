@@ -312,12 +312,23 @@ class Profile:
     description: str = ""
     source: str = ""
     raw_threshold: float | None = None  # Calibrated on the source image, reused when no clicks are given
+    head: dict | None = None            # A learned model: {"kind", "dim", "vit_size", "state": {name: array}}
+
+    @property
+    def kind(self) -> str:
+        return "learned" if self.head else "prototypes"
 
     def save(self, path) -> None:
-        np.savez(path, pos=self.pos, neg=self.neg, meta=np.array(
-            [repr({"name": self.name, "backbone": self.backbone, "layer_from_end": self.layer_from_end,
-                   "settings": self.settings, "description": self.description, "source": self.source,
-                   "raw_threshold": self.raw_threshold})]))
+        arrays = {"pos": self.pos, "neg": self.neg}
+        meta = {"name": self.name, "backbone": self.backbone, "layer_from_end": self.layer_from_end,
+                "settings": self.settings, "description": self.description, "source": self.source,
+                "raw_threshold": self.raw_threshold}
+        if self.head:
+            meta["head"] = {k: v for k, v in self.head.items() if k != "state"}
+            meta["head"]["state_keys"] = list(self.head["state"])
+            for k, v in self.head["state"].items():
+                arrays[f"head__{k}"] = np.asarray(v)
+        np.savez(path, meta=np.array([repr(meta)]), **arrays)
 
     @classmethod
     def load(cls, path) -> "Profile":
@@ -325,7 +336,10 @@ class Profile:
 
         d = np.load(path, allow_pickle=False)
         meta = ast.literal_eval(str(d["meta"][0]))
-        return cls(pos=d["pos"], neg=d["neg"], **meta)
+        head = meta.pop("head", None)
+        if head:
+            head["state"] = {k: d[f"head__{k}"] for k in head.pop("state_keys")}
+        return cls(pos=d["pos"], neg=d["neg"], head=head, **meta)
 
     def tensors(self) -> tuple[torch.Tensor, torch.Tensor]:
         return torch.from_numpy(self.pos.astype(np.float32)), torch.from_numpy(self.neg.astype(np.float32))

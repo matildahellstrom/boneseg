@@ -121,3 +121,15 @@ def train_head(samples: list[tuple[Embedding, np.ndarray]], settings: Segmentati
     model, dim = fit(samples, best)
     return Head(settings.backbone, settings.layer_from_end, settings.vit_size, best, model.state_dict(), dim,
                 trained_on=[list(k) for k in keys], cv={"chosen": best, **cv})
+
+
+def head_to_profile_dict(head: Head) -> dict:
+    return {"kind": head.kind, "dim": head.dim, "vit_size": head.vit_size,
+            "state": {k: v.detach().cpu().numpy() for k, v in head.state.items()}, "cv": head.cv,
+            "n_trained_on": len(head.trained_on)}
+
+
+def head_from_profile(profile) -> Head:
+    h = profile.head
+    state = {k: torch.from_numpy(np.asarray(v)) for k, v in h["state"].items()}
+    return Head(profile.backbone, profile.layer_from_end, h["vit_size"], h["kind"], state, h["dim"], cv=h.get("cv", {}))

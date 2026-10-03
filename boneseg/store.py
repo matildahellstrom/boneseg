@@ -357,7 +357,8 @@ class Store:
         for p in sorted((self.root / "profiles").glob("*.npz")):
             try:
                 prof = Profile.load(p)
-                out.append({"id": p.stem, "name": prof.name, "backbone": prof.backbone, "description": prof.description,
+                out.append({"id": p.stem, "name": prof.name, "backbone": prof.backbone, "description": prof.description, "kind": prof.kind,
+                            "vit_size": prof.head["vit_size"] if prof.head else None,
                             "source": prof.source, "n_pos": int(len(prof.pos)), "n_neg": int(len(prof.neg)),
                             "settings": prof.settings})
             except Exception:
