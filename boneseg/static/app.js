@@ -407,6 +407,7 @@ function fitView() {
   const r = canvas.getBoundingClientRect();
   const s = Math.min(r.width / S.base.naturalWidth, r.height / S.base.naturalHeight) * 0.96;
   S.view = { scale: s, ox: (r.width - S.base.naturalWidth * s) / 2, oy: (r.height - S.base.naturalHeight * s) / 2 };
+  S.fitted = true;  // Stays fitted on window resizes until the user zooms or pans
   draw();
 }
 
@@ -528,7 +529,13 @@ canvas.addEventListener("mousedown", (ev) => {
   if (!S.base) return;
   drag = { x: ev.clientX, y: ev.clientY, ox: S.view.ox, oy: S.view.oy, moved: false, button: ev.button, pan: ev.button === 1 || S.space };
   if (drag.pan) $("viewer").classList.add("panning");
-  if (S.editing && !drag.pan) { drag.paint = true; drag.erase = ev.shiftKey || ev.button === 2; paintAt(ev, drag.erase, null); drag.last = ev; }
+  if (S.editing && !drag.pan) {
+    // Snapshot for undo, at most 30 strokes back
+    const g = S.edit.getContext("2d");
+    S.editHistory.push(g.getImageData(0, 0, S.edit.width, S.edit.height));
+    if (S.editHistory.length > 30) S.editHistory.shift();
+    drag.paint = true; drag.erase = ev.shiftKey || ev.button === 2; paintAt(ev, drag.erase, null); drag.last = ev;
+  }
 });
 window.addEventListener("mousemove", (ev) => {
   if (S.base && ev.target === canvas) {
@@ -556,6 +563,7 @@ window.addEventListener("mousemove", (ev) => {
   if (drag.moved && (drag.pan || drag.button === 0)) {
     S.view.ox = drag.ox + dx;
     S.view.oy = drag.oy + dy;
+    S.fitted = false;
     $("viewer").classList.add("panning");
     draw();
   }
@@ -592,9 +600,10 @@ canvas.addEventListener("wheel", (ev) => {
   S.view.ox = mx - ((mx - S.view.ox) * ns) / S.view.scale;
   S.view.oy = my - ((my - S.view.oy) * ns) / S.view.scale;
   S.view.scale = ns;
+  S.fitted = false;
   draw();
 }, { passive: false });
-window.addEventListener("resize", () => { draw(); placeSideZ(); });
+window.addEventListener("resize", () => { if (S.fitted) fitView(); else draw(); placeSideZ(); });
 
 // ---------------------------------------------------------------------------------------------
 // Correcting masks with a brush, labels and the learned model
@@ -616,9 +625,17 @@ function startEditing() {
     g.putImageData(d, 0, 0);
   }
   S.edit = c;
+  S.editHistory = [];
   S.editing = true;
   $("editBar").classList.remove("hidden");
   $("viewer").classList.add("editing");
+  draw();
+}
+
+function undoStroke() {
+  const snap = S.editHistory?.pop();
+  if (!snap || !S.edit) return;
+  S.edit.getContext("2d").putImageData(snap, 0, 0);
   draw();
 }
 
@@ -1131,7 +1148,12 @@ function bind() {
     if (k === " ") { S.space = true; e.preventDefault(); }
     else if (k === "1") setMode("pos");
     else if (k === "2") setMode("neg");
-    else if ((e.ctrlKey || e.metaKey) && k === "z") { e.preventDefault(); undo(); }
+    else if ((e.ctrlKey || e.metaKey) && k === "z") { e.preventDefault(); S.editing ? undoStroke() : undo(); }
+    else if (S.editing && (k === "[" || k === "]")) {
+      const b = $("brush");
+      b.value = Math.max(+b.min, Math.min(+b.max, +b.value * (k === "]" ? 1.25 : 0.8)));
+      draw();
+    }
     else if (k === ",") stepZ(-1);
     else if (k === ".") stepZ(1);
     else if (k === "f") fitView();

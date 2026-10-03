@@ -52,6 +52,7 @@ The image runs on the CPU. For an NVIDIA GPU, change the PyTorch wheel index in 
 | F | Fit the image to the window |
 | M, H, U | Toggle the mask, heatmap and uncertainty overlays |
 | E, Esc | Start and cancel correcting the mask with a brush |
+| [ and ], Ctrl+Z | While correcting: smaller or larger brush, undo the last stroke |
 | R, Enter | Draw a region of interest and finish it |
 | Alt-click | Move the side-view cut to this row |
 | Scroll, drag | Zoom, pan |

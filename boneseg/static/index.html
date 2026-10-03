@@ -100,7 +100,7 @@
         </details>
         <span class="spacer"></span>
         <span class="editbar hidden" id="editBar">
-          <b>Correcting</b> · drag to paint, Shift-drag to erase ·
+          <b>Correcting</b> · drag to paint, Shift-drag to erase, Ctrl+Z undo ·
           <label class="small">Brush <input type="range" id="brush" min="2" max="80" value="14"></label>
           <button class="primary" id="editSave">Save as label</button>
           <button class="ghost" id="editCancel">Cancel</button>
@@ -224,7 +224,7 @@
       <li><b>,</b> and <b>.</b> move through slices. <b>F</b> fits the image. Scroll to zoom and drag with the middle mouse button or Space held down to pan.</li>
       <li><b>M</b>, <b>H</b> and <b>U</b> toggle the mask, heatmap and uncertainty overlays.</li>
       <li><b>R</b> draws a region of interest: click its corners, then double-click or press Enter. Masks, measurements and exports stay inside it.</li>
-      <li><b>E</b> starts correcting the mask with a brush: drag to paint, Shift-drag to erase, <b>Esc</b> to cancel. Saved corrections become labels that a small model can learn from.</li>
+      <li><b>E</b> starts correcting the mask with a brush: drag to paint, Shift-drag to erase, <b>[</b> and <b>]</b> to change the brush, <b>Ctrl+Z</b> to undo a stroke, <b>Esc</b> to cancel. Saved corrections become labels that a small model can learn from.</li>
       <li>The orange overlay shows where the mask is unstable. The dashed ring suggests where one more click helps most.</li>
       <li>Save good clicks as a <b>profile</b> to segment new images of the same stain without clicking.</li>
     </ul>
