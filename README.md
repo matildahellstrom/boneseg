@@ -44,6 +44,17 @@ The app runs on an NVIDIA GPU, an Apple Silicon GPU or the CPU, whichever it fin
 | E, Esc | Start and cancel correcting the mask with a brush |
 | Scroll, drag | Zoom, pan |
 
+## Batch processing
+
+Once a profile works on one image, apply it to many files from the command line:
+
+```bash
+python -m boneseg profiles                       # List saved profiles and their ids
+python -m boneseg batch data/*.ims --profile trap-cells-1a2b3c --channel 3 --z-step 5 --out results
+```
+
+Each file gets its own folder with a mask stack, per-slice measurements and a 3D object table. A combined `summary.csv` covers all files, and a file that fails is reported without stopping the rest. Add `--reference 4` to score every slice against an expert mask channel. On Liu file A, a profile made from one slice segmented 15 slices in 11 seconds on a MacBook, with a mean Dice of 0.61 against the expert mask.
+
 ## How it works
 
 The image goes through a frozen, self-supervised DINOv2 backbone, which gives one feature vector per 14×14 pixel patch. The patches under your clicks become prototypes. Every patch is then scored by its mean cosine similarity to the object prototypes, minus λ times its similarity to the background prototypes. The score map is upsampled and thresholded into a mask.

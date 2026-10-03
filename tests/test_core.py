@@ -215,3 +215,28 @@ def test_histomorphometry():
     assert 90 < s2["B.Pm_mm"] * 1000 < 110  # Only the internal edge at x = 49 counts
     rgba = histo.overlay(bone, cells)
     assert rgba.shape == (100, 100, 4)
+
+
+def test_batch_cli(tmp_path):
+    from boneseg.__main__ import main
+
+    # Two small stacks and a profile made from the first one
+    for i in range(2):
+        img, gt, centers = make_blobs(seed=i)
+        tifffile.imwrite(tmp_path / f"s{i}.tif", np.stack([np.stack([img, gt.astype(np.float32)])] * 3).astype(np.float32),
+                         imagej=True, metadata={"axes": "ZCYX"})
+    img, gt, centers = make_blobs(seed=0)
+    s = classic_settings(threshold_mode="clicks")
+    emb = segment.embed_image(get_backbone("classic"), img, s)
+    negs = background_points(gt)
+    res = segment.segment(emb, centers, negs, s)
+    prof = Profile(name="cells", backbone="classic", layer_from_end=1, pos=segment.prototypes(emb, centers).numpy(),
+                   neg=segment.prototypes(emb, negs).numpy(), settings=s.to_dict(), raw_threshold=res.raw_threshold)
+    prof.save(tmp_path / "cells.npz")
+    main(["batch", str(tmp_path / "s0.tif"), str(tmp_path / "s1.tif"), str(tmp_path / "missing.tif"),
+          "--profile", str(tmp_path / "cells.npz"), "--channel", "0", "--reference", "1", "--out", str(tmp_path / "out")])
+    import pandas as pd
+    summary = pd.read_csv(tmp_path / "out" / "summary.csv")
+    assert summary["status"].tolist()[:2] == ["ok", "ok"] and summary["status"].iloc[2].startswith("failed")
+    assert summary["mean_dice_vs_reference"].iloc[:2].min() > 0.5
+    assert (tmp_path / "out" / "s0" / "masks.tif").exists()
