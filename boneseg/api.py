@@ -108,6 +108,7 @@ class RoiRequest(BaseModel):
 class MetaRequest(BaseModel):
     reference_channel: int | None = None
     notes: str | None = None
+    voxel_um_override: tuple[float, float, float] | None = None  # (z, y, x) in micrometres
 
 
 def create_app(data_dir: str | Path | None = None) -> FastAPI:
@@ -183,7 +184,11 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
         updates = req.model_dump(exclude_unset=True)
         if updates.get("reference_channel") is not None and not 0 <= updates["reference_channel"] < ds.volume.n_channels:
             raise HTTPException(400, "Reference channel out of range")
-        return store.update_meta(ds_id, **updates, reference_guessed=False).info()
+        if updates.get("voxel_um_override") is not None and min(updates["voxel_um_override"]) <= 0:
+            raise HTTPException(400, "Pixel and slice sizes must be positive")
+        if "reference_channel" in updates:
+            updates["reference_guessed"] = False
+        return store.update_meta(ds_id, **updates).info()
 
     @app.put("/api/datasets/{ds_id}/roi")
     def set_roi(ds_id: str, req: RoiRequest):

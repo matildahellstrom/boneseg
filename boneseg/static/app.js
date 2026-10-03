@@ -197,6 +197,7 @@ async function openDataset(id) {
   fillHistoControls();
   histoDefaults();
   cancelRoi();
+  showVoxel();
   $("histoCards").classList.add("hidden");
   $("histoDownloads").classList.add("hidden");
   await loadPlane(true);
@@ -713,6 +714,29 @@ function setMethod(m) {
 }
 
 // ---------------------------------------------------------------------------------------------
+// Pixel size
+function showVoxel() {
+  const d = S.ds;
+  $("pxInput").value = d.voxel_um[2];
+  $("pzInput").value = d.voxel_um[0];
+  $("voxelSummary").textContent = d.voxel_size_known ? `Pixel size ${d.voxel_um[2].toFixed(3)} µm` : "Pixel size unknown, set it for measurements in µm";
+  $("voxelSummary").style.color = d.voxel_size_known ? "" : "var(--warn)";
+  $("voxelHint").textContent = d.voxel_um_override ? "Set by you." : d.voxel_size_known ? "Read from the file." : "The file has no pixel size, so measurements are in pixels until you set it.";
+  $("datasetTitle").textContent = `${d.name} · ${d.width}×${d.height} px · ${d.n_z} slices · ${d.voxel_size_known ? `${d.voxel_um[2].toFixed(3)} µm/px` : "pixel size unknown"}`;
+}
+
+async function saveVoxel() {
+  const px = +$("pxInput").value, pz = +$("pzInput").value || 1;
+  if (!(px > 0)) { toast("Enter a positive pixel size"); return; }
+  try {
+    S.ds = await api(`/api/datasets/${S.ds.id}`, { method: "PATCH", body: { voxel_um_override: [pz, px, px] } });
+    showVoxel();
+    toast(`Pixel size set to ${px} µm`);
+    if (S.result) scheduleSegment(0);
+  } catch (e) { toast(e.message, true); }
+}
+
+// ---------------------------------------------------------------------------------------------
 // Region of interest
 function startRoi() {
   if (!S.base) return;
@@ -1012,6 +1036,7 @@ function bind() {
   $("histoBtn").onclick = runHisto;
   $("roiBtn").onclick = () => (S.roiDraft ? finishRoi() : startRoi());
   $("roiClear").onclick = () => saveRoi(null);
+  $("voxelSave").onclick = saveVoxel;
   $("hContact").oninput = () => { $("hContactValue").textContent = `${$("hContact").value} µm`; };
   $("histoCsv").onclick = () => { window.location = `/api/datasets/${S.ds.id}/histomorphometry/cells.csv?z=${S.histoZ ?? S.z}`; };
   $("cancelBtn").onclick = () => S.job && api(`/api/jobs/${S.job}/cancel`, { method: "POST" });

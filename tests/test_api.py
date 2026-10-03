@@ -227,3 +227,23 @@ def test_histomorphometry_roi_edge_is_not_surface():
     s, _ = histo.histomorphometry(bone, np.zeros_like(bone), (1.0, 1.0), roi=roi)
     assert 90 < s["B.Pm_mm"] * 1000 < 110      # Only the real edge at x = 59
     assert s["B.Ar/T.Ar_%"] == pytest.approx(100 * 40 / 60)
+
+
+def test_pixel_size_override(client, tmp_path):
+    from PIL import Image
+
+    img, gt, centers = make_blobs()
+    buf = io.BytesIO()
+    Image.fromarray((img * 255).astype(np.uint8)).save(buf, format="PNG")
+    ds = client.post("/api/datasets", files={"file": ("cells.png", buf.getvalue(), "image/png")}).json()
+    assert not ds["voxel_size_known"]
+    body = {"channel": 0, "z": 0, "pos": [list(c) for c in centers], "neg": bg_points(gt), "settings": SETTINGS}
+    area_px = client.post(f"/api/datasets/{ds['id']}/segment", json=body).json()["stats"]["area_um2"]
+    r = client.patch(f"/api/datasets/{ds['id']}", json={"voxel_um_override": [1.0, 0.5, 0.5]})
+    assert r.json()["voxel_size_known"] and r.json()["voxel_um"] == [1.0, 0.5, 0.5]
+    area_um = client.post(f"/api/datasets/{ds['id']}/segment", json=body).json()["stats"]["area_um2"]
+    assert area_um == pytest.approx(area_px * 0.25, rel=0.02)
+    assert client.patch(f"/api/datasets/{ds['id']}", json={"voxel_um_override": [1.0, 0.0, 0.5]}).status_code == 400
+    # The override survives a restart
+    c2 = TestClient(create_app(client.app.state.store.root))
+    assert c2.get(f"/api/datasets/{ds['id']}").json()["voxel_um"] == [1.0, 0.5, 0.5]

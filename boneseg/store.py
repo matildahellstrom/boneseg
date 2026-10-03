@@ -57,6 +57,13 @@ class Dataset:
     def info(self) -> dict:
         return {"id": self.id, "created": self.created, **self.volume.info(), **self.meta}
 
+    def apply_meta(self):
+        """Applies user overrides, such as a pixel size typed in for files without one."""
+        vox = self.meta.get("voxel_um_override")
+        if vox:
+            self.volume.voxel_um = tuple(float(v) for v in vox)
+            self.volume.voxel_size_known = True
+
 
 @dataclass
 class Job:
@@ -104,8 +111,9 @@ class Store:
                 if not path.is_absolute():
                     path = d / path
                 vol = bio.load_volume(path)
-                self.datasets[d.name] = Dataset(id=d.name, path=path, volume=vol, created=meta.get("created", 0),
-                                                meta=meta.get("user", {}))
+                ds = Dataset(id=d.name, path=path, volume=vol, created=meta.get("created", 0), meta=meta.get("user", {}))
+                ds.apply_meta()
+                self.datasets[d.name] = ds
             except Exception:
                 traceback.print_exc()
 
@@ -159,6 +167,7 @@ class Store:
     def update_meta(self, ds_id: str, **kw):
         ds = self.get(ds_id)
         ds.meta.update(kw)
+        ds.apply_meta()
         self._save_meta(ds)
         return ds
 
