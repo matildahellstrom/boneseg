@@ -164,6 +164,27 @@ def router(ctx: AppContext) -> APIRouter:
         if not z_list:
             raise ValueError("The slice range is empty")
         ref_z = req.ref_z if req.ref_z is not None else z_list[0]
+        structures = [st for st in req.structures if st.get("pos")]
+        if len(structures) > 1:
+            from ..pipeline import run_stack_multi
+            from ..segment import calibrate_multi
+
+            with store.compute_lock:
+                model = calibrate_multi(store.embedding(ds_id, req.channel, ref_z, settings),
+                                        [{"name": str(st.get("name", "Structure"))[:60], "pos": st["pos"]} for st in structures], req.neg, settings)
+            c = req.channel
+
+            def work_multi(job):
+                return run_stack_multi(z_list, ref_z, model, settings,
+                                       get_embedding=lambda z: store.embedding(ds_id, c, z, settings),
+                                       get_image=lambda z: store.plane(ds_id, c, z, settings.clip_low, settings.clip_high),
+                                       voxel_um=ds.volume.voxel_um, out_dir=job.out_dir,
+                                       progress=lambda p, m: (setattr(job, "progress", p), setattr(job, "message", m)),
+                                       cancelled=job.cancel.is_set, lock=store.compute_lock, roi=store.roi_mask(ds_id))
+
+            job = store.start_job("stack", work_multi, meta={"dataset_id": ds_id, "n_slices": len(z_list), "channel": c,
+                                                              "method": "structures", "structures": model.names})
+            return job.info()
         head = ctx.learned_profile_head(req.profile_id, settings)
         if head is None and req.method == "learned":
             head = ctx.load_head(ds_id, req.channel, settings)
@@ -210,7 +231,7 @@ def router(ctx: AppContext) -> APIRouter:
     @r.get("/api/jobs/{job_id}/files/{name}")
     def job_file(job_id: str, name: str):
         job = store.get_job(job_id)
-        if name not in ("masks.tif", "labels_3d.tif", "slices.csv", "summary.json", "objects_3d.csv"):
+        if name not in ("masks.tif", "labels.tif", "labels_3d.tif", "slices.csv", "summary.json", "objects_3d.csv"):
             raise HTTPException(404, "Unknown file")
         path = job.out_dir / name
         if not path.exists():

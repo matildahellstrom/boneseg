@@ -359,41 +359,63 @@ class MultiResult:
     names: list[str]
 
 
-def segment_multi(emb: Embedding, classes: list[dict], neg_points, settings: SegmentationSettings, pixel_um=(1.0, 1.0)) -> MultiResult:
-    """Several structures at once. classes: [{"name", "pos": [(y, x), ...]}].
+@dataclass
+class MultiModel:
+    """Prototypes and raw-score thresholds for several structures, ready to apply to any slice."""
+    names: list[str]
+    pos: list[torch.Tensor]
+    neg: list[torch.Tensor]
+    thresholds: list[float]
 
-    Each structure is scored against the shared background clicks, and a pixel goes to the structure
-    with the highest score, provided that score clears the structure's own threshold. The threshold
-    sits halfway between the structure's clicks and the background clicks, so it needs background clicks;
-    without them Otsu is used per structure."""
+
+def calibrate_multi(emb: Embedding, classes: list[dict], neg_points, settings: SegmentationSettings) -> MultiModel:
+    """Builds per-structure prototypes from the clicks on one slice and calibrates each threshold there.
+
+    Negatives for each structure are the background clicks plus every other structure's clicks, so each
+    structure learns what separates it from the others, not only from the background."""
     classes = [c for c in classes if len(c.get("pos", []))]
     if not classes:
         raise ValueError("Add clicks for at least one structure")
     shape = (emb.height, emb.width)
-    passes, sims, thrs = [], [], []
+    model = MultiModel(names=[], pos=[], neg=[], thresholds=[])
     for k, c in enumerate(classes):
-        # Negatives for this structure: the background clicks and every other structure's clicks,
-        # so each structure learns what separates it from the others, not only from the background
         others = [p for j, o in enumerate(classes) if j != k for p in o["pos"]]
         neg_k = list(neg_points) + others
-        pos_t = prototypes(emb, c["pos"])
-        score = normalize_scores(score_grid(emb.grid, pos_t, prototypes(emb, neg_k), settings.neg_weight), settings.score_norm)
-        raw = upsample(score, shape)
+        pos_t, neg_t = prototypes(emb, c["pos"]), prototypes(emb, neg_k)
+        raw = upsample(normalize_scores(score_grid(emb.grid, pos_t, neg_t, settings.neg_weight), settings.score_norm), shape)
         thr = calibrate_threshold(sample_points(raw, c["pos"]), sample_points(raw, neg_k)) if len(neg_k) else None
         if thr is None:
             thr = float(threshold_otsu(raw)) if float(raw.max()) > float(raw.min()) else float(raw.max())
+        model.names.append(c.get("name", f"Structure {k + 1}"))
+        model.pos.append(pos_t)
+        model.neg.append(neg_t)
+        model.thresholds.append(float(thr))
+    return model
+
+
+def apply_multi(emb: Embedding, model: MultiModel, settings: SegmentationSettings, pixel_um=(1.0, 1.0)) -> np.ndarray:
+    """Label map for one slice: a pixel goes to the structure it resembles most among those whose
+    threshold it clears. Scores are standardized per slice, so thresholds carry over through a stack."""
+    shape = (emb.height, emb.width)
+    passes, sims = [], []
+    for pos_t, neg_t, thr in zip(model.pos, model.neg, model.thresholds):
+        raw = upsample(normalize_scores(score_grid(emb.grid, pos_t, neg_t, settings.neg_weight), settings.score_norm), shape)
         passes.append(raw >= thr)
-        thrs.append(float(thr))
         # Plain similarity to the structure's own clicks decides between structures that both pass
         sims.append(upsample(score_grid(emb.grid, pos_t, pos_t[:0], 0.0), shape))
     sim = np.where(np.stack(passes), np.stack(sims), -np.inf)
     best = np.argmax(sim, axis=0)
     labels = np.where(np.isfinite(np.max(sim, axis=0)), best + 1, 0).astype(np.uint8)
-    # Clean-up per structure, with the same settings as single-structure segmentation
     if settings.min_object_um2 or settings.fill_holes_um2 or settings.smooth_px:
         out = np.zeros_like(labels)
-        for k in range(len(classes)):
+        for k in range(len(model.names)):
             m = postprocess(labels == k + 1, settings, pixel_um)
             out[m & (out == 0)] = k + 1
         labels = out
-    return MultiResult(labels=labels, thresholds=thrs, names=[c.get("name", f"Structure {i + 1}") for i, c in enumerate(classes)])
+    return labels
+
+
+def segment_multi(emb: Embedding, classes: list[dict], neg_points, settings: SegmentationSettings, pixel_um=(1.0, 1.0)) -> MultiResult:
+    """Several structures at once on one slice. classes: [{"name", "pos": [(y, x), ...]}]."""
+    model = calibrate_multi(emb, classes, neg_points, settings)
+    return MultiResult(labels=apply_multi(emb, model, settings, pixel_um), thresholds=model.thresholds, names=model.names)

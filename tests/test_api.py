@@ -442,3 +442,25 @@ def test_download_names_are_safe():
     h = attachment('evil"\r\nX-Injected: 1 näme.csv')["Content-Disposition"]
     assert "\n" not in h and "\r" not in h and h.count('"') == 2 and h.endswith('.csv"')
     assert attachment(".csv")["Content-Disposition"] == 'attachment; filename="csv"'
+
+
+def test_stack_with_two_structures(client):
+    ds, gt, centers = upload_stack(client, n_z=3, with_reference=False)
+    did = ds["id"]
+    ys, xs = np.nonzero(~ndi_dilate(gt))
+    other = [[int(ys[i]), int(xs[i])] for i in np.linspace(0, len(ys) - 1, 4).astype(int)]
+    body = {"channel": 0, "ref_z": 1, "neg": bg_points(gt)[:3], "settings": SETTINGS,
+            "structures": [{"name": "cells", "pos": [list(c) for c in centers[:3]]}, {"name": "matrix", "pos": other}]}
+    job = client.post(f"/api/datasets/{did}/stack", json=body).json()
+    for _ in range(200):
+        job = client.get(f"/api/jobs/{job['id']}").json()
+        if job["status"] in ("done", "failed"):
+            break
+        time.sleep(0.05)
+    assert job["status"] == "done", job
+    s = job["result"]["summary"]
+    assert set(s["structures"]) == {"cells", "matrix"} and s["structures"]["cells"]["n_objects_3d"] >= 1
+    labels = tifffile.imread(io.BytesIO(client.get(f"/api/jobs/{job['id']}/files/labels.tif").content))
+    assert labels.shape == (3, *gt.shape) and set(np.unique(labels)) <= {0, 1, 2}
+    assert client.get(f"/api/jobs/{job['id']}/files/objects_3d.csv").text.startswith("structure,label")
+    assert client.get(f"/api/datasets/{did}/xz", params={"c": 0, "y": 40, "job_id": job["id"]}).status_code == 200

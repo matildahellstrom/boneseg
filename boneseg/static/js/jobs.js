@@ -38,13 +38,15 @@ async function saveProfile() {
 async function runStack() {
   const p = pts();
   const profile = $("profileSelect").value || null;
-  if (S.method === "clicks" && !p.pos.length && !profile) { toast("Click the structure on this slice first, or pick a profile"); return; }
+  const multi = S.method === "clicks" && !profile && isMulti();
+  const structures = multi ? S.structures.map((st, k) => ({ name: st.name, color: st.color, pos: posList(p, k) })) : [];
+  if (S.method === "clicks" && !p.pos.length && !profile && !multi) { toast("Click the structure on this slice first, or pick a profile"); return; }
   try {
     const job = await api(`/api/datasets/${S.ds.id}/stack`, {
       method: "POST",
       body: {
         method: S.method, channel: S.c, ref_z: S.z, pos: p.pos, neg: p.neg, profile_id: profile, settings: settings(),
-        z_start: +$("zStart").value, z_end: +$("zEnd").value, z_step: +$("zStep").value,
+        z_start: +$("zStart").value, z_end: +$("zEnd").value, z_step: +$("zStep").value, structures,
       },
     });
     S.job = job.id;
@@ -68,6 +70,17 @@ async function pollJob(id) {
   $("stackBtn").disabled = false;
   if (job.status === "failed") { $("jobText").textContent = `Failed: ${job.error}`; return; }
   const s = job.result.summary || {};
+  if (s.structures) {
+    // Several structures: one line per structure
+    const colorOf = (name) => safeColor(S.structures.find((st) => st.name === name)?.color);
+    $("jobText").innerHTML = `${job.status === "cancelled" ? "Cancelled after" : "Done:"} ${s.n_slices || 0} slices`
+      + Object.entries(s.structures).map(([name, st]) => `<br><span style="color:${colorOf(name)}">●</span> ${esc(name)}: volume ${fmt(st.volume_um3)} µm³ · mean area ${(100 * (st.mean_area_fraction || 0)).toFixed(1)}% · ${st.n_objects_3d} objects in 3D`).join("");
+    drawChart(job.result.slices || [], colorOf);
+    if (job.status === "done") { S.lastJob = { id, ds: job.meta.dataset_id, c: job.meta.channel }; if ($("showSide").checked) loadSide(); }
+    $("jobDownloads").innerHTML = ["labels.tif", "masks.tif", "slices.csv", "objects_3d.csv", "summary.json"]
+      .map((f) => `<a class="small" href="/api/jobs/${id}/files/${f}" download><button class="ghost">${f}</button></a>`).join("");
+    return;
+  }
   $("jobText").innerHTML = `${job.status === "cancelled" ? "Cancelled after" : "Done:"} ${s.n_slices || 0} slices · volume ${fmt(s.volume_um3)} µm³ · mean area ${(100 * (s.mean_area_fraction || 0)).toFixed(1)}%`
     + (s.n_objects_3d != null ? ` · ${s.n_objects_3d} objects in 3D (${s.n_objects_3d_inside} not cut by the stack ends), median ${fmt(s.median_object_volume_um3)} µm³` : "")
     + (s.mean_dice_vs_reference != null ? ` · mean Dice ${s.mean_dice_vs_reference.toFixed(3)}` : "");
@@ -77,20 +90,26 @@ async function pollJob(id) {
     .map((f) => `<a class="small" href="/api/jobs/${id}/files/${f}" download><button class="ghost">${f}</button></a>`).join("");
 }
 
-function drawChart(rows) {
+function drawChart(rows, colorOf = null) {
   const svg = $("stackChart");
   if (!rows.length) { svg.innerHTML = ""; return; }
   const W = 300, H = 120, pad = 8;
-  const zs = rows.map((r) => r.z);
+  const zs = [...new Set(rows.map((r) => r.z))];
   const z0 = Math.min(...zs), z1 = Math.max(...zs);
   const sx = (z) => pad + ((z - z0) / Math.max(1, z1 - z0)) * (W - 2 * pad);
-  const series = [["area_fraction", "#00c8f0", "Area fraction"]];
-  if (rows[0].dice != null) series.push(["dice", "#22d27a", "Dice vs reference"]);
   const maxA = Math.max(...rows.map((r) => r.area_fraction), 1e-6);
+  // Each series: [rows, value key, colour, label, scale]
+  let series;
+  if (colorOf) {
+    const names = [...new Set(rows.map((r) => r.structure))];
+    series = names.map((n) => [rows.filter((r) => r.structure === n), "area_fraction", colorOf(n), esc(n), maxA]);
+  } else {
+    series = [[rows, "area_fraction", "#00c8f0", "Area fraction", maxA]];
+    if (rows[0].dice != null) series.push([rows, "dice", "#22d27a", "Dice vs reference", 1]);
+  }
   let out = "";
-  for (const [k, color] of series) {
-    const scale = k === "area_fraction" ? maxA : 1;
-    const d = rows.map((r, i) => `${i ? "L" : "M"}${sx(r.z).toFixed(1)},${(H - pad - (r[k] / scale) * (H - 2 * pad)).toFixed(1)}`).join("");
+  for (const [rs, k, color, , scale] of series) {
+    const d = rs.map((r, i) => `${i ? "L" : "M"}${sx(r.z).toFixed(1)},${(H - pad - (r[k] / scale) * (H - 2 * pad)).toFixed(1)}`).join("");
     out += `<path d="${d}" fill="none" stroke="${color}" stroke-width="1.6" vector-effect="non-scaling-stroke"/>`;
   }
   out += `<line x1="${sx(S.z)}" x2="${sx(S.z)}" y1="0" y2="${H}" stroke="#ffa53a" stroke-dasharray="3 3" vector-effect="non-scaling-stroke"/>`;
@@ -102,6 +121,6 @@ function drawChart(rows) {
     S.z = nearest;
     loadPlane();
   };
-  $("chartLegend").innerHTML = series.map(([, c, label]) => `<span style="color:${c}">━</span> ${label}`).join(" · ")
+  $("chartLegend").innerHTML = series.map(([, , c, label]) => `<span style="color:${c}">━</span> ${label}`).join(" · ")
     + ` · area peaks at ${(100 * maxA).toFixed(1)}% · click the chart to jump to a slice`;
 }

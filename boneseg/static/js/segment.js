@@ -116,7 +116,7 @@ function showMultiResults(out) {
   $("editBtn").classList.add("hidden");
   $("saveLabelBtn").classList.add("hidden");
   histoFromStructures();
-  $("timing").textContent = "Each pixel goes to the structure it resembles most, if it clears that structure's threshold. Stack runs, labels and histomorphometry use the first structure.";
+  $("timing").textContent = "Each pixel goes to the structure it resembles most, if it clears that structure's threshold. Stack runs include every structure; labels and the learned model use the first.";
   updateHint();
 }
 

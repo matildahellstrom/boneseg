@@ -220,3 +220,25 @@ def test_names_from_files_and_profiles_cannot_inject_html(page, server):
     assert evil in page.inner_text("#profileSelect")
     assert evil + ".npy" in page.inner_text("#datasetList")
     assert not page.errors, page.errors
+
+
+def test_stack_with_two_structures_in_browser(page, server):
+    url, data = server
+    stack = open_demo(page, url, data)
+    page.on("dialog", lambda d: d.accept("Bone matrix"))
+    click_cells(page, stack)
+    wait_result(page)
+    page.click(".struct.add")
+    page.wait_for_function("S.structures.length === 2", timeout=5000)
+    bone = ndi.gaussian_filter(stack[6, 0].astype(float), 3)
+    rng = np.random.default_rng(1)
+    hi = np.argwhere((bone > np.percentile(bone, 85)) & ~ndi.binary_dilation(stack[6, 2] > 0, iterations=10))
+    for y, x in hi[rng.choice(len(hi), 4, replace=False)]:
+        click_full(page, y, x)
+    page.wait_for_function("S.result && S.result.multi && document.querySelector('#busy').classList.contains('hidden')", timeout=30000)
+    page.click("#stackBtn")
+    page.wait_for_function("document.querySelector('#jobText').textContent.startsWith('Done')", timeout=60000)
+    text = page.inner_text("#jobText")
+    assert "Object" in text and "Bone matrix" in text and "objects in 3D" in text
+    assert "labels.tif" in page.inner_text("#jobDownloads")
+    assert not page.errors, page.errors

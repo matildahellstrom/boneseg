@@ -18,6 +18,7 @@ class SegmentRequest(BaseModel):
 
 class StackJobRequest(BaseModel):
     method: str = "clicks"
+    structures: list[dict] = Field(default_factory=list)  # Two or more: [{"name", "color", "pos"}] runs every structure
     channel: int = 0
     ref_z: int | None = None
     pos: list[tuple[float, float]] = Field(default_factory=list)

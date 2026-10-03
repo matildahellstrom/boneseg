@@ -102,3 +102,53 @@ def run_stack(req: StackRequest, pos: torch.Tensor, neg: torch.Tensor, settings:
 
 def _step(zs: list[int]) -> int:
     return int(np.median(np.diff(zs))) if len(zs) > 1 else 1
+
+
+def run_stack_multi(z_list: list[int], ref_z: int | None, model, settings: SegmentationSettings,
+                    get_embedding: Callable[[int], Embedding], get_image: Callable[[int], np.ndarray], voxel_um, out_dir: Path,
+                    progress: Callable[[float, str], None] = lambda p, m: None, cancelled: Callable[[], bool] = lambda: False,
+                    lock=None, roi: np.ndarray | None = None) -> dict:
+    """Several structures through a stack. Writes a label stack (0 background, k for structure k),
+    a union mask stack for the side view, per-slice measurements per structure and 3D objects per structure."""
+    from .segment import apply_multi
+
+    out_dir = Path(out_dir)
+    pixel_um = (voxel_um[1], voxel_um[2])
+    order = processing_order(z_list, ref_z)
+    labels: dict[int, np.ndarray] = {}
+    rows = []
+    for i, z in enumerate(order):
+        if cancelled():
+            break
+        progress(i / max(1, len(order)), f"Slice {z} ({i + 1}/{len(order)})")
+        with (lock or contextlib.nullcontext()):
+            lab = apply_multi(get_embedding(z), model, settings, pixel_um)
+        if roi is not None:
+            lab = np.where(roi, lab, 0).astype(np.uint8)
+        labels[z] = lab
+        img = get_image(z)
+        for k, name in enumerate(model.names):
+            rows.append({"z": z, "z_um": z * voxel_um[0], "structure": name, **quantify.summarize_mask(lab == k + 1, img, pixel_um, roi)})
+    df = pd.DataFrame(rows).sort_values(["structure", "z"]).reset_index(drop=True) if rows else pd.DataFrame()
+    zs = sorted(labels)
+    summary: dict = {"n_slices": len(zs), "z_processed": zs, "structures": {}}
+    if zs:
+        step = _step(zs)
+        lstack = np.stack([labels[z] for z in zs])
+        meta = {"axes": "ZYX", "spacing": float(voxel_um[0] * step), "unit": "um"}
+        res = (1 / pixel_um[1], 1 / pixel_um[0])
+        tifffile.imwrite(out_dir / "labels.tif", lstack, imagej=True, compression="zlib", resolution=res, metadata=meta)
+        tifffile.imwrite(out_dir / "masks.tif", (lstack > 0).astype(np.uint8) * 255, imagej=True, compression="zlib", resolution=res, metadata=meta)
+        objs = []
+        for k, name in enumerate(model.names):
+            sub = df[df["structure"] == name]
+            st = quantify.summarize_stack(sub, voxel_um, step)
+            obj = quantify.objects_3d(lstack == k + 1, (voxel_um[0] * step, voxel_um[1], voxel_um[2]), zs)
+            obj.insert(0, "structure", name)
+            objs.append(obj)
+            st.update(n_objects_3d=int(len(obj)), median_object_volume_um3=float(obj["volume_um3"].median()) if len(obj) else 0.0)
+            summary["structures"][name] = st
+        pd.concat(objs, ignore_index=True).to_csv(out_dir / "objects_3d.csv", index=False)
+    df.to_csv(out_dir / "slices.csv", index=False)
+    (out_dir / "summary.json").write_text(json.dumps(summary, indent=1))
+    return {"summary": summary, "slices": json.loads(df.to_json(orient="records")) if len(df) else []}
