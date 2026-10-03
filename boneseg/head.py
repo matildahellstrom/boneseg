@@ -85,7 +85,7 @@ def _make_module(kind: str, dim: int) -> torch.nn.Module:
 
 
 def fit(samples: list[tuple[Embedding, np.ndarray]], kind: str = "linear", l2: float = 1e-3, epochs: int = 150, seed: int = 0,
-        context: int = CONTEXT):
+        context: int = 1):
     """Fits a head on (embedding, mask) pairs. Patches are weighted so both classes count equally."""
     torch.manual_seed(seed)
     X = torch.cat([features(e, context) for e, _ in samples])
@@ -118,26 +118,32 @@ def segment_with_head(head: Head, emb: Embedding, settings: SegmentationSettings
 
 
 def train_head(samples: list[tuple[Embedding, np.ndarray]], settings: SegmentationSettings, keys: list,
-               kind: str = "auto", pixel_um=(1.0, 1.0)) -> Head:
+               kind: str = "auto", pixel_um=(1.0, 1.0), context: int | None = None) -> Head:
     """Trains on all samples. With two or more labelled slices, leave-one-slice-out cross-validation
-    estimates the Dice on unseen slices, and "auto" picks the better of a linear and an MLP head."""
+    estimates the Dice on unseen slices and picks the best of a linear or MLP head, with or without
+    neighbourhood features (unless kind or context is given). Neighbourhood features helped on Liu
+    file A and cost a little on the small cells of the demo stack, so the data decides."""
     kinds = ["linear", "mlp"] if kind == "auto" else [kind]
+    contexts = [1, CONTEXT] if context is None else [context]
+    candidates = [(k, c) for k in kinds for c in contexts]
     cv = {}
     if len(samples) >= 2:
-        for k in kinds:
+        for k, c in candidates:
             dices = []
             for i in range(len(samples)):
-                model, dim = fit([s for j, s in enumerate(samples) if j != i], k)
-                h = Head(settings.backbone, settings.layer_from_end, settings.vit_size, k, model.state_dict(), dim, context=CONTEXT)
+                model, dim = fit([s for j, s in enumerate(samples) if j != i], k, context=c)
+                h = Head(settings.backbone, settings.layer_from_end, settings.vit_size, k, model.state_dict(), dim, context=c)
                 e, m = samples[i]
                 dices.append(metrics.dice(segment_with_head(h, e, settings, pixel_um).mask, m))
-            cv[k] = {"mean_dice": float(np.mean(dices)), "per_slice": [float(d) for d in dices]}
-        best = max(kinds, key=lambda k: cv[k]["mean_dice"])
+            cv[f"{k}" if len(contexts) == 1 else f"{k}, context {c}"] = {"mean_dice": float(np.mean(dices)), "per_slice": [float(d) for d in dices],
+                                                                         "kind": k, "context": c}
+        best_key = max(cv, key=lambda key: cv[key]["mean_dice"])
+        best, best_ctx = cv[best_key]["kind"], cv[best_key]["context"]
     else:
-        best = kinds[0]
-    model, dim = fit(samples, best)
+        best_key, best, best_ctx = None, kinds[0], contexts[-1]
+    model, dim = fit(samples, best, context=best_ctx)
     return Head(settings.backbone, settings.layer_from_end, settings.vit_size, best, model.state_dict(), dim,
-                trained_on=[list(k) for k in keys], cv={"chosen": best, **cv}, context=CONTEXT)
+                trained_on=[list(k) for k in keys], cv={"chosen": best_key, **cv}, context=best_ctx)
 
 
 def head_to_profile_dict(head: Head) -> dict:

@@ -162,7 +162,8 @@ def test_annotations_labels_and_learned_model(client):
     r = client.post(f"/api/datasets/{did}/head", json={"channel": 0, "settings": SETTINGS})
     assert r.status_code == 200, r.text
     info = r.json()
-    assert info["cv"]["chosen"] in ("linear", "mlp") and 0 <= info["cv"][info["cv"]["chosen"]]["mean_dice"] <= 1
+    chosen = info["cv"][info["cv"]["chosen"]]
+    assert chosen["kind"] in ("linear", "mlp") and chosen["context"] in (1, 5) and 0 <= chosen["mean_dice"] <= 1
     r = client.post(f"/api/datasets/{did}/segment", json={"method": "learned", "channel": 0, "z": 2, "settings": SETTINGS, "uncertainty": True})
     assert r.status_code == 200 and r.json()["threshold_source"].startswith("learned")
     r = client.post(f"/api/datasets/{did}/segment", json={"method": "learned", "channel": 0, "z": 2, "settings": {**SETTINGS, "vit_size": 140}})
