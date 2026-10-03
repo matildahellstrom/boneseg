@@ -160,3 +160,27 @@ def test_region_and_histomorphometry(page, server):
     page.wait_for_function("!document.querySelector('#histoCards').classList.contains('hidden')", timeout=30000)
     assert "B.Ar/T.Ar" in page.inner_text("#histoCards")
     assert not page.errors, page.errors
+
+
+def test_two_structures(page, server):
+    url, data = server
+    stack = open_demo(page, url, data)
+    page.on("dialog", lambda d: d.accept("Bone matrix"))
+    click_cells(page, stack)
+    wait_result(page)
+    page.click(".struct.add")
+    assert page.evaluate("S.structures.map(s => s.name)") == ["Object", "Bone matrix"]
+    bone = ndi.gaussian_filter(stack[6, 0].astype(float), 3)
+    rng = np.random.default_rng(0)
+    hi = np.argwhere((bone > np.percentile(bone, 85)) & ~ndi.binary_dilation(stack[6, 2] > 0, iterations=10))
+    for y, x in hi[rng.choice(len(hi), 4, replace=False)]:
+        click_full(page, y, x)
+    page.wait_for_function("S.result && S.result.multi && document.querySelector('#busy').classList.contains('hidden')", timeout=30000)
+    cards = page.inner_text("#statCards")
+    assert "Object" in cards and "Bone matrix" in cards
+    assert page.is_visible("#labelsExport") and not page.is_visible("#editBtn")
+    page.reload()
+    page.wait_for_function("S.ds && S.base", timeout=20000)
+    page.wait_for_timeout(500)
+    assert page.evaluate("S.structures.map(s => s.name)") == ["Object", "Bone matrix"]
+    assert not page.errors, page.errors
