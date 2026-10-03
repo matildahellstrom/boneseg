@@ -68,7 +68,7 @@ def router(ctx: AppContext) -> APIRouter:
         try:
             return store.add_dataset_path(req.path).info()
         except FileNotFoundError as e:
-            raise HTTPException(404, str(e))
+            raise HTTPException(404, str(e)) from None
 
     @r.get("/api/datasets/{ds_id}")
     def get_dataset(ds_id: str):

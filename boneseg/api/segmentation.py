@@ -202,7 +202,7 @@ def router(ctx: AppContext) -> APIRouter:
                                        get_image=lambda z: store.plane(ds_id, c, z, settings.clip_low, settings.clip_high),
                                        voxel_um=ds.volume.voxel_um, out_dir=job.out_dir,
                                        progress=lambda p, m: (setattr(job, "progress", p), setattr(job, "message", m)),
-                                       cancelled=job.cancel.is_set, lock=store.compute_lock, roi=store.roi_mask(ds_id))
+                                       cancelled=job.cancel.is_set, lock=store.compute_lock, read_ahead=lambda z: store.plane(ds_id, c, z, settings.clip_low, settings.clip_high), roi=store.roi_mask(ds_id))
 
             job = store.start_job("stack", work_multi, meta={"dataset_id": ds_id, "n_slices": len(z_list), "channel": c,
                                                               "method": "structures", "structures": model.names})
@@ -225,7 +225,7 @@ def router(ctx: AppContext) -> APIRouter:
                                        get_image=lambda z: store.plane(ds_id, c, z, settings.clip_low, settings.clip_high),
                                        voxel_um=ds.volume.voxel_um, out_dir=job.out_dir,
                                        progress=lambda p, m: (setattr(job, "progress", p), setattr(job, "message", m)),
-                                       cancelled=job.cancel.is_set, lock=store.compute_lock, roi=store.roi_mask(ds_id),
+                                       cancelled=job.cancel.is_set, lock=store.compute_lock, read_ahead=lambda z: store.plane(ds_id, c, z, settings.clip_low, settings.clip_high), roi=store.roi_mask(ds_id),
                                        labeler=lambda emb: labels_with_head(head, emb, settings, ds.volume.pixel_um))
 
             job = store.start_job("stack", work_learned_multi, meta={"dataset_id": ds_id, "n_slices": len(z_list), "channel": c,
@@ -256,6 +256,7 @@ def router(ctx: AppContext) -> APIRouter:
                 voxel_um=ds.volume.voxel_um, out_dir=job.out_dir,
                 progress=lambda p, m: (setattr(job, "progress", p), setattr(job, "message", m)),
                 cancelled=job.cancel.is_set,
+                read_ahead=lambda z: store.plane(ds_id, c, z, settings.clip_low, settings.clip_high),
             )
 
         job = store.start_job("stack", work, meta={"dataset_id": ds_id, "n_slices": len(z_list), "channel": c, "method": req.method})

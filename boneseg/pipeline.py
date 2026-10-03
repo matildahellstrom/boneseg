@@ -44,18 +44,19 @@ def run_stack(req: StackRequest, pos: torch.Tensor, neg: torch.Tensor, settings:
               get_embedding: Callable[[int], Embedding], get_image: Callable[[int], np.ndarray],
               get_reference: Callable[[int], np.ndarray | None], voxel_um, out_dir: Path,
               progress: Callable[[float, str], None] = lambda p, m: None, cancelled: Callable[[], bool] = lambda: False,
-              lock=None, head=None, roi: np.ndarray | None = None) -> dict:
+              lock=None, head=None, roi: np.ndarray | None = None, read_ahead: Callable[[int], object] | None = None) -> dict:
     """Segments every slice in req.z_list. Writes a mask stack, per-slice stats and a summary to out_dir."""
     out_dir = Path(out_dir)
     pixel_um = (voxel_um[1], voxel_um[2])
     order = processing_order(req.z_list, req.ref_z)
     masks: dict[int, np.ndarray] = {}
     rows = []
-    # Adaptive prototypes are tracked separately for each direction away from the reference slice
+    ahead = _ReadAhead(read_ahead)
     for i, z in enumerate(order):
         if cancelled():
             break
         progress(i / max(1, len(order)), f"Slice {z} ({i + 1}/{len(order)})")
+        ahead.next(order[i + 1] if i + 1 < len(order) else None)
         with (lock or contextlib.nullcontext()):
             emb = get_embedding(z)
             # Scores are standardized per slice (score_norm), so the threshold calibrated on the
@@ -73,6 +74,7 @@ def run_stack(req: StackRequest, pos: torch.Tensor, neg: torch.Tensor, settings:
             # time per slice on 3000 px images, where the distance transforms dominate
             row.update(metrics.compare(masks[z], ref, pixel_um, roi, hd95_max_side=2048))
         rows.append(row)
+    ahead.close()
     df = pd.DataFrame(rows).sort_values("z").reset_index(drop=True) if rows else pd.DataFrame()
     zs = sorted(masks)
     if zs:
@@ -102,6 +104,25 @@ def run_stack(req: StackRequest, pos: torch.Tensor, neg: torch.Tensor, settings:
     return {"summary": summary, "slices": json.loads(df.to_json(orient="records")) if len(df) else []}
 
 
+class _ReadAhead:
+    """Loads the next slice in a background thread while the current one is computed, so file reading
+    (about 0.25 s per plane for Imaris) overlaps with the model instead of adding to it."""
+
+    def __init__(self, load: Callable[[int], object] | None):
+        from concurrent.futures import ThreadPoolExecutor
+
+        self.load = load
+        self.pool = ThreadPoolExecutor(max_workers=1) if load else None
+
+    def next(self, z):
+        if self.pool is not None and z is not None:
+            self.pool.submit(self.load, z)
+
+    def close(self):
+        if self.pool is not None:
+            self.pool.shutdown(wait=False, cancel_futures=True)
+
+
 def _step(zs: list[int]) -> int:
     return int(np.median(np.diff(zs))) if len(zs) > 1 else 1
 
@@ -109,7 +130,8 @@ def _step(zs: list[int]) -> int:
 def run_stack_multi(z_list: list[int], ref_z: int | None, model, settings: SegmentationSettings,
                     get_embedding: Callable[[int], Embedding], get_image: Callable[[int], np.ndarray], voxel_um, out_dir: Path,
                     progress: Callable[[float, str], None] = lambda p, m: None, cancelled: Callable[[], bool] = lambda: False,
-                    lock=None, roi: np.ndarray | None = None, labeler: Callable | None = None) -> dict:
+                    lock=None, roi: np.ndarray | None = None, labeler: Callable | None = None,
+                    read_ahead: Callable[[int], object] | None = None) -> dict:
     """Several structures through a stack. model needs .names; labeler(embedding) -> label map replaces
     the prototype rule, for a learned model of several structures. Writes a label stack (0 background, k for structure k),
     a union mask stack for the side view, per-slice measurements per structure and 3D objects per structure."""
@@ -128,10 +150,12 @@ def run_stack_multi(z_list: list[int], ref_z: int | None, model, settings: Segme
     # With a structure named like bone, histomorphometry runs on every slice against the first other structure
     bone_k = next((k for k, n in enumerate(model.names) if re.search(r"bone|matrix", n, re.I)), None)
     cell_k = next((k for k in range(len(model.names)) if k != bone_k), None) if bone_k is not None else None
+    ahead = _ReadAhead(read_ahead)
     for i, z in enumerate(order):
         if cancelled():
             break
         progress(i / max(1, len(order)), f"Slice {z} ({i + 1}/{len(order)})")
+        ahead.next(order[i + 1] if i + 1 < len(order) else None)
         with (lock or contextlib.nullcontext()):
             emb = get_embedding(z)
             lab = labeler(emb) if labeler is not None else apply_multi(emb, model, settings, pixel_um)
@@ -144,6 +168,7 @@ def run_stack_multi(z_list: list[int], ref_z: int | None, model, settings: Segme
         if bone_k is not None and cell_k is not None:
             hm, _ = histo.histomorphometry(lab == bone_k + 1, lab == cell_k + 1, pixel_um, roi=roi)
             histo_rows.append({"z": z, **hm})
+    ahead.close()
     df = pd.DataFrame(rows).sort_values(["structure", "z"]).reset_index(drop=True) if rows else pd.DataFrame()
     zs = sorted(labels)
     summary: dict = {"n_slices": len(zs), "z_processed": zs, "structures": {}}
