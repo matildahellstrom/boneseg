@@ -146,6 +146,26 @@ function settings() {
   };
 }
 
+// Settings are remembered per dataset, so reopening an image restores them
+let settingsTimer = null;
+function rememberSettings() {
+  if (!S.ds) return;
+  clearTimeout(settingsTimer);
+  const dsId = S.ds.id;
+  settingsTimer = setTimeout(() => api(`/api/datasets/${dsId}`, { method: "PATCH", body: { settings: settings() } }).catch(() => {}), 800);
+}
+
+function applySettings(st) {
+  if (!st) return;
+  const set = (id, v) => { if (v !== undefined && v !== null && $(id)) $(id).value = v; };
+  set("backboneSelect", st.backbone); set("thrMode", st.threshold_mode); set("topPercent", st.top_percent);
+  set("manualThr", st.manual_threshold); set("lambda", st.neg_weight); set("minObj", st.min_object_um2);
+  set("fillHoles", st.fill_holes_um2); set("smooth", st.smooth_px); set("vitSize", st.vit_size); set("layer", st.layer_from_end);
+  if (st.clip_low != null) { S.low = st.clip_low; $("lowSlider").value = st.clip_low; }
+  if (st.clip_high != null) { S.high = st.clip_high; $("highSlider").value = st.clip_high; }
+  syncSettingLabels();
+}
+
 function syncSettingLabels() {
   const mode = $("thrMode").value;
   $("topPercentRow").classList.toggle("hidden", mode !== "top_percent");

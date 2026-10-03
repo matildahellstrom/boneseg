@@ -66,6 +66,7 @@ async function openDataset(id) {
   $("resultsSection").classList.add("hidden");
   stopEditing();
   try { S.points = await api(`/api/datasets/${id}/annotations`); } catch (_) { S.points = {}; }
+  applySettings(d.settings);
   S.structures = structuresFromAnnotations(S.points);
   S.active = 0;
   renderStructures();

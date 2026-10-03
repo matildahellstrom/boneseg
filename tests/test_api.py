@@ -611,3 +611,10 @@ def test_labels_and_learned_model_with_several_structures(client, tmp_path):
           "--out", str(tmp_path / "o"), "--data-dir", str(root)])
     import pandas as pd
     assert "cells_volume_um3" in pd.read_csv(tmp_path / "o" / "summary.csv")
+
+
+def test_settings_are_remembered(client):
+    ds, _, _ = upload_stack(client, n_z=1)
+    client.patch(f"/api/datasets/{ds['id']}", json={"settings": {"backbone": "classic", "neg_weight": 1.2}})
+    c2 = TestClient(create_app(client.app.state.store.root))
+    assert c2.get(f"/api/datasets/{ds['id']}").json()["settings"]["neg_weight"] == 1.2

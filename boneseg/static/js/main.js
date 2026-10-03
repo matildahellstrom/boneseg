@@ -36,7 +36,7 @@ function bind() {
   $("zSlider").onchange = () => loadPlane();
   $("zPrev").onclick = () => stepZ(-1);
   $("zNext").onclick = () => stepZ(1);
-  const contrast = () => { S.low = +$("lowSlider").value; S.high = +$("highSlider").value; loadPlane(); };
+  const contrast = () => { S.low = +$("lowSlider").value; S.high = +$("highSlider").value; rememberSettings(); loadPlane(); };
   $("lowSlider").onchange = contrast;
   $("highSlider").onchange = contrast;
   $("refSelect").onchange = async (e) => {
@@ -56,6 +56,17 @@ function bind() {
   $("undoBtn").onclick = undo;
   $("clearBtn").onclick = () => { S.points[key()] = { pos: [], neg: [] }; persistClicks(); S.layers.mask = S.layers.heat = S.layers.unc = null; S.result = null; $("resultsSection").classList.add("hidden"); updateCounts(); draw(); };
   $("autoNegBtn").onclick = autoBackground;
+  $("copyNextBtn").onclick = () => {
+    if (!S.ds || S.z >= S.ds.n_z - 1) return;
+    const from = JSON.parse(JSON.stringify(pts()));
+    const nextKey = `${S.c}:${S.z + 1}`;
+    if ((S.points[nextKey]?.pos.length || S.points[nextKey]?.neg.length) && !confirm("The next slice already has clicks. Replace them?")) return;
+    S.points[nextKey] = from;
+    persistClicks(nextKey);
+    S.z += 1;
+    loadPlane();
+    toast("Copied the clicks. Check they still sit on the right structures.");
+  };
   $("profileSelect").onchange = () => {
     $("deleteProfileBtn").classList.toggle("hidden", !$("profileSelect").value);
     $("downloadProfileBtn").classList.toggle("hidden", !$("profileSelect").value);
@@ -109,7 +120,7 @@ function bind() {
 
   for (const id of ["thrMode", "topPercent", "manualThr", "lambda", "minObj", "fillHoles", "smooth", "vitSize", "layer", "backboneSelect"]) {
     $(id).addEventListener("input", syncSettingLabels);
-    $(id).addEventListener("change", () => { if (S.result) scheduleSegment(0); });
+    $(id).addEventListener("change", () => { rememberSettings(); if (S.result) scheduleSegment(0); });
   }
   $("uncToggle").onchange = () => { if (S.result) scheduleSegment(0); };
   $("segmentBtn").onclick = () => runSegment();

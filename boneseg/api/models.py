@@ -114,3 +114,4 @@ class MetaRequest(BaseModel):
     notes: str | None = None
     voxel_um_override: tuple[float, float, float] | None = None  # (z, y, x) in micrometres
     group: str | None = None  # Study group, such as "control" or "treated"
+    settings: dict | None = None  # Segmentation settings last used on this dataset, restored when it is reopened
