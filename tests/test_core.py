@@ -251,3 +251,14 @@ def test_lru_byte_budget():
     assert "a" not in cache and "b" in cache and "c" in cache and cache.bytes == 200
     cache.put("c", "x" * 10)
     assert cache.bytes == 110
+
+
+def test_result_cache_is_bounded():
+    from boneseg.store import ResultCache
+
+    c = ResultCache(3)
+    for i in range(5):
+        c[(0, i)] = i
+    assert list(c) == [(0, 2), (0, 3), (0, 4)]
+    c[(0, 2)] = "again"
+    assert list(c)[-1] == (0, 2)

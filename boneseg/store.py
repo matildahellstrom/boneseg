@@ -62,6 +62,21 @@ def _embedding_bytes(emb) -> int:
     return int(emb.grid.numel() * emb.grid.element_size())
 
 
+class ResultCache(OrderedDict):
+    """A dict that forgets the least recently stored entries beyond max_items."""
+
+    def __init__(self, max_items: int):
+        super().__init__()
+        self.max_items = max_items
+
+    def __setitem__(self, key, value):
+        if key in self:
+            self.move_to_end(key)
+        super().__setitem__(key, value)
+        while len(self) > self.max_items:
+            self.popitem(last=False)
+
+
 @dataclass
 class Dataset:
     id: str
@@ -69,7 +84,9 @@ class Dataset:
     volume: bio.Volume
     created: float
     meta: dict = field(default_factory=dict)  # User choices, such as the reference mask channel
-    results: dict = field(default_factory=dict)  # (channel, z) -> last SegmentationResult
+    # (channel, z) -> last SegmentationResult. Bounded: each holds full-resolution arrays, and
+    # browsing a long stack would otherwise keep gigabytes alive
+    results: "ResultCache" = field(default_factory=lambda: ResultCache(32))
 
     def info(self) -> dict:
         return {"id": self.id, "created": self.created, **self.volume.info(), **self.meta}
