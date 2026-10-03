@@ -686,3 +686,14 @@ def test_plane_with_second_channel(client):
     assert grey.mode == "L" and both.mode == "RGB"
     arr = np.asarray(both).astype(int)
     assert (arr[..., 1] - arr[..., 0]).max() > 50   # Green where the second channel is bright
+
+
+def test_access_token(tmp_path):
+    c = TestClient(create_app(tmp_path / "d", token="s3cret"))
+    assert c.get("/").status_code == 200                          # The page loads, so it can explain what is needed
+    assert c.get("/api/health").status_code == 401
+    assert c.get("/api/health", headers={"Authorization": "Bearer wrong"}).status_code == 401
+    assert c.get("/api/health", headers={"Authorization": "Bearer s3cret"}).status_code == 200
+    c.cookies.set("boneseg_token", "s3cret")
+    assert c.get("/api/datasets").status_code == 200
+    assert TestClient(create_app(tmp_path / "e")).get("/api/health").status_code == 200   # No token, open as before

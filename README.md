@@ -30,7 +30,7 @@ The app opens at http://127.0.0.1:8000. Click **Try a synthetic demo image** to 
 
 The app runs on an NVIDIA GPU, an Apple Silicon GPU or the CPU, whichever it finds. Small and Base are comfortable on a laptop. Giant needs a large GPU.
 
-To share the app on a lab network, start it with `--host 0.0.0.0`. Opening files by path on the server is then turned off unless you add `--allow-paths`, since it would let anyone read files the server can read.
+To share the app on a lab network, start it with `--host 0.0.0.0 --token SOME-SECRET` and send colleagues the access link it prints. Without a token, anyone who can reach the port can use the app. Opening files by path on the server is turned off on the network unless you add `--allow-paths`, since it would let anyone read files the server can read.
 
 ### With Docker
 

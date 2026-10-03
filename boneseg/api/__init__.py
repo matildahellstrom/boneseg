@@ -38,14 +38,27 @@ class SafeJSONResponse(JSONResponse):
         return json.dumps(_finite(content), ensure_ascii=False, allow_nan=False, separators=(",", ":")).encode()
 
 
-def create_app(data_dir: str | Path | None = None, allow_paths: bool = True) -> FastAPI:
+def create_app(data_dir: str | Path | None = None, allow_paths: bool = True, token: str | None = None) -> FastAPI:
     """allow_paths lets clients open files by path on the server. Keep it off when the app is reachable
-    from other computers, since it would let anyone read files the server can read."""
+    from other computers, since it would let anyone read files the server can read.
+    With a token, every API request must carry it, as a 'boneseg_token' cookie (set by opening the app
+    once with ?token=...) or as an 'Authorization: Bearer' header."""
     data_dir = Path(data_dir or os.environ.get("BONESEG_DATA_DIR", "projects"))
     store = Store(data_dir)
     app = FastAPI(title="boneseg", version=__version__, default_response_class=SafeJSONResponse)
     app.state.store = store
     ctx = AppContext(store, allow_paths)
+
+    if token:
+        import hmac
+
+        @app.middleware("http")
+        async def require_token(request: Request, call_next):
+            if request.url.path.startswith("/api/") or request.url.path in ("/docs", "/openapi.json"):
+                given = request.cookies.get("boneseg_token") or request.headers.get("authorization", "").removeprefix("Bearer ").strip()
+                if not given or not hmac.compare_digest(given, token):
+                    return JSONResponse({"detail": "This boneseg server needs an access link with a token. Ask whoever runs it."}, status_code=401)
+            return await call_next(request)
 
     @app.exception_handler(KeyError)
     async def key_error(_: Request, exc: KeyError):
