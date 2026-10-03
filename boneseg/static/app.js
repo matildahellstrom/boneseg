@@ -285,13 +285,15 @@ async function runSegment() {
       body: { method: S.method, channel: S.c, z: S.z, pos: p.pos, neg: p.neg, profile_id: profile, settings: settings(), uncertainty: $("uncToggle").checked },
     });
     if (seq !== S.seq) return; // A newer request is on its way
-    const [mask, heat, unc] = await Promise.all([
+    const [mask, heat, unc, err] = await Promise.all([
       loadImage(out.mask_png), loadImage(out.heat_png), out.uncertainty_png ? loadImage(out.uncertainty_png) : null,
+      out.error_png ? loadImage(out.error_png) : null,
     ]);
     if (seq !== S.seq) return;
     S.layers.mask = mask;
     S.layers.heat = heat;
     if (unc) S.layers.unc = unc; else delete S.layers.unc;
+    if (err) S.layers.err = err; else delete S.layers.err;
     S.result = out;
     showResults(out);
     draw();
@@ -317,7 +319,9 @@ function showResults(out) {
   $("statCards").innerHTML = cards.map(([k, v]) => `<div class="card"><div class="k">${k}</div><div class="v">${v}</div></div>`).join("");
   const ev = out.evaluation;
   $("evalBox").classList.toggle("hidden", !ev);
-  if (ev) $("evalBox").innerHTML = `<b>Against ${ev.against === "your saved label" ? "your saved label" : "the reference mask"}</b><br>Dice ${ev.dice.toFixed(3)} · IoU ${ev.iou.toFixed(3)} · HD95 ${fmt(ev.hd95_um)} µm`;
+  if (ev) $("evalBox").innerHTML = `<b>Against ${ev.against === "your saved label" ? "your saved label" : "the reference mask"}</b><br>Dice ${ev.dice.toFixed(3)} · IoU ${ev.iou.toFixed(3)} · HD95 ${fmt(ev.hd95_um)} µm`
+    + `<br><span class="small">Extra ${fmt(ev.false_positive_um2)} µm² · missed ${fmt(ev.false_negative_um2)} µm² · <a href="#" id="errLink">show errors</a></span>`;
+  if (ev) $("errLink").onclick = (e) => { e.preventDefault(); $("showErr").checked = !$("showErr").checked; draw(); };
   const sug = out.suggestion;
   $("suggestionBox").classList.toggle("hidden", !(out.uncertainty_png));
   if (out.uncertainty_png) {
@@ -426,6 +430,7 @@ function draw() {
   if ($("showHeat").checked) layer(S.layers.heat, op);
   if ($("showUnc").checked) layer(S.layers.unc, Math.min(1, op + 0.2));
   if (S.editing && S.edit) layer(S.edit, 0.5);
+  else if ($("showErr").checked && S.layers.err) layer(S.layers.err, Math.min(1, op + 0.3));
   else if ($("showMask").checked) layer(S.layers.mask, Math.min(1, op + 0.3));
   if ($("showRef").checked) layer(S.layers.ref, 0.9);
   if ($("showLabel").checked && !S.editing) layer(S.layers.label, 0.95);
@@ -1067,7 +1072,7 @@ function bind() {
   }
   $("uncToggle").onchange = () => { if (S.result) scheduleSegment(0); };
   $("segmentBtn").onclick = () => runSegment();
-  for (const id of ["showMask", "showHeat", "showUnc", "showRef", "showPoints", "opacity"]) $(id).addEventListener("input", draw);
+  for (const id of ["showMask", "showHeat", "showUnc", "showRef", "showErr", "showPoints", "opacity"]) $(id).addEventListener("input", draw);
   $("fitBtn").onclick = fitView;
   document.querySelectorAll("[data-export]").forEach((b) => {
     b.onclick = () => {

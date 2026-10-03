@@ -188,6 +188,9 @@ class Store:
         path = Path(path).expanduser().resolve()
         if not path.is_file():
             raise FileNotFoundError(f"No such file: {path}")
+        for ds in self.datasets.values():  # Opening the same file twice returns the existing dataset
+            if ds.path.resolve() == path:
+                return ds
         vol = bio.load_volume(path)
         ds_id = uuid.uuid4().hex[:10]
         (self.root / "datasets" / ds_id).mkdir(parents=True)

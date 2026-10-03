@@ -73,5 +73,18 @@ def uncertainty_png(u: np.ndarray, max_side: int = 1600) -> bytes:
     return to_png_bytes(Image.fromarray(rgba, "RGBA"))
 
 
+def error_png(pred: np.ndarray, ref: np.ndarray, max_side: int = 1600) -> bytes:
+    """Agreement with the reference: green where both agree on the structure, red for extra pixels
+    (false positives) and yellow for missed ones (false negatives)."""
+    shape = display_shape(*pred.shape, max_side)
+    small = lambda m: np.asarray(_resize(Image.fromarray(m.astype(np.uint8) * 255, "L"), shape, nearest=True)) > 127
+    p, r = small(pred), small(ref)
+    rgba = np.zeros(p.shape + (4,), np.uint8)
+    rgba[p & r] = (34, 210, 122, 120)
+    rgba[p & ~r] = (255, 70, 90, 190)
+    rgba[~p & r] = (255, 210, 0, 190)
+    return to_png_bytes(Image.fromarray(rgba, "RGBA"))
+
+
 def mask_full_png(mask: np.ndarray) -> bytes:
     return to_png_bytes(Image.fromarray(mask.astype(np.uint8) * 255, "L"))

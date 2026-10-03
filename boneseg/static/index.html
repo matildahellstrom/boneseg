@@ -82,15 +82,21 @@
     <!-- Center: the viewer -->
     <section class="viewer-wrap">
       <div class="viewer-toolbar">
-        <label class="toggle"><input type="checkbox" id="showMask" checked> Mask</label>
-        <label class="toggle"><input type="checkbox" id="showHeat"> Heatmap</label>
-        <label class="toggle"><input type="checkbox" id="showUnc"> Uncertainty</label>
+        <label class="toggle" title="M"><input type="checkbox" id="showMask" checked> Mask</label>
+        <label class="toggle" title="H"><input type="checkbox" id="showHeat"> Heatmap</label>
+        <label class="toggle" title="U"><input type="checkbox" id="showUnc"> Uncertainty</label>
         <label class="toggle"><input type="checkbox" id="showRef" checked> Reference</label>
-        <label class="toggle"><input type="checkbox" id="showPoints" checked> Points</label>
-        <label class="small toggle" title="Overlay opacity">Opacity <input type="range" id="opacity" min="0" max="1" step="0.05" value="0.6"></label>
-        <label class="toggle"><input type="checkbox" id="showLabel" checked> Label</label>
-        <label class="toggle"><input type="checkbox" id="showHisto" checked> Histo</label>
+        <label class="toggle" title="Green: agrees with the reference. Red: extra. Yellow: missed"><input type="checkbox" id="showErr"> Errors</label>
         <label class="toggle" title="A cut through all slices along one row. Alt-click the image to pick the row"><input type="checkbox" id="showSide"> Side view</label>
+        <details class="more">
+          <summary>More</summary>
+          <div class="more-menu">
+            <label class="toggle"><input type="checkbox" id="showPoints" checked> Points</label>
+            <label class="toggle"><input type="checkbox" id="showLabel" checked> Saved label</label>
+            <label class="toggle"><input type="checkbox" id="showHisto" checked> Histomorphometry</label>
+            <label class="small">Overlay opacity <input type="range" id="opacity" min="0" max="1" step="0.05" value="0.6"></label>
+          </div>
+        </details>
         <span class="spacer"></span>
         <span class="editbar hidden" id="editBar">
           <b>Correcting</b> · drag to paint, Shift-drag to erase ·

@@ -129,3 +129,10 @@ dialog label { margin-top: 8px; }
 .side-img { position: relative; cursor: pointer; }
 .side-img img { display: block; width: 100%; image-rendering: pixelated; }
 .side-z { position: absolute; left: 0; right: 0; height: 2px; background: #ffa53a; pointer-events: none; }
+.eval a { color: var(--accent); }
+.more { position: relative; }
+.more summary { cursor: pointer; color: var(--muted); list-style: none; padding: 2px 8px; border: 1px solid var(--line); border-radius: 6px; }
+.more summary::-webkit-details-marker { display: none; }
+.more[open] summary { border-color: var(--accent); color: var(--text); }
+.more-menu { position: absolute; top: 120%; left: 0; z-index: 5; background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; padding: 10px; display: flex; flex-direction: column; gap: 8px; min-width: 200px; box-shadow: 0 8px 24px rgba(0,0,0,.4); }
+.more-menu input[type=range] { width: 100%; }

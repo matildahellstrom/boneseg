@@ -377,6 +377,10 @@ def create_app(data_dir: str | Path | None = None, allow_paths: bool = True) -> 
         if ref is not None:
             out["evaluation"] = metrics.compare(res.mask, ref, ds.volume.pixel_um, roi)
             out["evaluation"]["against"] = "reference channel" if ds.meta.get("reference_channel") is not None else "your saved label"
+            refc = ref & roi if roi is not None else ref
+            out["error_png"] = render.data_url(render.error_png(res.mask, refc, req.max_side))
+            out["evaluation"]["false_positive_um2"] = float((res.mask & ~refc).sum() * np.prod(ds.volume.pixel_um))
+            out["evaluation"]["false_negative_um2"] = float((~res.mask & refc).sum() * np.prod(ds.volume.pixel_um))
         if u is not None:
             res.uncertainty = u
             out["uncertainty_png"] = render.data_url(render.uncertainty_png(u, req.max_side))

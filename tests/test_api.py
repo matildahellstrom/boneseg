@@ -58,6 +58,7 @@ def test_upload_plane_segment_export(client):
     assert r.status_code == 200, r.text
     out = r.json()
     assert out["mask_png"].startswith("data:image/png") and out["evaluation"]["dice"] > 0.6
+    assert out["error_png"].startswith("data:image/png") and out["evaluation"]["false_positive_um2"] >= 0
     assert out["stats"]["n_objects"] >= 1 and "uncertainty_png" in out
 
     r = client.get(f"/api/datasets/{ds['id']}/export/mask", params={"c": 0, "z": 1, "fmt": "tif"})
@@ -275,7 +276,9 @@ def test_report(client):
 def test_open_by_path_can_be_disabled(tmp_path):
     np.save(tmp_path / "a.npy", np.zeros((20, 20), np.float32))
     on = TestClient(create_app(tmp_path / "d1"))
-    assert on.post("/api/datasets/from-path", json={"path": str(tmp_path / "a.npy")}).status_code == 200
+    first = on.post("/api/datasets/from-path", json={"path": str(tmp_path / "a.npy")}).json()
+    again = on.post("/api/datasets/from-path", json={"path": str(tmp_path / "a.npy")}).json()
+    assert first["id"] == again["id"] and len(on.get("/api/datasets").json()) == 1
     assert on.post("/api/datasets/from-path", json={"path": str(tmp_path / "nope.npy")}).status_code == 404
     off = TestClient(create_app(tmp_path / "d2", allow_paths=False))
     assert off.post("/api/datasets/from-path", json={"path": str(tmp_path / "a.npy")}).status_code == 403
