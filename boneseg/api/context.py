@@ -34,6 +34,8 @@ class AppContext:
             prof = self.store.load_profile(profile_id)
             if prof.head:
                 raise ValueError("This profile holds a learned model; it is used without clicks")
+            if prof.structures:
+                raise ValueError("This profile holds several structures; use it with several structures")
             if prof.backbone != settings.backbone or prof.layer_from_end != settings.layer_from_end:
                 raise ValueError(f"Profile '{prof.name}' was made with {BACKBONE_LABELS.get(prof.backbone, prof.backbone)} "
                                  f"(block {prof.layer_from_end} from the end). Switch to that backbone to use it.")
@@ -64,6 +66,17 @@ class AppContext:
             raise ValueError(f"Profile '{prof.name}' holds a model trained with {BACKBONE_LABELS.get(head.backbone, head.backbone)} at "
                              f"{head.vit_size} px, block {head.layer_from_end} from the end. Switch to those settings to use it")
         return head
+
+    def multi_profile_model(self, profile_id, settings):
+        """The structures stored in a multi-structure profile, checked against the current settings, or None."""
+        if not profile_id:
+            return None, None
+        prof = self.store.load_profile(profile_id)
+        if not prof.structures:
+            return None, None
+        if prof.backbone != settings.backbone or prof.layer_from_end != settings.layer_from_end:
+            raise ValueError(f"Profile '{prof.name}' was made with {BACKBONE_LABELS.get(prof.backbone, prof.backbone)}. Switch to that backbone to use it.")
+        return prof.multi_model(), prof
 
     def load_head(self, ds_id, channel, settings) -> Head:
         path = self.store.head_path(ds_id, channel)

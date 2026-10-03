@@ -62,6 +62,13 @@ function bind() {
     const prof = S.profiles.find((p) => p.id === $("profileSelect").value);
     if (prof && prof.backbone !== $("backboneSelect").value) { $("backboneSelect").value = prof.backbone; syncSettingLabels(); }
     if (prof?.kind === "learned" && prof.vit_size) $("vitSize").value = prof.vit_size;
+    if (prof?.kind === "structures") {
+      // Take over the profile's structures so results, colours and stack runs line up with it
+      S.structures = prof.structures.map((st, k) => ({ name: st.name, color: safeColor(st.color || STRUCT_COLORS[k % STRUCT_COLORS.length]) }));
+      S.active = 0;
+      renderStructures();
+      fillHistoControls();
+    }
     if (prof || pts().pos.length) scheduleSegment(0);
   };
   $("exportHeadBtn").onclick = () => {
@@ -72,7 +79,7 @@ function bind() {
   };
   $("saveProfileBtn").onclick = () => {
     S.profileFromHead = false;
-    if (!pts().pos.length) { toast("Add object clicks first"); return; }
+    if (!pts().pos.length && !(isMulti() && S.structures.some((_, k) => posList(pts(), k).length))) { toast("Add object clicks first"); return; }
     $("profileName").value = "";
     $("profileDesc").value = S.ds ? `${S.ds.channel_names[S.c]}` : "";
     $("profileDialog").showModal();

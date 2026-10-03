@@ -320,10 +320,24 @@ class Profile:
     source: str = ""
     raw_threshold: float | None = None  # Calibrated on the source image, reused when no clicks are given
     head: dict | None = None            # A learned model: {"kind", "dim", "vit_size", "state": {name: array}}
+    structures: list | None = None      # Several structures: [{"name", "color", "pos", "neg", "threshold"}]
 
     @property
     def kind(self) -> str:
-        return "learned" if self.head else "prototypes"
+        return "learned" if self.head else "structures" if self.structures else "prototypes"
+
+    def multi_model(self) -> "MultiModel":
+        return MultiModel(names=[st["name"] for st in self.structures],
+                          pos=[torch.from_numpy(np.asarray(st["pos"], np.float32)) for st in self.structures],
+                          neg=[torch.from_numpy(np.asarray(st["neg"], np.float32)) for st in self.structures],
+                          thresholds=[float(st["threshold"]) for st in self.structures])
+
+    @classmethod
+    def from_multi(cls, model: "MultiModel", colors: list[str], **kw) -> "Profile":
+        structures = [{"name": n, "color": c, "pos": p.cpu().numpy(), "neg": q.cpu().numpy(), "threshold": t}
+                      for n, c, p, q, t in zip(model.names, colors, model.pos, model.neg, model.thresholds)]
+        d = model.pos[0].shape[1]
+        return cls(pos=np.zeros((0, d), np.float32), neg=np.zeros((0, d), np.float32), structures=structures, **kw)
 
     def save(self, path) -> None:
         arrays = {"pos": self.pos, "neg": self.neg}
@@ -335,6 +349,10 @@ class Profile:
             meta["head"]["state_keys"] = list(self.head["state"])
             for k, v in self.head["state"].items():
                 arrays[f"head__{k}"] = np.asarray(v)
+        if self.structures:
+            meta["structures"] = [{"name": st["name"], "color": st.get("color", ""), "threshold": float(st["threshold"])} for st in self.structures]
+            for k, st in enumerate(self.structures):
+                arrays[f"s{k}__pos"], arrays[f"s{k}__neg"] = np.asarray(st["pos"]), np.asarray(st["neg"])
         np.savez(path, meta=np.array([repr(meta)]), **arrays)
 
     @classmethod
@@ -346,7 +364,11 @@ class Profile:
         head = meta.pop("head", None)
         if head:
             head["state"] = {k: d[f"head__{k}"] for k in head.pop("state_keys")}
-        return cls(pos=d["pos"], neg=d["neg"], head=head, **meta)
+        structures = meta.pop("structures", None)
+        if structures:
+            for k, st in enumerate(structures):
+                st["pos"], st["neg"] = d[f"s{k}__pos"], d[f"s{k}__neg"]
+        return cls(pos=d["pos"], neg=d["neg"], head=head, structures=structures, **meta)
 
     def tensors(self) -> tuple[torch.Tensor, torch.Tensor]:
         return torch.from_numpy(self.pos.astype(np.float32)), torch.from_numpy(self.neg.astype(np.float32))

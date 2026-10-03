@@ -25,6 +25,19 @@ def router(ctx: AppContext) -> APIRouter:
     @r.post("/api/profiles")
     def create_profile(req: ProfileRequest):
         settings = SegmentationSettings.from_dict(req.settings)
+        structures = [st for st in req.structures if st.get("pos")]
+        if len(structures) > 1:
+            from ..segment import calibrate_multi
+
+            with store.compute_lock:
+                model = calibrate_multi(store.embedding(req.dataset_id, req.channel, req.z, settings),
+                                        [{"name": str(st.get("name", ""))[:60], "pos": st["pos"]} for st in structures], req.neg, settings)
+            ds = store.get(req.dataset_id)
+            prof = Profile.from_multi(model, [str(st.get("color", ""))[:16] for st in structures], name=req.name.strip() or "Structures",
+                                      backbone=settings.backbone, layer_from_end=settings.layer_from_end, settings=settings.to_dict(),
+                                      description=req.description, source=f"{ds.volume.name}, channel {req.channel}, slice {req.z}")
+            pid = store.save_profile(prof)
+            return {"id": pid, **[p for p in store.list_profiles() if p["id"] == pid][0]}
         if not req.pos:
             raise ValueError("A profile needs at least one positive click")
         with store.compute_lock:

@@ -15,7 +15,7 @@ from ..head import segment_with_head
 from ..pipeline import StackRequest, run_stack
 from ..segment import SegmentationSettings, segment_with_prototypes, suggest_click, uncertainty_map
 from .context import AppContext, attachment
-from .models import MultiSegmentRequest, SegmentRequest, StackJobRequest
+from .models import MultiSegmentRequest, SegmentRequest, StackJobRequest, StructureSpec
 
 
 def router(ctx: AppContext) -> APIRouter:
@@ -91,10 +91,17 @@ def router(ctx: AppContext) -> APIRouter:
         t0 = time.time()
         ds = store.get(ds_id)
         settings = SegmentationSettings.from_dict(req.settings)
+        from ..segment import MultiResult, apply_multi
+
         classes = [{"name": st.name, "pos": st.pos} for st in req.structures if st.pos]
+        model, prof = ctx.multi_profile_model(req.profile_id, settings)
         with store.compute_lock:
             emb = store.embedding(ds_id, req.channel, req.z, settings)
-            res = segment_multi(emb, classes, req.neg, settings, ds.volume.pixel_um)
+            if model is not None:
+                res = MultiResult(labels=apply_multi(emb, model, settings, ds.volume.pixel_um), thresholds=model.thresholds, names=model.names)
+                req.structures = [StructureSpec(name=st["name"], color=st.get("color") or "#00c8f0", pos=[(0, 0)]) for st in prof.structures]
+            else:
+                res = segment_multi(emb, classes, req.neg, settings, ds.volume.pixel_um)
         roi = store.roi_mask(ds_id)
         labels = np.where(roi, res.labels, 0).astype(np.uint8) if roi is not None else res.labels
         img = store.plane(ds_id, req.channel, req.z, settings.clip_low, settings.clip_high)
@@ -165,13 +172,14 @@ def router(ctx: AppContext) -> APIRouter:
             raise ValueError("The slice range is empty")
         ref_z = req.ref_z if req.ref_z is not None else z_list[0]
         structures = [st for st in req.structures if st.get("pos")]
-        if len(structures) > 1:
+        profile_model, _ = ctx.multi_profile_model(req.profile_id, settings)
+        if len(structures) > 1 or profile_model is not None:
             from ..pipeline import run_stack_multi
             from ..segment import calibrate_multi
 
             with store.compute_lock:
-                model = calibrate_multi(store.embedding(ds_id, req.channel, ref_z, settings),
-                                        [{"name": str(st.get("name", "Structure"))[:60], "pos": st["pos"]} for st in structures], req.neg, settings)
+                model = profile_model or calibrate_multi(store.embedding(ds_id, req.channel, ref_z, settings),
+                                                         [{"name": str(st.get("name", "Structure"))[:60], "pos": st["pos"]} for st in structures], req.neg, settings)
             c = req.channel
 
             def work_multi(job):

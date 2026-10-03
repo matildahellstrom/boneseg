@@ -401,6 +401,7 @@ class Store:
             try:
                 prof = Profile.load(p)
                 out.append({"id": p.stem, "name": prof.name, "backbone": prof.backbone, "description": prof.description, "kind": prof.kind,
+                            "structures": [{"name": st["name"], "color": st.get("color", "")} for st in prof.structures] if prof.structures else None,
                             "vit_size": prof.head["vit_size"] if prof.head else None,
                             "source": prof.source, "n_pos": int(len(prof.pos)), "n_neg": int(len(prof.neg)),
                             "settings": prof.settings})

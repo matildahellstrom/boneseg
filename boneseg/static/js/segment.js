@@ -14,6 +14,8 @@ async function runSegment() {
   if (!S.ds) return;
   const p = pts();
   const profile = $("profileSelect").value || null;
+  const profKind = S.profiles.find((pp) => pp.id === profile)?.kind;
+  if (S.method === "clicks" && profKind === "structures") { runMulti(profile); return; }
   if (S.method === "clicks" && !profile && isMulti()) { runMulti(); return; }
   if (S.method === "clicks" && !p.pos.length && !profile) { toast("Click the structure you want first, or pick a profile"); return; }
   const seq = ++S.seq;
@@ -81,15 +83,15 @@ function showResults(out) {
   $("timing").textContent = `Threshold ${out.threshold.toFixed(3)} (${src}) · features ${out.timing.embed_s.toFixed(2)} s · total ${out.timing.total_s.toFixed(2)} s`;
 }
 
-async function runMulti() {
+async function runMulti(profileId = null) {
   const p = pts();
-  const structures = S.structures.map((st, k) => ({ name: st.name, color: st.color, pos: posList(p, k) }));
-  if (!structures.some((st) => st.pos.length)) { toast("Click examples of at least one structure"); return; }
+  const structures = profileId ? [] : S.structures.map((st, k) => ({ name: st.name, color: st.color, pos: posList(p, k) }));
+  if (!profileId && !structures.some((st) => st.pos.length)) { toast("Click examples of at least one structure"); return; }
   const seq = ++S.seq;
   busy(true, "Segmenting structures…");
   try {
     const out = await api(`/api/datasets/${S.ds.id}/segment_multi`, {
-      method: "POST", body: { channel: S.c, z: S.z, structures, neg: p.neg, settings: settings() },
+      method: "POST", body: { channel: S.c, z: S.z, structures, neg: p.neg, settings: settings(), profile_id: profileId },
     });
     if (seq !== S.seq) return;
     S.layers.mask = await loadImage(out.labels_png);

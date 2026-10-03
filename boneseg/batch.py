@@ -41,6 +41,7 @@ def run_batch(files: list[str | Path], profile: Profile, channel: int, out_dir: 
         settings = SegmentationSettings.from_dict({**settings.to_dict(), "vit_size": head.vit_size})
     backbone = get_backbone(settings.backbone)
     pos, neg = profile.tensors()
+    multi = profile.multi_model() if profile.structures else None
     rows = []
     for f in files:
         f = Path(f)
@@ -61,6 +62,20 @@ def run_batch(files: list[str | Path], profile: Profile, channel: int, out_dir: 
                     planes[z] = bio.normalize_plane(vol.get_plane(channel, z), settings.clip_low, settings.clip_high)
                 return planes[z]
 
+            if multi is not None:
+                from .pipeline import run_stack_multi
+
+                out = run_stack_multi(zs, None, multi, settings, get_embedding=lambda z: embed_image(backbone, image(z), settings),
+                                      get_image=image, voxel_um=vol.voxel_um, out_dir=target)
+                s = out["summary"]
+                row = {"file": f.name, "status": "ok", "seconds": round(time.time() - t0, 1), "n_slices": s["n_slices"]}
+                for name, st in s["structures"].items():
+                    row.update({f"{name}_volume_um3": st.get("volume_um3"), f"{name}_n_objects_3d": st.get("n_objects_3d"),
+                                f"{name}_mean_area_fraction": st.get("mean_area_fraction")})
+                row.update({k: v for k, v in (s.get("histomorphometry") or {}).items() if k not in ("bone", "cells")})
+                log(f"{f.name}: {s['n_slices']} slices, structures {', '.join(s['structures'])} ({row['seconds']} s)")
+                rows.append(row)
+                continue
             out = run_stack(StackRequest(z_list=zs, ref_z=None), pos, neg, settings, profile.raw_threshold,
                             get_embedding=lambda z: embed_image(backbone, image(z), settings), get_image=image,
                             get_reference=(lambda z: vol.get_plane(reference, z) > 0) if reference is not None else (lambda z: None),

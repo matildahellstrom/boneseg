@@ -9,7 +9,7 @@ async function refreshProfiles(selectId) {
   const sel = $("profileSelect");
   const current = selectId ?? sel.value;
   sel.innerHTML = `<option value="">None, use my clicks</option>` +
-    S.profiles.map((p) => `<option value="${esc(p.id)}" title="${esc(p.description || p.source)}">${esc(p.name)} · ${p.kind === "learned" ? "learned model" : esc(p.backbone)}</option>`).join("");
+    S.profiles.map((p) => `<option value="${esc(p.id)}" title="${esc(p.description || p.source)}">${esc(p.name)} · ${p.kind === "learned" ? "learned model" : p.kind === "structures" ? `${p.structures.length} structures` : esc(p.backbone)}</option>`).join("");
   sel.value = S.profiles.some((p) => p.id === current) ? current : "";
   $("deleteProfileBtn").classList.toggle("hidden", !sel.value);
   $("downloadProfileBtn").classList.toggle("hidden", !sel.value);
@@ -21,11 +21,12 @@ async function saveProfile() {
   if (!name) { toast("Give the profile a name"); return; }
   const p = pts();
   try {
+    const structures = isMulti() ? S.structures.map((st, k) => ({ name: st.name, color: st.color, pos: posList(p, k) })) : [];
     const prof = S.profileFromHead
       ? await api(`/api/datasets/${S.ds.id}/head/export`, { method: "POST", body: { channel: S.c, name, description: $("profileDesc").value } })
       : await api("/api/profiles", {
         method: "POST",
-        body: { name, description: $("profileDesc").value, dataset_id: S.ds.id, channel: S.c, z: S.z, pos: p.pos, neg: p.neg, settings: settings() },
+        body: { name, description: $("profileDesc").value, dataset_id: S.ds.id, channel: S.c, z: S.z, pos: p.pos, neg: p.neg, settings: settings(), structures },
       });
     $("profileDialog").close();
     toast(`Saved profile ${prof.name}`);
@@ -38,9 +39,11 @@ async function saveProfile() {
 async function runStack() {
   const p = pts();
   const profile = $("profileSelect").value || null;
+  const profKind = S.profiles.find((pp) => pp.id === profile)?.kind;
   const multi = S.method === "clicks" && !profile && isMulti();
   const structures = multi ? S.structures.map((st, k) => ({ name: st.name, color: st.color, pos: posList(p, k) })) : [];
   if (S.method === "clicks" && !p.pos.length && !profile && !multi) { toast("Click the structure on this slice first, or pick a profile"); return; }
+  if (profKind === "structures") structures.length = 0;  // The profile supplies the structures
   try {
     const job = await api(`/api/datasets/${S.ds.id}/stack`, {
       method: "POST",

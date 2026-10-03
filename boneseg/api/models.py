@@ -31,6 +31,7 @@ class StackJobRequest(BaseModel):
 
 
 class ProfileRequest(BaseModel):
+    structures: list[dict] = Field(default_factory=list)  # Two or more saves a multi-structure profile
     name: str
     description: str = ""
     dataset_id: str
@@ -58,7 +59,8 @@ class StructureSpec(BaseModel):
 class MultiSegmentRequest(BaseModel):
     channel: int = 0
     z: int = 0
-    structures: list[StructureSpec]
+    profile_id: str | None = None  # A multi-structure profile, used instead of clicks
+    structures: list[StructureSpec] = Field(default_factory=list)
     neg: list[tuple[float, float]] = Field(default_factory=list)
     settings: dict = Field(default_factory=dict)
     max_side: int = 1600

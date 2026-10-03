@@ -242,3 +242,34 @@ def test_stack_with_two_structures_in_browser(page, server):
     assert "Object" in text and "Bone matrix" in text and "objects in 3D" in text
     assert "labels.tif" in page.inner_text("#jobDownloads")
     assert not page.errors, page.errors
+
+
+def test_multi_structure_profile_in_browser(page, server):
+    url, data = server
+    stack = open_demo(page, url, data)
+    page.on("dialog", lambda d: d.accept("Bone matrix"))
+    click_cells(page, stack)
+    wait_result(page)
+    page.click(".struct.add")
+    page.wait_for_function("S.structures.length === 2", timeout=5000)
+    bone = ndi.gaussian_filter(stack[6, 0].astype(float), 3)
+    rng = np.random.default_rng(2)
+    hi = np.argwhere((bone > np.percentile(bone, 85)) & ~ndi.binary_dilation(stack[6, 2] > 0, iterations=10))
+    for y, x in hi[rng.choice(len(hi), 4, replace=False)]:
+        click_full(page, y, x)
+    page.wait_for_function("S.result && S.result.multi && document.querySelector('#busy').classList.contains('hidden')", timeout=30000)
+    page.click("#saveProfileBtn")
+    page.fill("#profileName", "Cells and bone")
+    page.click("#profileSaveConfirm")
+    page.wait_for_function("S.profiles.some(p => p.kind === 'structures')", timeout=10000)
+    # A fresh dataset, no clicks: picking the profile brings both structures
+    page.evaluate("api('/api/datasets/demo', {method: 'POST'}).then(d => refreshDatasets(d.id))")
+    page.wait_for_function("S.ds && S.base && Object.keys(S.points).length === 0", timeout=20000)
+    page.select_option("#backboneSelect", "classic")
+    pid = page.evaluate("S.profiles.find(p => p.kind === 'structures').id")
+    page.select_option("#profileSelect", pid)
+    page.wait_for_function("S.result && S.result.multi && document.querySelector('#busy').classList.contains('hidden')", timeout=30000)
+    assert page.evaluate("S.structures.map(s => s.name)") == ["Object", "Bone matrix"]
+    cards = page.inner_text("#statCards")
+    assert "Object" in cards and "Bone matrix" in cards
+    assert not page.errors, page.errors

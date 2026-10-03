@@ -495,3 +495,39 @@ def test_project_export(client):
     assert any(n.endswith("/slices.csv") for n in names) and not any(n.endswith(".tif") for n in names)
     with_masks = zipfile.ZipFile(io.BytesIO(client.get(f"/api/datasets/{did}/export/project.zip", params={"include_masks": True}).content)).namelist()
     assert any(n.endswith("masks.tif") for n in with_masks)
+
+
+def test_multi_structure_profile(client, tmp_path):
+    ds, gt, centers = upload_stack(client, n_z=2, with_reference=False)
+    ys, xs = np.nonzero(~ndi_dilate(gt))
+    other = [[int(ys[i]), int(xs[i])] for i in np.linspace(0, len(ys) - 1, 4).astype(int)]
+    structures = [{"name": "cells", "color": "#ff8800", "pos": [list(c) for c in centers[:3]]}, {"name": "bone matrix", "color": "#00ff88", "pos": other}]
+    r = client.post("/api/profiles", json={"name": "Two things", "dataset_id": ds["id"], "channel": 0, "z": 0, "pos": [],
+                                           "neg": bg_points(gt)[:3], "structures": structures, "settings": SETTINGS})
+    assert r.status_code == 200, r.text
+    prof = r.json()
+    assert prof["kind"] == "structures" and [s["name"] for s in prof["structures"]] == ["cells", "bone matrix"]
+    # Another dataset, no clicks: segment and run the stack with the profile
+    ds2, _, _ = upload_stack(client, n_z=2, with_reference=False)
+    r = client.post(f"/api/datasets/{ds2['id']}/segment_multi", json={"channel": 0, "z": 1, "profile_id": prof["id"], "settings": SETTINGS})
+    assert r.status_code == 200, r.text
+    assert [s["name"] for s in r.json()["structures"]] == ["cells", "bone matrix"]
+    job = client.post(f"/api/datasets/{ds2['id']}/stack", json={"channel": 0, "profile_id": prof["id"], "settings": SETTINGS}).json()
+    for _ in range(100):
+        job = client.get(f"/api/jobs/{job['id']}").json()
+        if job["status"] in ("done", "failed"):
+            break
+        time.sleep(0.05)
+    assert job["status"] == "done" and set(job["result"]["summary"]["structures"]) == {"cells", "bone matrix"}
+    assert "histomorphometry" in job["result"]["summary"]
+    # Using it as a single-structure profile gives a clear error
+    r = client.post(f"/api/datasets/{ds2['id']}/segment", json={"channel": 0, "z": 0, "profile_id": prof["id"], "settings": SETTINGS})
+    assert r.status_code == 400 and "several structures" in r.json()["detail"]
+    # Batch from the command line
+    from boneseg.__main__ import main
+    root = client.app.state.store.root
+    src = next((root / "datasets" / ds2["id"]).glob("*.tif"))
+    main(["batch", str(src), "--profile", prof["id"], "--channel", "0", "--out", str(tmp_path / "o"), "--data-dir", str(root)])
+    import pandas as pd
+    out = pd.read_csv(tmp_path / "o" / "summary.csv")
+    assert out["status"].iloc[0] == "ok" and "cells_volume_um3" in out and "Oc.Pm/B.Pm_%" in out
