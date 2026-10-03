@@ -45,6 +45,15 @@ def gray_png(plane01: np.ndarray, max_side: int = 1600, gamma: float = 1.0) -> b
     return to_png_bytes(_resize(img, display_shape(*plane01.shape, max_side)))
 
 
+def composite_png(base01: np.ndarray, overlay01: np.ndarray, color=(255, 0, 255), max_side: int = 1600, strength: float = 0.8) -> bytes:
+    """The base channel in grey with a second channel added on top in colour, for display only."""
+    shape = display_shape(*base01.shape, max_side)
+    b = np.asarray(_resize(Image.fromarray((np.clip(base01, 0, 1) * 255).astype(np.uint8), "L"), shape)).astype(np.float32) / 255
+    o = np.asarray(_resize(Image.fromarray((np.clip(overlay01, 0, 1) * 255).astype(np.uint8), "L"), shape)).astype(np.float32) / 255
+    rgb = np.repeat(b[..., None], 3, -1) + strength * o[..., None] * (np.array(color, np.float32) / 255)
+    return to_png_bytes(Image.fromarray((np.clip(rgb, 0, 1) * 255).astype(np.uint8), "RGB"))
+
+
 def heat_png(heat01: np.ndarray, max_side: int = 1600, alpha: int = 255) -> bytes:
     shape = display_shape(*heat01.shape, max_side)
     small = np.asarray(_resize(Image.fromarray((np.clip(heat01, 0, 1) * 255).astype(np.uint8), "L"), shape))

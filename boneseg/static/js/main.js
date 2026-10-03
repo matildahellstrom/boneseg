@@ -35,6 +35,18 @@ function bind() {
   $("zSlider").oninput = (e) => { S.z = +e.target.value; $("zValue").textContent = S.z; };
   $("zSlider").onchange = () => loadPlane();
   $("zPrev").onclick = () => stepZ(-1);
+  // A second channel on top only changes the picture; the current result stays
+  const redrawBase = async () => {
+    if (!S.ds) return;
+    const ov = $("overlaySelect").value;
+    try {
+      S.base = await loadImage(`/api/datasets/${S.ds.id}/plane?c=${S.c}&z=${S.z}&low=${S.low}&high=${S.high}`
+        + (ov !== "" && +ov !== S.c ? `&overlay=${ov}&color=${$("overlayColor").value.slice(1)}` : ""));
+      draw();
+    } catch (e) { toast(e.message, true); }
+  };
+  $("overlaySelect").onchange = redrawBase;
+  $("overlayColor").onchange = redrawBase;
   $("zNext").onclick = () => stepZ(1);
   const contrast = () => { S.low = +$("lowSlider").value; S.high = +$("highSlider").value; rememberSettings(); loadPlane(); };
   $("lowSlider").onchange = contrast;

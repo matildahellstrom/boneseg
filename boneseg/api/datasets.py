@@ -113,9 +113,17 @@ def router(ctx: AppContext) -> APIRouter:
         return {"ok": True}
 
     @r.get("/api/datasets/{ds_id}/plane")
-    def plane(ds_id: str, c: int = 0, z: int = 0, low: float = 1.0, high: float = 99.5, max_side: int = 1600, gamma: float = 1.0):
+    def plane(ds_id: str, c: int = 0, z: int = 0, low: float = 1.0, high: float = 99.5, max_side: int = 1600, gamma: float = 1.0,
+              overlay: int | None = None, color: str = "ff00ff"):
+        """A slice for display. With overlay, a second channel is added on top in colour."""
         p = store.plane(ds_id, c, z, low, high)
-        return Response(render.gray_png(p, max_side, gamma), media_type="image/png", headers={"Cache-Control": "max-age=3600"})
+        if overlay is not None and overlay != c:
+            hexc = color.lstrip("#")
+            rgb = tuple(int(hexc[i:i + 2], 16) for i in (0, 2, 4)) if len(hexc) == 6 else (255, 0, 255)
+            png = render.composite_png(p ** gamma if gamma != 1 else p, store.plane(ds_id, overlay, z, low, high), rgb, max_side)
+        else:
+            png = render.gray_png(p, max_side, gamma)
+        return Response(png, media_type="image/png", headers={"Cache-Control": "max-age=3600"})
 
     @r.get("/api/datasets/{ds_id}/xz")
     def side_view(ds_id: str, c: int = 0, y: int = 0, job_id: str | None = None, low: float = 1.0, high: float = 99.5, max_width: int = 1600,

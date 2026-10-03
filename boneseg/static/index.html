@@ -41,6 +41,9 @@
       <section id="viewSection" class="disabled-until-data">
         <h2>2. View</h2>
         <label>Channel <select id="channelSelect"></select></label>
+        <label class="small">Show a second channel on top
+          <span class="row"><select id="overlaySelect"><option value="">None</option></select><input type="color" id="overlayColor" value="#ff00ff" aria-label="Colour of the second channel" style="width:44px;padding:2px"></span>
+        </label>
         <label>Slice <span class="value" id="zValue">0</span>
           <input type="range" id="zSlider" min="0" max="0" value="0">
         </label>

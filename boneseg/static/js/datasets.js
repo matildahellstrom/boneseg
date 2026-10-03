@@ -50,6 +50,7 @@ async function openDataset(id) {
   const rs = $("refSelect");
   rs.innerHTML = `<option value="">None</option>` + d.channel_names.map((n, i) => `<option value="${i}">${i}: ${esc(n)}</option>`).join("");
   rs.value = d.reference_channel ?? "";
+  $("overlaySelect").innerHTML = `<option value="">None</option>` + d.channel_names.map((n, i) => `<option value="${i}">${i}: ${esc(n)}</option>`).join("");
   $("refHint").textContent = d.reference_channel != null
     ? (d.reference_guessed ? "Guessed from the channel name. Every result is scored against it." : "Every result is scored against this expert mask.")
     : "Pick a channel that holds an expert mask to score results with Dice.";
@@ -90,7 +91,9 @@ async function loadPlane(fit = false) {
   $("zSlider").value = S.z;
   $("zValue").textContent = `${S.z} / ${S.ds.n_z - 1}${S.ds.voxel_size_known ? ` · ${(S.z * S.ds.voxel_um[0]).toFixed(1)} µm` : ""}`;
   $("contrastValue").textContent = `${S.low}–${S.high}%`;
-  const url = `/api/datasets/${S.ds.id}/plane?c=${S.c}&z=${S.z}&low=${S.low}&high=${S.high}`;
+  const ov = $("overlaySelect").value;
+  const url = `/api/datasets/${S.ds.id}/plane?c=${S.c}&z=${S.z}&low=${S.low}&high=${S.high}`
+    + (ov !== "" && +ov !== S.c ? `&overlay=${ov}&color=${$("overlayColor").value.slice(1)}` : "");
   canvas.setAttribute("aria-label", `${S.ds.name}, channel ${S.c} (${S.ds.channel_names[S.c]}), slice ${S.z} of ${S.ds.n_z - 1}. Click to add points.`);
   busy(true, "Loading slice…");
   try {

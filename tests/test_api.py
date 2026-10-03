@@ -672,3 +672,14 @@ def test_histomorphometry_stack_across_channels(client):
     assert client.get(f"/api/jobs/{job['id']}/files/histomorphometry.csv").text.startswith("z,")
     row = [r for r in client.get("/api/study", params={"metric": "Oc.Pm/B.Pm_%"}).json()["rows"] if r["dataset_id"] == did][0]
     assert row["Oc.Pm/B.Pm_%"] == pytest.approx(hm["Oc.Pm/B.Pm_%"])
+
+
+def test_plane_with_second_channel(client):
+    from PIL import Image
+
+    ds, gt, _ = upload_stack(client, n_z=1)
+    grey = Image.open(io.BytesIO(client.get(f"/api/datasets/{ds['id']}/plane", params={"c": 0, "z": 0}).content))
+    both = Image.open(io.BytesIO(client.get(f"/api/datasets/{ds['id']}/plane", params={"c": 0, "z": 0, "overlay": 1, "color": "00ff00"}).content))
+    assert grey.mode == "L" and both.mode == "RGB"
+    arr = np.asarray(both).astype(int)
+    assert (arr[..., 1] - arr[..., 0]).max() > 50   # Green where the second channel is bright
