@@ -1079,6 +1079,7 @@ async function init() {
   try {
     S.health = await api("/api/health");
     $("version").textContent = `v${S.health.version}`;
+    if (!S.health.allow_paths) $("pathInput").closest("details").classList.add("hidden");
     $("devicePill").textContent = `Runs on ${S.health.device.toUpperCase()}`;
     $("backboneSelect").innerHTML = S.health.backbones.map((b) => `<option value="${b.id}">${b.label}${b.ready ? "" : " · downloads on first use"}</option>`).join("");
     const d = S.health.default_settings;

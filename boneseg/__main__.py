@@ -14,6 +14,8 @@ def main(argv=None):
     serve.add_argument("--port", type=int, default=8000)
     serve.add_argument("--data-dir", default=os.environ.get("BONESEG_DATA_DIR", "projects"))
     serve.add_argument("--open", action="store_true", help="Open the app in the browser")
+    serve.add_argument("--allow-paths", action="store_true",
+                       help="Allow opening files by path even when listening on the network (on by default for 127.0.0.1)")
     batch = sub.add_parser("batch", help="Segment many files with a saved profile")
     batch.add_argument("files", nargs="+", help="Microscopy files")
     batch.add_argument("--profile", required=True, help="Profile id from the app, or a path to its .npz file")
@@ -48,7 +50,10 @@ def main(argv=None):
 
         from .api import create_app
 
-        app = create_app(args.data_dir)
+        local = args.host in ("127.0.0.1", "localhost", "::1")
+        app = create_app(args.data_dir, allow_paths=local or args.allow_paths)
+        if not local and not args.allow_paths:
+            print("Listening on the network: opening files by path is off. Users can still upload files.")
         if args.open:
             webbrowser.open(f"http://{args.host}:{args.port}")
         uvicorn.run(app, host=args.host, port=args.port)

@@ -111,7 +111,9 @@ class MetaRequest(BaseModel):
     voxel_um_override: tuple[float, float, float] | None = None  # (z, y, x) in micrometres
 
 
-def create_app(data_dir: str | Path | None = None) -> FastAPI:
+def create_app(data_dir: str | Path | None = None, allow_paths: bool = True) -> FastAPI:
+    """allow_paths lets clients open files by path on the server. Keep it off when the app is reachable
+    from other computers, since it would let anyone read files the server can read."""
     data_dir = Path(data_dir or os.environ.get("BONESEG_DATA_DIR", "projects"))
     store = Store(data_dir)
     app = FastAPI(title="boneseg", version=__version__)
@@ -141,6 +143,7 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
         return {
             "version": __version__,
             "device": str(pick_device()),
+            "allow_paths": allow_paths,
             "default_settings": SegmentationSettings().to_dict(),
             "backbones": [{"id": k, "label": v, "ready": dino_weights_cached(k)} for k, v in BACKBONE_LABELS.items()],
         }
@@ -169,6 +172,8 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
 
     @app.post("/api/datasets/from-path")
     def from_path(req: PathRequest):
+        if not allow_paths:
+            raise HTTPException(403, "Opening files by path is turned off on this server. Upload the file, or restart with --allow-paths")
         try:
             return store.add_dataset_path(req.path).info()
         except FileNotFoundError as e:

@@ -270,3 +270,13 @@ def test_report(client):
         assert text in page, text
     r = client.get(f"/api/datasets/{did}/report", params={"c": 0, "z": 1, "download": True})
     assert "attachment" in r.headers["content-disposition"]
+
+
+def test_open_by_path_can_be_disabled(tmp_path):
+    np.save(tmp_path / "a.npy", np.zeros((20, 20), np.float32))
+    on = TestClient(create_app(tmp_path / "d1"))
+    assert on.post("/api/datasets/from-path", json={"path": str(tmp_path / "a.npy")}).status_code == 200
+    assert on.post("/api/datasets/from-path", json={"path": str(tmp_path / "nope.npy")}).status_code == 404
+    off = TestClient(create_app(tmp_path / "d2", allow_paths=False))
+    assert off.post("/api/datasets/from-path", json={"path": str(tmp_path / "a.npy")}).status_code == 403
+    assert off.get("/api/health").json()["allow_paths"] is False
