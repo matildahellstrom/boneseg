@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import threading
 import time
@@ -20,9 +21,14 @@ from .segment import Embedding, Profile, SegmentationSettings, embed_image
 
 
 class LRU:
-    def __init__(self, max_items: int):
+    """Least-recently-used cache, bounded by item count and optionally by total size in bytes."""
+
+    def __init__(self, max_items: int, max_bytes: int | None = None, size_of: Callable | None = None):
         self.max_items = max_items
+        self.max_bytes = max_bytes
+        self.size_of = size_of or (lambda v: 0)
         self.data: OrderedDict = OrderedDict()
+        self.bytes = 0
         self.lock = threading.Lock()
 
     def get(self, key):
@@ -32,17 +38,28 @@ class LRU:
                 return self.data[key]
         return None
 
+    def __contains__(self, key):
+        with self.lock:
+            return key in self.data
+
     def put(self, key, value):
         with self.lock:
+            if key in self.data:
+                self.bytes -= self.size_of(self.data.pop(key))
             self.data[key] = value
-            self.data.move_to_end(key)
-            while len(self.data) > self.max_items:
-                self.data.popitem(last=False)
+            self.bytes += self.size_of(value)
+            while len(self.data) > 1 and (len(self.data) > self.max_items or (self.max_bytes and self.bytes > self.max_bytes)):
+                _, old = self.data.popitem(last=False)
+                self.bytes -= self.size_of(old)
 
     def drop(self, pred: Callable):
         with self.lock:
             for k in [k for k in self.data if pred(k)]:
-                del self.data[k]
+                self.bytes -= self.size_of(self.data.pop(k))
+
+
+def _embedding_bytes(emb) -> int:
+    return int(emb.grid.numel() * emb.grid.element_size())
 
 
 @dataclass
@@ -92,9 +109,10 @@ class Store:
         (self.root / "jobs").mkdir(parents=True, exist_ok=True)
         self.datasets: dict[str, Dataset] = {}
         self.planes = LRU(64)
-        self.embeddings = LRU(48)
+        # Features are the expensive part; the budget is in bytes because Giant features are four times Small ones
+        self.embeddings = LRU(256, max_bytes=int(float(os.environ.get("BONESEG_CACHE_GB", "2")) * 1e9), size_of=_embedding_bytes)
+        self._prefetching: set = set()
         self.jobs: dict[str, Job] = {}
-        self._embed_locks: dict = {}
         self._lock = threading.Lock()
         # One model computation at a time: GPU backends such as Apple MPS crash when used from several threads at once
         self.compute_lock = threading.RLock()
@@ -203,17 +221,16 @@ class Store:
         return p
 
     def embedding(self, ds_id: str, c: int, z: int, s: SegmentationSettings) -> Embedding:
-        key = (ds_id, c, z, s.backbone, s.vit_size, s.layer_from_end, s.clip_low, s.clip_high)
+        key = self.embedding_key(ds_id, c, z, s)
         emb = self.embeddings.get(key)
         if emb is not None:
             return emb
-        with self._lock:
-            lock = self._embed_locks.setdefault(key, threading.Lock())
-        with lock:
+        # One lock for all model work. Callers may already hold it (it is re-entrant); a second,
+        # per-slice lock here once deadlocked against the background prefetch.
+        with self.compute_lock:
             emb = self.embeddings.get(key)
             if emb is None:
-                with self.compute_lock:
-                    emb = embed_image(get_backbone(s.backbone), self.plane(ds_id, c, z, s.clip_low, s.clip_high), s)
+                emb = embed_image(get_backbone(s.backbone), self.plane(ds_id, c, z, s.clip_low, s.clip_high), s)
                 self.embeddings.put(key, emb)
         return emb
 
@@ -234,6 +251,31 @@ class Store:
             m[rr, cc] = True
             self.planes.put(key, m)
         return m
+
+    def embedding_key(self, ds_id, c, z, s: SegmentationSettings):
+        return (ds_id, c, z, s.backbone, s.vit_size, s.layer_from_end, s.clip_low, s.clip_high)
+
+    def prefetch(self, ds_id: str, c: int, zs: list[int], s: SegmentationSettings):
+        """Computes features for the given slices in the background, so moving to them is instant.
+        Takes the model lock per slice, so interactive requests can slip in between."""
+        n_z = self.get(ds_id).volume.n_z
+        todo = [z for z in zs if 0 <= z < n_z and self.embedding_key(ds_id, c, z, s) not in self.embeddings
+                and (ds_id, c, z) not in self._prefetching]
+        if not todo:
+            return
+
+        def run():
+            for z in todo:
+                self._prefetching.add((ds_id, c, z))
+                try:
+                    if ds_id in self.datasets:
+                        self.embedding(ds_id, c, z, s)
+                except Exception:
+                    traceback.print_exc()
+                finally:
+                    self._prefetching.discard((ds_id, c, z))
+
+        threading.Thread(target=run, daemon=True).start()
 
     def reference_mask(self, ds_id: str, z: int, c: int | None = None) -> np.ndarray | None:
         """The expert mask for slice z: the reference channel if one is set, otherwise a label the user

@@ -240,3 +240,14 @@ def test_batch_cli(tmp_path):
     assert summary["status"].tolist()[:2] == ["ok", "ok"] and summary["status"].iloc[2].startswith("failed")
     assert summary["mean_dice_vs_reference"].iloc[:2].min() > 0.5
     assert (tmp_path / "out" / "s0" / "masks.tif").exists()
+
+
+def test_lru_byte_budget():
+    from boneseg.store import LRU
+
+    cache = LRU(100, max_bytes=250, size_of=len)
+    for k in "abc":
+        cache.put(k, "x" * 100)
+    assert "a" not in cache and "b" in cache and "c" in cache and cache.bytes == 200
+    cache.put("c", "x" * 10)
+    assert cache.bytes == 110

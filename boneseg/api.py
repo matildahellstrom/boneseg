@@ -309,6 +309,8 @@ def create_app(data_dir: str | Path | None = None, allow_paths: bool = True) -> 
             sug = suggest_click(u, list(req.pos) + list(req.neg))
             out["suggestion"] = list(sug) if sug else None
         out["timing"]["total_s"] = round(time.time() - t0, 3)
+        # Neighbouring slices next, so stepping through the stack stays fast
+        store.prefetch(ds_id, req.channel, [req.z + 1, req.z - 1, req.z + 2, req.z - 2], settings)
         # Remembered for the report
         res.extra.update({"settings": settings.to_dict(), "method": req.method, "profile_id": req.profile_id, "n_pos": len(req.pos),
                           "n_neg": len(req.neg), "stats": out["stats"], "evaluation": out.get("evaluation"),
