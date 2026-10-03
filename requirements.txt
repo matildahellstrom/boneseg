@@ -1,0 +1,13 @@
+torch>=2.4
+torchvision
+numpy
+scipy
+scikit-image
+pandas
+pillow
+tifffile
+h5py
+imaris-ims-file-reader==0.1.8
+fastapi
+uvicorn[standard]
+python-multipart
