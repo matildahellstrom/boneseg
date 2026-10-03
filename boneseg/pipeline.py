@@ -69,7 +69,9 @@ def run_stack(req: StackRequest, pos: torch.Tensor, neg: torch.Tensor, settings:
         row = {"z": z, "z_um": z * voxel_um[0], "threshold": res.threshold, **quantify.summarize_mask(masks[z], img, pixel_um, roi)}
         ref = get_reference(z)
         if ref is not None:
-            row.update(metrics.compare(masks[z], ref, pixel_um, roi))
+            # HD95 on masks downsampled to at most 2048 px: exact on smaller images, and it halves the
+            # time per slice on 3000 px images, where the distance transforms dominate
+            row.update(metrics.compare(masks[z], ref, pixel_um, roi, hd95_max_side=2048))
         rows.append(row)
     df = pd.DataFrame(rows).sort_values("z").reset_index(drop=True) if rows else pd.DataFrame()
     zs = sorted(masks)
