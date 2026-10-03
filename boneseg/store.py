@@ -207,11 +207,68 @@ class Store:
                 self.embeddings.put(key, emb)
         return emb
 
-    def reference_mask(self, ds_id: str, z: int) -> np.ndarray | None:
+    def reference_mask(self, ds_id: str, z: int, c: int | None = None) -> np.ndarray | None:
+        """The expert mask for slice z: the reference channel if one is set, otherwise a label the user
+        saved for this slice and channel."""
         ref = self.get(ds_id).meta.get("reference_channel")
-        if ref is None:
-            return None
-        return self.raw_plane(ds_id, int(ref), z) > 0
+        if ref is not None:
+            return self.raw_plane(ds_id, int(ref), z) > 0
+        if c is not None:
+            return self.load_label(ds_id, c, z)
+        return None
+
+    # Annotations: clicks, corrected label masks and trained heads -------------------------------
+    def ds_dir(self, ds_id: str) -> Path:
+        self.get(ds_id)
+        return self.root / "datasets" / ds_id
+
+    def get_annotations(self, ds_id: str) -> dict:
+        p = self.ds_dir(ds_id) / "annotations.json"
+        return json.loads(p.read_text()) if p.exists() else {}
+
+    def set_annotation(self, ds_id: str, c: int, z: int, pos: list, neg: list) -> dict:
+        ann = self.get_annotations(ds_id)
+        key = f"{int(c)}:{int(z)}"
+        if pos or neg:
+            ann[key] = {"pos": [[int(round(a)), int(round(b))] for a, b in pos], "neg": [[int(round(a)), int(round(b))] for a, b in neg]}
+        else:
+            ann.pop(key, None)
+        (self.ds_dir(ds_id) / "annotations.json").write_text(json.dumps(ann))
+        return ann
+
+    def label_path(self, ds_id: str, c: int, z: int) -> Path:
+        d = self.ds_dir(ds_id) / "labels"
+        d.mkdir(exist_ok=True)
+        return d / f"c{int(c)}_z{int(z)}.png"
+
+    def save_label(self, ds_id: str, c: int, z: int, mask: np.ndarray):
+        from PIL import Image
+
+        vol = self.get(ds_id).volume
+        if mask.shape != (vol.height, vol.width):
+            mask = np.asarray(Image.fromarray(mask.astype(np.uint8) * 255).resize((vol.width, vol.height), Image.NEAREST)) > 127
+        Image.fromarray(mask.astype(np.uint8) * 255).save(self.label_path(ds_id, c, z))
+
+    def load_label(self, ds_id: str, c: int, z: int) -> np.ndarray | None:
+        from PIL import Image
+
+        p = self.label_path(ds_id, c, z)
+        return np.asarray(Image.open(p)) > 127 if p.exists() else None
+
+    def list_labels(self, ds_id: str) -> list[dict]:
+        out = []
+        for p in sorted((self.ds_dir(ds_id) / "labels").glob("c*_z*.png")) if (self.ds_dir(ds_id) / "labels").exists() else []:
+            c, z = p.stem[1:].split("_z")
+            out.append({"channel": int(c), "z": int(z)})
+        return sorted(out, key=lambda d: (d["channel"], d["z"]))
+
+    def delete_label(self, ds_id: str, c: int, z: int):
+        self.label_path(ds_id, c, z).unlink(missing_ok=True)
+
+    def head_path(self, ds_id: str, c: int) -> Path:
+        d = self.ds_dir(ds_id) / "heads"
+        d.mkdir(exist_ok=True)
+        return d / f"c{int(c)}.pt"
 
     # Profiles ---------------------------------------------------------------------------------
     def profile_path(self, pid: str) -> Path:

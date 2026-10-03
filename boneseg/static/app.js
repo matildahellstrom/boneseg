@@ -21,6 +21,11 @@ const S = {
   seq: 0,
   job: null,
   space: false,
+  method: "clicks",    // "clicks" or "learned"
+  labels: [],          // [{channel, z}] slices with a saved corrected mask
+  head: null,          // Info about the learned model for the current channel
+  editing: false,
+  edit: null,          // Offscreen canvas with the mask being corrected, at display resolution
 };
 
 // ---------------------------------------------------------------------------------------------
@@ -53,6 +58,19 @@ function status(msg) { $("statusbar").textContent = msg; }
 function busy(on, text = "Working…") { $("busy").classList.toggle("hidden", !on); $("busyText").textContent = text; }
 const key = () => `${S.c}:${S.z}`;
 const pts = () => (S.points[key()] ||= { pos: [], neg: [] });
+
+// Clicks are saved on the server per slice, so a reload keeps them
+const saveTimers = {};
+function persistClicks(k = key()) {
+  if (!S.ds) return;
+  clearTimeout(saveTimers[k]);
+  const dsId = S.ds.id;
+  saveTimers[k] = setTimeout(() => {
+    const [c, z] = k.split(":").map(Number);
+    const p = S.points[k] || { pos: [], neg: [] };
+    api(`/api/datasets/${dsId}/annotations`, { method: "PUT", body: { channel: c, z, pos: p.pos, neg: p.neg } }).catch((e) => toast(`Could not save clicks: ${e.message}`, true));
+  }, 400);
+}
 
 function loadImage(src) {
   return new Promise((resolve, reject) => {
@@ -170,7 +188,11 @@ async function openDataset(id) {
   $("zStep").value = Math.max(1, Math.round(d.n_z / 50));
   showEmpty(false);
   $("resultsSection").classList.add("hidden");
+  stopEditing();
+  try { S.points = await api(`/api/datasets/${id}/annotations`); } catch (_) { S.points = {}; }
   await refreshDatasets();
+  await refreshLabels();
+  await refreshHead();
   await loadPlane(true);
 }
 
@@ -188,10 +210,13 @@ async function loadPlane(fit = false) {
   S.result = null;
   $("resultsSection").classList.add("hidden");
   await loadReference();
+  await loadLabelLayer();
+  stopEditing();
   if (fit) fitView();
   updateCounts();
+  renderLabels();
   draw();
-  if (pts().pos.length || $("profileSelect").value) scheduleSegment(0);
+  if (S.method === "learned" || pts().pos.length || $("profileSelect").value) scheduleSegment(0);
 }
 
 async function loadReference() {
@@ -239,13 +264,13 @@ async function runSegment() {
   if (!S.ds) return;
   const p = pts();
   const profile = $("profileSelect").value || null;
-  if (!p.pos.length && !profile) { toast("Click the structure you want first, or pick a profile"); return; }
+  if (S.method === "clicks" && !p.pos.length && !profile) { toast("Click the structure you want first, or pick a profile"); return; }
   const seq = ++S.seq;
   busy(true, S.result ? "Updating…" : "Computing features…");
   try {
     const out = await api(`/api/datasets/${S.ds.id}/segment`, {
       method: "POST",
-      body: { channel: S.c, z: S.z, pos: p.pos, neg: p.neg, profile_id: profile, settings: settings(), uncertainty: $("uncToggle").checked },
+      body: { method: S.method, channel: S.c, z: S.z, pos: p.pos, neg: p.neg, profile_id: profile, settings: settings(), uncertainty: $("uncToggle").checked },
     });
     if (seq !== S.seq) return; // A newer request is on its way
     const [mask, heat, unc] = await Promise.all([
@@ -280,7 +305,7 @@ function showResults(out) {
   $("statCards").innerHTML = cards.map(([k, v]) => `<div class="card"><div class="k">${k}</div><div class="v">${v}</div></div>`).join("");
   const ev = out.evaluation;
   $("evalBox").classList.toggle("hidden", !ev);
-  if (ev) $("evalBox").innerHTML = `<b>Against the reference mask</b><br>Dice ${ev.dice.toFixed(3)} · IoU ${ev.iou.toFixed(3)} · HD95 ${fmt(ev.hd95_um)} µm`;
+  if (ev) $("evalBox").innerHTML = `<b>Against ${ev.against === "your saved label" ? "your saved label" : "the reference mask"}</b><br>Dice ${ev.dice.toFixed(3)} · IoU ${ev.iou.toFixed(3)} · HD95 ${fmt(ev.hd95_um)} µm`;
   const sug = out.suggestion;
   $("suggestionBox").classList.toggle("hidden", !(out.uncertainty_png));
   if (out.uncertainty_png) {
@@ -293,13 +318,14 @@ function showResults(out) {
       $("sugNeg").onclick = () => addPoint("neg", sug[0], sug[1]);
     }
   }
-  const src = { clicks: "from your clicks", "carried over": "from the profile", top_percent: "fixed share", manual: "manual", otsu: "Otsu" }[out.threshold_source] || out.threshold_source;
+  const src = { clicks: "from your clicks", "carried over": "from the profile", "learned (probability 0.5)": "learned model, probability 0.5", top_percent: "fixed share", manual: "manual", otsu: "Otsu" }[out.threshold_source] || out.threshold_source;
   $("timing").textContent = `Threshold ${out.threshold.toFixed(3)} (${src}) · features ${out.timing.embed_s.toFixed(2)} s · total ${out.timing.total_s.toFixed(2)} s`;
 }
 
 function addPoint(kind, y, x) {
   pts()[kind].push([Math.round(y), Math.round(x)]);
   S.history.push({ key: key(), kind });
+  persistClicks();
   updateCounts();
   draw();
   if ($("autoRun").checked) scheduleSegment();
@@ -316,6 +342,7 @@ function removeNearest(y, x) {
   }
   if (!best) return;
   p[best.kind].splice(best.i, 1);
+  persistClicks();
   updateCounts();
   draw();
   if ($("autoRun").checked && (p.pos.length || $("profileSelect").value)) scheduleSegment();
@@ -326,6 +353,7 @@ function undo() {
   if (!h) return;
   const p = S.points[h.key];
   p?.[h.kind].pop();
+  persistClicks(h.key);
   updateCounts();
   draw();
   if ($("autoRun").checked && (pts().pos.length || $("profileSelect").value)) scheduleSegment();
@@ -345,6 +373,7 @@ function autoBackground() {
     pts().neg.push([Math.round(fy * h), Math.round(fx * w)]);
     S.history.push({ key: key(), kind: "neg" });
   }
+  persistClicks();
   updateCounts();
   draw();
   if ($("autoRun").checked && pts().pos.length) scheduleSegment();
@@ -384,13 +413,22 @@ function draw() {
   const layer = (img, alpha) => { if (img) { ctx.globalAlpha = alpha; ctx.drawImage(img, ox, oy, w, h); ctx.globalAlpha = 1; } };
   if ($("showHeat").checked) layer(S.layers.heat, op);
   if ($("showUnc").checked) layer(S.layers.unc, Math.min(1, op + 0.2));
-  if ($("showMask").checked) layer(S.layers.mask, Math.min(1, op + 0.3));
+  if (S.editing && S.edit) layer(S.edit, 0.5);
+  else if ($("showMask").checked) layer(S.layers.mask, Math.min(1, op + 0.3));
   if ($("showRef").checked) layer(S.layers.ref, 0.9);
-  $("zoomLabel").textContent = `${Math.round(scale * fullToDisp() * 100)}% of full size`;
+  if ($("showLabel").checked && !S.editing) layer(S.layers.label, 0.95);
+  $("zoomLabel").textContent = `${Math.round(scale * fullToDisp() * 100)}%`;
 
   const f = fullToDisp();
   const toScreen = ([y, x]) => [ox + x * f * scale, oy + y * f * scale];
-  if ($("showPoints").checked) {
+  if (S.editing && S.brushAt) {
+    ctx.beginPath();
+    ctx.arc(S.brushAt[0], S.brushAt[1], (+$("brush").value / 2) * scale, 0, Math.PI * 2);
+    ctx.strokeStyle = S.brushErase ? "#ff5a6e" : "#ffd84a";
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+  }
+  if ($("showPoints").checked && !S.editing) {
     const p = S.points[key()] || { pos: [], neg: [] };
     for (const [kind, color] of [["pos", "#22d27a"], ["neg", "#ff5a6e"]]) {
       for (const pt of p[kind]) {
@@ -433,6 +471,7 @@ canvas.addEventListener("mousedown", (ev) => {
   if (!S.base) return;
   drag = { x: ev.clientX, y: ev.clientY, ox: S.view.ox, oy: S.view.oy, moved: false, button: ev.button, pan: ev.button === 1 || S.space };
   if (drag.pan) $("viewer").classList.add("panning");
+  if (S.editing && !drag.pan) { drag.paint = true; drag.erase = ev.shiftKey || ev.button === 2; paintAt(ev, drag.erase, null); drag.last = ev; }
 });
 window.addEventListener("mousemove", (ev) => {
   if (S.base && ev.target === canvas) {
@@ -441,7 +480,14 @@ window.addEventListener("mousemove", (ev) => {
       ? `x ${Math.round(x)} · y ${Math.round(y)}${S.ds.voxel_size_known ? ` · ${(x * S.ds.voxel_um[2]).toFixed(1)}, ${(y * S.ds.voxel_um[1]).toFixed(1)} µm` : ""}`
       : "";
   }
+  if (S.editing && ev.target === canvas) {
+    const r = canvas.getBoundingClientRect();
+    S.brushAt = [ev.clientX - r.left, ev.clientY - r.top];
+    S.brushErase = ev.shiftKey;
+    if (!drag) draw();
+  }
   if (!drag) return;
+  if (drag.paint) { paintAt(ev, drag.erase, drag.last); drag.last = ev; return; }
   const dx = ev.clientX - drag.x;
   const dy = ev.clientY - drag.y;
   if (Math.abs(dx) + Math.abs(dy) > 5) drag.moved = true;
@@ -457,6 +503,7 @@ window.addEventListener("mouseup", (ev) => {
   const d = drag;
   drag = null;
   $("viewer").classList.remove("panning");
+  if (d.paint) return;
   if (d.moved || d.pan || ev.target !== canvas) return;
   const p = screenToFull(ev);
   if (!inside(p)) return;
@@ -480,6 +527,143 @@ canvas.addEventListener("wheel", (ev) => {
   draw();
 }, { passive: false });
 window.addEventListener("resize", () => draw());
+
+// ---------------------------------------------------------------------------------------------
+// Correcting masks with a brush, labels and the learned model
+function startEditing() {
+  if (!S.base) return;
+  const w = S.base.naturalWidth, h = S.base.naturalHeight;
+  const c = document.createElement("canvas");
+  c.width = w; c.height = h;
+  const g = c.getContext("2d");
+  // Start from the current mask, or the saved label if there is no result yet
+  const src = S.layers.mask || S.layers.labelFill;
+  if (src) {
+    g.drawImage(src, 0, 0, w, h);
+    const d = g.getImageData(0, 0, w, h);
+    for (let i = 0; i < d.data.length; i += 4) {
+      const on = d.data[i + 3] > 0;
+      d.data[i] = 255; d.data[i + 1] = 216; d.data[i + 2] = 74; d.data[i + 3] = on ? 255 : 0;
+    }
+    g.putImageData(d, 0, 0);
+  }
+  S.edit = c;
+  S.editing = true;
+  $("editBar").classList.remove("hidden");
+  $("viewer").classList.add("editing");
+  draw();
+}
+
+function stopEditing() {
+  S.editing = false;
+  S.edit = null;
+  S.brushAt = null;
+  $("editBar")?.classList.add("hidden");
+  $("viewer")?.classList.remove("editing");
+  draw();
+}
+
+function paintAt(ev, erase, last) {
+  const r = canvas.getBoundingClientRect();
+  const toImg = (e) => [(e.clientX - r.left - S.view.ox) / S.view.scale, (e.clientY - r.top - S.view.oy) / S.view.scale];
+  const g = S.edit.getContext("2d");
+  g.globalCompositeOperation = erase ? "destination-out" : "source-over";
+  g.strokeStyle = g.fillStyle = "rgb(255,216,74)";
+  g.lineCap = "round";
+  g.lineWidth = +$("brush").value;
+  const [x, y] = toImg(ev);
+  g.beginPath();
+  if (last) { const [lx, ly] = toImg(last); g.moveTo(lx, ly); g.lineTo(x, y); g.stroke(); }
+  else { g.arc(x, y, g.lineWidth / 2, 0, Math.PI * 2); g.fill(); }
+  g.globalCompositeOperation = "source-over";
+  draw();
+}
+
+async function saveLabel(fromEdit) {
+  try {
+    const body = { channel: S.c, z: S.z };
+    if (fromEdit && S.edit) body.mask_png = S.edit.toDataURL("image/png");
+    else if (!S.result) { toast("Segment the slice or correct a mask first"); return; }
+    const out = await api(`/api/datasets/${S.ds.id}/labels`, { method: "POST", body });
+    S.labels = out.labels;
+    stopEditing();
+    await loadLabelLayer();
+    renderLabels();
+    draw();
+    toast(`Saved label for slice ${S.z}. ${S.labels.filter((l) => l.channel === S.c).length} labelled on this channel.`);
+  } catch (e) { toast(e.message, true); }
+}
+
+async function loadLabelLayer() {
+  delete S.layers.label;
+  delete S.layers.labelFill;
+  if (!S.ds || !S.labels.some((l) => l.channel === S.c && l.z === S.z)) return;
+  try { S.layers.label = await loadImage(`/api/datasets/${S.ds.id}/labels/png?c=${S.c}&z=${S.z}&t=${Date.now()}`); S.layers.labelFill = S.layers.label; } catch (_) { /* none */ }
+}
+
+async function refreshLabels() {
+  if (!S.ds) return;
+  try { S.labels = await api(`/api/datasets/${S.ds.id}/labels`); } catch (_) { S.labels = []; }
+  renderLabels();
+}
+
+function renderLabels() {
+  const mine = S.labels.filter((l) => l.channel === S.c);
+  const box = $("labelList");
+  box.innerHTML = mine.length ? "" : `<span class="muted small">No labels on this channel yet.</span>`;
+  for (const l of mine) {
+    const b = document.createElement("button");
+    b.className = "chip" + (l.z === S.z ? " active" : "");
+    b.innerHTML = `z ${l.z}<span class="x" title="Delete label">✕</span>`;
+    b.onclick = async (e) => {
+      if (e.target.classList.contains("x")) {
+        if (!confirm(`Delete the label on slice ${l.z}?`)) return;
+        S.labels = (await api(`/api/datasets/${S.ds.id}/labels?c=${S.c}&z=${l.z}`, { method: "DELETE" })).labels;
+        await loadLabelLayer(); renderLabels(); draw();
+        return;
+      }
+      S.z = l.z; loadPlane();
+    };
+    box.appendChild(b);
+  }
+  $("trainBtn").disabled = !mine.length;
+  $("trainBtn").textContent = mine.length ? `Train model on ${mine.length} label${mine.length > 1 ? "s" : ""}` : "Train model";
+}
+
+async function refreshHead() {
+  S.head = null;
+  if (S.ds) { try { S.head = (await api(`/api/datasets/${S.ds.id}/head?c=${S.c}`)) || null; } catch (_) { S.head = null; } }
+  $("methodLearned").disabled = !S.head;
+  if (!S.head && S.method === "learned") setMethod("clicks");
+  showHeadInfo();
+}
+
+function showHeadInfo() {
+  const h = S.head;
+  if (!h) { $("trainResult").textContent = ""; return; }
+  const cv = h.cv[h.cv.chosen];
+  $("trainResult").innerHTML = `Model trained on ${h.trained_on.length} slice${h.trained_on.length > 1 ? "s" : ""} (${h.kind === "mlp" ? "small neural network" : "linear"}).`
+    + (cv ? ` Estimated Dice on unseen slices: <b>${cv.mean_dice.toFixed(3)}</b>.` : " Label a second slice to estimate how well it generalizes.");
+}
+
+async function trainHead() {
+  $("trainBtn").disabled = true;
+  busy(true, "Training…");
+  try {
+    S.head = await api(`/api/datasets/${S.ds.id}/head`, { method: "POST", body: { channel: S.c, settings: settings() } });
+    $("methodLearned").disabled = false;
+    showHeadInfo();
+    toast(`Trained in ${S.head.seconds} s`);
+    setMethod("learned");
+    scheduleSegment(0);
+  } catch (e) { toast(e.message, true); } finally { busy(false); renderLabels(); }
+}
+
+function setMethod(m) {
+  S.method = m;
+  $("methodClicks").classList.toggle("active", m === "clicks");
+  $("methodLearned").classList.toggle("active", m === "learned");
+}
 
 // ---------------------------------------------------------------------------------------------
 // Profiles
@@ -513,12 +697,12 @@ async function saveProfile() {
 async function runStack() {
   const p = pts();
   const profile = $("profileSelect").value || null;
-  if (!p.pos.length && !profile) { toast("Click the structure on this slice first, or pick a profile"); return; }
+  if (S.method === "clicks" && !p.pos.length && !profile) { toast("Click the structure on this slice first, or pick a profile"); return; }
   try {
     const job = await api(`/api/datasets/${S.ds.id}/stack`, {
       method: "POST",
       body: {
-        channel: S.c, ref_z: S.z, pos: p.pos, neg: p.neg, profile_id: profile, settings: settings(),
+        method: S.method, channel: S.c, ref_z: S.z, pos: p.pos, neg: p.neg, profile_id: profile, settings: settings(),
         z_start: +$("zStart").value, z_end: +$("zEnd").value, z_step: +$("zStep").value,
       },
     });
@@ -609,7 +793,7 @@ function bind() {
     catch (e) { toast(e.message, true); } finally { busy(false); }
   };
 
-  $("channelSelect").onchange = (e) => { S.c = +e.target.value; loadPlane(); };
+  $("channelSelect").onchange = async (e) => { S.c = +e.target.value; stopEditing(); renderLabels(); await refreshHead(); loadPlane(); };
   $("zSlider").oninput = (e) => { S.z = +e.target.value; $("zValue").textContent = S.z; };
   $("zSlider").onchange = () => loadPlane();
   $("zPrev").onclick = () => stepZ(-1);
@@ -631,7 +815,7 @@ function bind() {
   $("modePos").onclick = () => setMode("pos");
   $("modeNeg").onclick = () => setMode("neg");
   $("undoBtn").onclick = undo;
-  $("clearBtn").onclick = () => { S.points[key()] = { pos: [], neg: [] }; S.layers.mask = S.layers.heat = S.layers.unc = null; S.result = null; $("resultsSection").classList.add("hidden"); updateCounts(); draw(); };
+  $("clearBtn").onclick = () => { S.points[key()] = { pos: [], neg: [] }; persistClicks(); S.layers.mask = S.layers.heat = S.layers.unc = null; S.result = null; $("resultsSection").classList.add("hidden"); updateCounts(); draw(); };
   $("autoNegBtn").onclick = autoBackground;
   $("profileSelect").onchange = () => {
     $("deleteProfileBtn").classList.toggle("hidden", !$("profileSelect").value);
@@ -670,6 +854,14 @@ function bind() {
     };
   });
   $("stackBtn").onclick = runStack;
+  $("editBtn").onclick = () => (S.editing ? stopEditing() : startEditing());
+  $("saveLabelBtn").onclick = () => saveLabel(S.editing);
+  $("editSave").onclick = () => saveLabel(true);
+  $("editCancel").onclick = stopEditing;
+  $("trainBtn").onclick = trainHead;
+  $("methodClicks").onclick = () => { setMethod("clicks"); if (pts().pos.length || $("profileSelect").value) scheduleSegment(0); };
+  $("methodLearned").onclick = () => { setMethod("learned"); scheduleSegment(0); };
+  $("showLabel").addEventListener("input", draw);
   $("cancelBtn").onclick = () => S.job && api(`/api/jobs/${S.job}/cancel`, { method: "POST" });
   $("helpBtn").onclick = () => $("helpDialog").showModal();
 
@@ -687,6 +879,8 @@ function bind() {
     else if (k === "h") toggle("showHeat");
     else if (k === "u") toggle("showUnc");
     else if (k === "?") $("helpDialog").showModal();
+    else if (k === "e") (S.editing ? stopEditing() : startEditing());
+    else if (k === "escape" && S.editing) stopEditing();
   });
   window.addEventListener("keyup", (e) => { if (e.key === " ") S.space = false; });
 }

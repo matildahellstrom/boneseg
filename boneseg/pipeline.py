@@ -13,6 +13,7 @@ import tifffile
 import torch
 
 from . import metrics, quantify
+from .head import segment_with_head
 from .segment import SegmentationSettings, segment_with_prototypes
 
 
@@ -43,7 +44,7 @@ def run_stack(req: StackRequest, pos: torch.Tensor, neg: torch.Tensor, settings:
               get_embedding: Callable[[int], Embedding], get_image: Callable[[int], np.ndarray],
               get_reference: Callable[[int], np.ndarray | None], voxel_um, out_dir: Path,
               progress: Callable[[float, str], None] = lambda p, m: None, cancelled: Callable[[], bool] = lambda: False,
-              lock=None) -> dict:
+              lock=None, head=None) -> dict:
     """Segments every slice in req.z_list. Writes a mask stack, per-slice stats and a summary to out_dir."""
     out_dir = Path(out_dir)
     pixel_um = (voxel_um[1], voxel_um[2])
@@ -59,7 +60,10 @@ def run_stack(req: StackRequest, pos: torch.Tensor, neg: torch.Tensor, settings:
             emb = get_embedding(z)
             # Scores are standardized per slice (score_norm), so the threshold calibrated on the
             # annotated slice stays meaningful when contrast fades with depth
-            res = segment_with_prototypes(emb, pos, neg, settings, pixel_um, raw_threshold=raw_threshold)
+            if head is not None:
+                res = segment_with_head(head, emb, settings, pixel_um)
+            else:
+                res = segment_with_prototypes(emb, pos, neg, settings, pixel_um, raw_threshold=raw_threshold)
             masks[z] = res.mask
         img = get_image(z)
         row = {"z": z, "z_um": z * voxel_um[0], "threshold": res.threshold, **quantify.summarize_mask(res.mask, img, pixel_um)}

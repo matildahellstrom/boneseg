@@ -18,6 +18,7 @@ from pydantic import BaseModel, Field
 
 from . import __version__, metrics, quantify, render
 from .backbone import BACKBONE_LABELS, dino_weights_cached, pick_device
+from .head import Head, segment_with_head, train_head
 from .pipeline import StackRequest, run_stack
 from .segment import Profile, SegmentationSettings, prototypes, segment_with_prototypes, suggest_click, uncertainty_map
 from .store import Store
@@ -26,6 +27,7 @@ STATIC = Path(__file__).parent / "static"
 
 
 class SegmentRequest(BaseModel):
+    method: str = "clicks"  # "clicks" (prototypes) or "learned" (head trained on labels)
     channel: int = 0
     z: int = 0
     pos: list[tuple[float, float]] = Field(default_factory=list)  # (y, x) in full-resolution pixels
@@ -37,6 +39,7 @@ class SegmentRequest(BaseModel):
 
 
 class StackJobRequest(BaseModel):
+    method: str = "clicks"
     channel: int = 0
     ref_z: int | None = None
     pos: list[tuple[float, float]] = Field(default_factory=list)
@@ -57,6 +60,25 @@ class ProfileRequest(BaseModel):
     pos: list[tuple[float, float]]
     neg: list[tuple[float, float]] = Field(default_factory=list)
     settings: dict = Field(default_factory=dict)
+
+
+class AnnotationRequest(BaseModel):
+    channel: int
+    z: int
+    pos: list[tuple[float, float]] = Field(default_factory=list)
+    neg: list[tuple[float, float]] = Field(default_factory=list)
+
+
+class LabelRequest(BaseModel):
+    channel: int
+    z: int
+    mask_png: str | None = None   # Data URL of an edited mask at any resolution; None saves the last result
+
+
+class HeadRequest(BaseModel):
+    channel: int
+    settings: dict = Field(default_factory=dict)
+    kind: str = "auto"
 
 
 class PathRequest(BaseModel):
@@ -184,19 +206,37 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
         emb = store.embedding(ds_id, channel, z, settings)
         return prototypes(emb, pos_pts), prototypes(emb, neg_pts), None
 
+    def _load_head(ds_id, channel, settings) -> Head:
+        path = store.head_path(ds_id, channel)
+        if not path.exists():
+            raise ValueError("No learned model for this channel yet. Save corrected masks as labels and train one first")
+        head = Head.load(path)
+        if not head.compatible(settings):
+            raise ValueError(f"The learned model was trained with {BACKBONE_LABELS.get(head.backbone, head.backbone)} at "
+                             f"{head.vit_size} px, block {head.layer_from_end} from the end. Switch back or retrain it")
+        return head
+
     @app.post("/api/datasets/{ds_id}/segment")
     def segment_endpoint(ds_id: str, req: SegmentRequest):
         t0 = time.time()
         ds = store.get(ds_id)
         settings = SegmentationSettings.from_dict(req.settings)
         with store.compute_lock:
-            # Prototypes first, so that a profile made with another backbone fails before any model is loaded
-            pos, neg, prof_thr = _prototypes_for(ds_id, req.channel, req.z, req.pos, req.neg, req.profile_id, settings)
-            emb = store.embedding(ds_id, req.channel, req.z, settings)
-            t_embed = time.time() - t0
-            res = segment_with_prototypes(emb, pos, neg, settings, ds.volume.pixel_um, raw_threshold=prof_thr,
-                                          pos_points=req.pos, neg_points=req.neg)
-            u = uncertainty_map(emb, pos, neg, settings, threshold=res.threshold) if req.uncertainty and pos.shape[0] > 0 else None
+            if req.method == "learned":
+                head = _load_head(ds_id, req.channel, settings)
+                emb = store.embedding(ds_id, req.channel, req.z, settings)
+                t_embed = time.time() - t0
+                res = segment_with_head(head, emb, settings, ds.volume.pixel_um)
+                # Uncertain where the probability is near one half
+                u = np.clip(1 - 4 * np.abs(res.heat - 0.5), 0, 1).astype(np.float32) if req.uncertainty else None
+            else:
+                # Prototypes first, so that a profile made with another backbone fails before any model is loaded
+                pos, neg, prof_thr = _prototypes_for(ds_id, req.channel, req.z, req.pos, req.neg, req.profile_id, settings)
+                emb = store.embedding(ds_id, req.channel, req.z, settings)
+                t_embed = time.time() - t0
+                res = segment_with_prototypes(emb, pos, neg, settings, ds.volume.pixel_um, raw_threshold=prof_thr,
+                                              pos_points=req.pos, neg_points=req.neg)
+                u = uncertainty_map(emb, pos, neg, settings, threshold=res.threshold) if req.uncertainty and pos.shape[0] > 0 else None
         ds.results[(req.channel, req.z)] = res
         img = store.plane(ds_id, req.channel, req.z, settings.clip_low, settings.clip_high)
         out = {
@@ -208,9 +248,10 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
             "stats": quantify.summarize_mask(res.mask, img, ds.volume.pixel_um),
             "timing": {"embed_s": round(t_embed, 3), "total_s": 0.0},
         }
-        ref = store.reference_mask(ds_id, req.z)
+        ref = store.reference_mask(ds_id, req.z, req.channel)
         if ref is not None:
             out["evaluation"] = metrics.compare(res.mask, ref, ds.volume.pixel_um)
+            out["evaluation"]["against"] = "reference channel" if ds.meta.get("reference_channel") is not None else "your saved label"
         if u is not None:
             res.uncertainty = u
             out["uncertainty_png"] = render.data_url(render.uncertainty_png(u, req.max_side))
@@ -256,9 +297,15 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
         if not z_list:
             raise ValueError("The slice range is empty")
         ref_z = req.ref_z if req.ref_z is not None else z_list[0]
+        head = _load_head(ds_id, req.channel, settings) if req.method == "learned" else None
         with store.compute_lock:
-            pos, neg, raw_thr = _prototypes_for(ds_id, req.channel, ref_z, req.pos, req.neg, req.profile_id, settings)
-            if settings.threshold_mode == "clicks" and req.pos and req.neg:
+            if head is not None:
+                import torch
+
+                pos, neg, raw_thr = torch.zeros((1, 1)), torch.zeros((0, 1)), None
+            else:
+                pos, neg, raw_thr = _prototypes_for(ds_id, req.channel, ref_z, req.pos, req.neg, req.profile_id, settings)
+            if head is None and settings.threshold_mode == "clicks" and req.pos and req.neg:
                 # Calibrate on the annotated slice, then carry the raw threshold through the stack
                 ref = segment_with_prototypes(store.embedding(ds_id, req.channel, ref_z, settings), pos, neg, settings,
                                               ds.volume.pixel_um, pos_points=req.pos, neg_points=req.neg)
@@ -268,11 +315,11 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
         def work(job):
             return run_stack(
                 StackRequest(z_list=z_list, ref_z=ref_z), pos, neg, settings,
-                raw_threshold=raw_thr,
+                raw_threshold=raw_thr, head=head,
                 get_embedding=lambda z: store.embedding(ds_id, c, z, settings),
                 lock=store.compute_lock,
                 get_image=lambda z: store.plane(ds_id, c, z, settings.clip_low, settings.clip_high),
-                get_reference=lambda z: store.reference_mask(ds_id, z),
+                get_reference=lambda z: store.reference_mask(ds_id, z, c),
                 voxel_um=ds.volume.voxel_um, out_dir=job.out_dir,
                 progress=lambda p, m: (setattr(job, "progress", p), setattr(job, "message", m)),
                 cancelled=job.cancel.is_set,
@@ -301,6 +348,66 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
         if not path.exists():
             raise HTTPException(404, "Not ready yet")
         return FileResponse(path, filename=f"{job_id}_{name}")
+
+    # Annotations, labels and the learned model --------------------------------------------------
+    @app.get("/api/datasets/{ds_id}/annotations")
+    def get_annotations(ds_id: str):
+        return store.get_annotations(ds_id)
+
+    @app.put("/api/datasets/{ds_id}/annotations")
+    def put_annotation(ds_id: str, req: AnnotationRequest):
+        store.set_annotation(ds_id, req.channel, req.z, req.pos, req.neg)
+        return {"ok": True}
+
+    @app.get("/api/datasets/{ds_id}/labels")
+    def list_labels(ds_id: str):
+        return store.list_labels(ds_id)
+
+    @app.post("/api/datasets/{ds_id}/labels")
+    def save_label(ds_id: str, req: LabelRequest):
+        if req.mask_png:
+            import base64
+
+            from PIL import Image
+
+            raw = base64.b64decode(req.mask_png.split(",", 1)[-1])
+            img = np.asarray(Image.open(io.BytesIO(raw)).convert("RGBA"))
+            mask = img[..., 3] > 127  # Painted pixels are opaque
+        else:
+            mask = _last_result(ds_id, req.channel, req.z).mask
+        store.save_label(ds_id, req.channel, req.z, mask)
+        return {"ok": True, "labels": store.list_labels(ds_id)}
+
+    @app.get("/api/datasets/{ds_id}/labels/png")
+    def label_png(ds_id: str, c: int = 0, z: int = 0, max_side: int = 1600):
+        m = store.load_label(ds_id, c, z)
+        if m is None:
+            raise HTTPException(404, "No label for this slice")
+        return Response(render.mask_png(m, max_side, color=(255, 210, 0), fill_alpha=0), media_type="image/png")
+
+    @app.delete("/api/datasets/{ds_id}/labels")
+    def delete_label(ds_id: str, c: int = 0, z: int = 0):
+        store.delete_label(ds_id, c, z)
+        return {"ok": True, "labels": store.list_labels(ds_id)}
+
+    @app.post("/api/datasets/{ds_id}/head")
+    def train_head_endpoint(ds_id: str, req: HeadRequest):
+        settings = SegmentationSettings.from_dict(req.settings)
+        labels = [l for l in store.list_labels(ds_id) if l["channel"] == req.channel]
+        if not labels:
+            raise ValueError("Save at least one corrected mask as a label on this channel first")
+        t0 = time.time()
+        with store.compute_lock:
+            samples = [(store.embedding(ds_id, req.channel, l["z"], settings), store.load_label(ds_id, req.channel, l["z"])) for l in labels]
+            head = train_head(samples, settings, [(req.channel, l["z"]) for l in labels], kind=req.kind, pixel_um=store.get(ds_id).volume.pixel_um)
+        head.save(store.head_path(ds_id, req.channel))
+        return {**head.info(), "seconds": round(time.time() - t0, 2)}
+
+    @app.get("/api/datasets/{ds_id}/head")
+    def head_info(ds_id: str, c: int = 0):
+        """The learned model for a channel, or null when none has been trained."""
+        path = store.head_path(ds_id, c)
+        return Head.load(path).info() if path.exists() else None
 
     # Profiles -----------------------------------------------------------------------------------
     @app.get("/api/profiles")

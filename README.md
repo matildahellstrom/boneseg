@@ -23,7 +23,8 @@ The app runs on an NVIDIA GPU, an Apple Silicon GPU or the CPU, whichever it fin
 2. **Pick the channel** that shows the structure. If the file has an expert segmentation channel, choose it as the reference mask. Every result is then scored with Dice, IoU and HD95 against it. Channels named "segmentation", "mask" or "surface" are picked up automatically.
 3. **Click.** Click a few examples of the structure, then shift-click a few background spots. The mask updates after every click.
 4. **Refine.** The orange overlay shows where the mask depends on single clicks, and a dashed ring suggests the most useful next click.
-5. **Export or scale up.**
+5. **Correct and teach.** Press E to fix the mask with a brush, then save it as a label. After one or more labels, "Train model" fits a small classifier on the backbone features in a few seconds and reports its leave-one-slice-out Dice. Switch the method to "Learned model" to segment new slices without clicks.
+6. **Export or scale up.**
    - Download the mask as PNG or TIFF, or the per-object measurements as CSV.
    - Run the whole stack, which writes a mask stack, per-slice measurements and a 3D object table.
    - Save the clicks as a profile to segment the next image of the same stain without clicking.
@@ -39,6 +40,7 @@ The app runs on an NVIDIA GPU, an Apple Silicon GPU or the CPU, whichever it fin
 | , and . | Previous and next slice |
 | F | Fit the image to the window |
 | M, H, U | Toggle the mask, heatmap and uncertainty overlays |
+| E, Esc | Start and cancel correcting the mask with a brush |
 | Scroll, drag | Zoom, pan |
 
 ## How it works
@@ -50,6 +52,8 @@ Three choices differ from the notebook. Each was tested on the demo stack with t
 - **The threshold comes from your clicks.** It sits halfway between the scores at the object clicks and those at the background clicks. On the demo stack this raised Dice from 0.36 with Otsu to 0.89. Otsu tended to separate tissue from empty space instead of the target from everything else.
 - **Scores are standardized per slice.** The median and spread of each slice's scores are used to standardize it. This never changes the slice you clicked. It keeps the calibrated threshold meaningful on deeper, dimmer slices, raising stack Dice from 0.69 to 0.81 on a strongly degraded stack.
 - **The image keeps its aspect ratio** when resized for the backbone, and measurements use the voxel size from the file.
+
+The learned model is the app's take on the notebook's supervised U-Net step. It is a linear or small two-layer classifier over the frozen patch features, fitted to the share of each patch covered by your corrected masks, so it trains in seconds. On Liu file A, a model trained on four labelled slices scored 0.67 Dice on eight unseen slices, against 0.63 for 25 + 25 clicks on every slice (`scripts/benchmark_head.py`). One labelled slice already scored 0.64.
 
 An adaptive mode that refreshed the prototypes slice by slice was tried and removed, because it lowered Dice in every setting tested.
 

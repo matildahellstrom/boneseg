@@ -76,9 +76,16 @@
         <label class="toggle"><input type="checkbox" id="showRef" checked> Reference</label>
         <label class="toggle"><input type="checkbox" id="showPoints" checked> Points</label>
         <label class="small">Opacity <input type="range" id="opacity" min="0" max="1" step="0.05" value="0.6"></label>
+        <label class="toggle"><input type="checkbox" id="showLabel" checked> Label</label>
         <span class="spacer"></span>
+        <span class="editbar hidden" id="editBar">
+          <b>Correcting</b> · drag to paint, Shift-drag to erase ·
+          <label class="small">Brush <input type="range" id="brush" min="2" max="80" value="14"></label>
+          <button class="primary" id="editSave">Save as label</button>
+          <button class="ghost" id="editCancel">Cancel</button>
+        </span>
         <button class="ghost" id="fitBtn" title="Fit to window (F)">Fit</button>
-        <span class="small muted" id="zoomLabel">100%</span>
+        <span class="small muted" id="zoomLabel" title="Zoom relative to the full-resolution image">100%</span>
       </div>
       <div class="viewer" id="viewer">
         <canvas id="canvas"></canvas>
@@ -101,6 +108,10 @@
     <aside class="panel right" id="rightPanel">
       <section id="settingsSection" class="disabled-until-data">
         <h2>4. Segmentation</h2>
+        <div class="segmented" role="group" aria-label="Method">
+          <button class="active" id="methodClicks" title="Segment from the clicks on this slice or a profile">From clicks</button>
+          <button id="methodLearned" title="Use the model trained on your corrected masks" disabled>Learned model</button>
+        </div>
         <label>Feature backbone <select id="backboneSelect"></select></label>
         <p class="muted small" id="backboneHint"></p>
         <label>Threshold
@@ -135,13 +146,14 @@
         <div class="cards" id="statCards"></div>
         <div class="eval hidden" id="evalBox"></div>
         <div class="suggestion hidden" id="suggestionBox"></div>
+        <div class="row"><button class="ghost" id="editBtn" title="Paint or erase to correct the mask (E)">Correct mask</button><button class="ghost" id="saveLabelBtn" title="Save this mask as a label for training">Save as label</button></div>
         <div class="row"><button class="ghost" data-export="png">Mask PNG</button><button class="ghost" data-export="tif">Mask TIFF</button><button class="ghost" data-export="csv">Objects CSV</button></div>
         <p class="muted small" id="timing"></p>
       </section>
 
       <section id="stackSection" class="disabled-until-data">
         <h2>5. Whole stack</h2>
-        <p class="muted small">Uses the clicks on this slice, or the selected profile, to segment a range of slices.</p>
+        <p class="muted small">Uses the clicks on this slice, the selected profile or the learned model, whichever is active, to segment a range of slices.</p>
         <div class="row">
           <label class="small">From <input type="number" id="zStart" min="0" value="0"></label>
           <label class="small">To <input type="number" id="zEnd" min="0" value="0"></label>
@@ -157,6 +169,13 @@
           <div class="row" id="jobDownloads"></div>
         </div>
       </section>
+      <section id="learnSection" class="disabled-until-data">
+        <h2>6. Learn from corrections</h2>
+        <p class="muted small">Correct a few masks with the brush and save them as labels. A small model then learns the structure from the backbone features and segments new slices without clicks.</p>
+        <div class="labels" id="labelList"><span class="muted small">No labels yet.</span></div>
+        <button class="primary" id="trainBtn" disabled>Train model</button>
+        <div class="small" id="trainResult"></div>
+      </section>
     </aside>
   </main>
 
@@ -167,6 +186,7 @@
       <li><b>1</b> and <b>2</b> switch between object and background. <b>Ctrl+Z</b> undoes the last point.</li>
       <li><b>,</b> and <b>.</b> move through slices. <b>F</b> fits the image. Scroll to zoom and drag with the middle mouse button or Space held down to pan.</li>
       <li><b>M</b>, <b>H</b> and <b>U</b> toggle the mask, heatmap and uncertainty overlays.</li>
+      <li><b>E</b> starts correcting the mask with a brush: drag to paint, Shift-drag to erase, <b>Esc</b> to cancel. Saved corrections become labels that a small model can learn from.</li>
       <li>The orange overlay shows where the mask is unstable. The dashed ring suggests where one more click helps most.</li>
       <li>Save good clicks as a <b>profile</b> to segment new images of the same stain without clicking.</li>
     </ul>

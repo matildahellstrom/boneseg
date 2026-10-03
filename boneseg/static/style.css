@@ -114,3 +114,11 @@ dialog label { margin-top: 8px; }
   .viewer-wrap { min-height: 70vh; order: -1; }
   .panel { overflow: visible; }
 }
+
+.editbar { display: flex; gap: 8px; align-items: center; background: rgba(255, 210, 0, .1); border: 1px solid rgba(255, 210, 0, .5); padding: 3px 10px; border-radius: 8px; font-size: 12px; }
+.editbar input[type=range] { width: 80px; }
+.viewer.editing #canvas { cursor: cell; }
+.labels { display: flex; flex-wrap: wrap; gap: 4px; }
+.chip { font-size: 12px; border: 1px solid rgba(255, 210, 0, .5); color: #ffd84a; border-radius: 999px; padding: 1px 8px; cursor: pointer; background: transparent; }
+.chip.active { background: rgba(255, 210, 0, .15); }
+.chip .x { margin-left: 4px; color: var(--muted); }

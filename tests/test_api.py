@@ -121,3 +121,52 @@ def test_datasets_persist_across_restart(tmp_path):
     assert [d["id"] for d in listed] == [ds["id"]] and listed[0]["reference_channel"] == 1
     assert c2.delete(f"/api/datasets/{ds['id']}").json()["ok"]
     assert c2.get("/api/datasets").json() == []
+
+
+def test_annotations_labels_and_learned_model(client):
+    import base64
+    from PIL import Image
+
+    ds, gt, centers = upload_stack(client, n_z=4, with_reference=False)
+    did = ds["id"]
+    # Clicks are saved per slice and survive a reload
+    client.put(f"/api/datasets/{did}/annotations", json={"channel": 0, "z": 1, "pos": [list(c) for c in centers[:2]], "neg": bg_points(gt)})
+    assert client.get(f"/api/datasets/{did}/annotations").json()["0:1"]["pos"] == [list(c) for c in centers[:2]]
+    client.put(f"/api/datasets/{did}/annotations", json={"channel": 0, "z": 1, "pos": [], "neg": []})
+    assert client.get(f"/api/datasets/{did}/annotations").json() == {}
+
+    # Label slice 0 from a segmentation result, and slice 1 from a painted mask
+    body = {"channel": 0, "z": 0, "pos": [list(c) for c in centers], "neg": bg_points(gt), "settings": SETTINGS}
+    assert client.post(f"/api/datasets/{did}/segment", json=body).status_code == 200
+    assert client.post(f"/api/datasets/{did}/labels", json={"channel": 0, "z": 0}).status_code == 200
+    rgba = np.zeros(gt.shape + (4,), np.uint8)
+    rgba[gt] = (255, 255, 255, 255)
+    buf = io.BytesIO()
+    Image.fromarray(rgba, "RGBA").save(buf, format="PNG")
+    url = "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode()
+    r = client.post(f"/api/datasets/{did}/labels", json={"channel": 0, "z": 1, "mask_png": url})
+    assert r.json()["labels"] == [{"channel": 0, "z": 0}, {"channel": 0, "z": 1}]
+    assert client.get(f"/api/datasets/{did}/labels/png", params={"c": 0, "z": 1}).status_code == 200
+
+    # Without a reference channel, results are scored against the saved label
+    r = client.post(f"/api/datasets/{did}/segment", json={**body, "z": 1}).json()
+    assert r["evaluation"]["against"] == "your saved label"
+
+    # Learned model: needs labels, reports cross-validation, then segments and runs stacks
+    assert client.post(f"/api/datasets/{did}/segment", json={"method": "learned", "channel": 0, "z": 2, "settings": SETTINGS}).status_code == 400
+    r = client.post(f"/api/datasets/{did}/head", json={"channel": 0, "settings": SETTINGS})
+    assert r.status_code == 200, r.text
+    info = r.json()
+    assert info["cv"]["chosen"] in ("linear", "mlp") and 0 <= info["cv"][info["cv"]["chosen"]]["mean_dice"] <= 1
+    r = client.post(f"/api/datasets/{did}/segment", json={"method": "learned", "channel": 0, "z": 2, "settings": SETTINGS, "uncertainty": True})
+    assert r.status_code == 200 and r.json()["threshold_source"].startswith("learned")
+    r = client.post(f"/api/datasets/{did}/segment", json={"method": "learned", "channel": 0, "z": 2, "settings": {**SETTINGS, "vit_size": 140}})
+    assert r.status_code == 400 and "retrain" in r.json()["detail"]
+    job = client.post(f"/api/datasets/{did}/stack", json={"method": "learned", "channel": 0, "settings": SETTINGS}).json()
+    for _ in range(100):
+        job = client.get(f"/api/jobs/{job['id']}").json()
+        if job["status"] in ("done", "failed"):
+            break
+        time.sleep(0.05)
+    assert job["status"] == "done", job
+    assert client.delete(f"/api/datasets/{did}/labels", params={"c": 0, "z": 1}).json()["labels"] == [{"channel": 0, "z": 0}]
