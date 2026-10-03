@@ -14,6 +14,7 @@ METRICS = {
     "n_objects_3d_inside": ("Objects in 3D, not cut by the stack ends", "", 1.0),
     "median_object_volume_um3": ("Median object volume", "µm³", 1.0),
     "objects_per_mm3": ("Objects per mm³", "/mm³", 1.0),
+    "median_nearest_neighbour_um": ("Median distance to the nearest object", "µm", 1.0),
     "mean_dice_vs_reference": ("Mean Dice against the reference", "", 1.0),
     "B.Ar/T.Ar_%": ("Bone area fraction, B.Ar/T.Ar", "%", 1.0),
     "Oc.Pm/B.Pm_%": ("Osteoclast surface, Oc.Pm/B.Pm", "%", 1.0),

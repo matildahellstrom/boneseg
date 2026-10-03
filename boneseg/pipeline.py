@@ -97,6 +97,7 @@ def run_stack(req: StackRequest, pos: torch.Tensor, neg: torch.Tensor, settings:
         summary["n_objects_3d"] = int(len(obj))
         summary["n_objects_3d_inside"] = int((~obj["touches_stack_edge"]).sum()) if len(obj) else 0
         summary["median_object_volume_um3"] = float(obj["volume_um3"].median()) if len(obj) else 0.0
+        summary["median_nearest_neighbour_um"] = float(obj["nearest_neighbour_um"].median()) if len(obj) > 1 else None
     if len(df) and "dice" in df:
         summary["mean_dice_vs_reference"] = float(df["dice"].mean())
     summary["z_processed"] = zs

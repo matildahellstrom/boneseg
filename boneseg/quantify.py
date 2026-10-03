@@ -7,6 +7,17 @@ import scipy.ndimage as ndi
 from skimage import measure
 
 
+def nearest_neighbour_um(points_um: np.ndarray) -> np.ndarray:
+    """Distance from each point to its nearest other point, in micrometres (NaN for a single point)."""
+    from scipy.spatial import cKDTree
+
+    pts = np.asarray(points_um, float)
+    if len(pts) < 2:
+        return np.full(len(pts), np.nan)
+    d, _ = cKDTree(pts).query(pts, k=2)
+    return d[:, 1]
+
+
 def object_table(mask: np.ndarray, image: np.ndarray | None, pixel_um=(1.0, 1.0)) -> pd.DataFrame:
     """One row per connected object with its size, shape and intensity."""
     labels = measure.label(mask, connectivity=2)
@@ -31,6 +42,8 @@ def object_table(mask: np.ndarray, image: np.ndarray | None, pixel_um=(1.0, 1.0)
         "minor_axis_um": t["minor_axis_length"] * iso,
     })
     out["equivalent_diameter_um"] = np.sqrt(4 * out["area_um2"] / np.pi)
+    # Spacing between objects, for example whether osteoclasts cluster
+    out["nearest_neighbour_um"] = nearest_neighbour_um(out[["centroid_y_um", "centroid_x_um"]].to_numpy())
     if image is not None:
         out["mean_intensity"] = t["intensity_mean"]
     return out.sort_values("area_um2", ascending=False).reset_index(drop=True)
@@ -111,7 +124,7 @@ def objects_3d(stack: np.ndarray, voxel_um=(1.0, 1.0, 1.0), z_values=None, min_v
     voxel_um should already include any slice step (z spacing times step)."""
     labels = label_3d(stack) if labels is None else labels
     cols = ["label", "volume_um3", "n_slices", "z_first", "z_last", "centroid_z_um", "centroid_y_um", "centroid_x_um",
-            "max_area_um2", "touches_stack_edge"]
+            "max_area_um2", "touches_stack_edge", "nearest_neighbour_um"]
     if labels.max() == 0:
         return pd.DataFrame(columns=cols)
     vz, vy, vx = voxel_um
@@ -127,4 +140,6 @@ def objects_3d(stack: np.ndarray, voxel_um=(1.0, 1.0, 1.0), z_values=None, min_v
                      "z_first": int(z_values[z0]), "z_last": int(z_values[z1 - 1]),
                      "centroid_z_um": cz * vz, "centroid_y_um": cy * vy, "centroid_x_um": cx * vx,
                      "max_area_um2": float(max(areas)), "touches_stack_edge": bool(z0 == 0 or z1 == stack.shape[0])})
-    return pd.DataFrame(rows, columns=cols).sort_values("volume_um3", ascending=False).reset_index(drop=True)
+    df = pd.DataFrame(rows, columns=[c for c in cols if c != "nearest_neighbour_um"])
+    df["nearest_neighbour_um"] = nearest_neighbour_um(df[["centroid_z_um", "centroid_y_um", "centroid_x_um"]].to_numpy()) if len(df) else []
+    return df.sort_values("volume_um3", ascending=False).reset_index(drop=True)

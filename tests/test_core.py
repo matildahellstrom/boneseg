@@ -397,3 +397,18 @@ def test_multi_structure_learned_model():
     pred = labels_with_head(head, samples[2][0], s)
     truth = samples[2][1]
     assert metrics.dice(pred == 1, truth == 1) > 0.5 and metrics.dice(pred == 2, truth == 2) > 0.5
+
+
+def test_nearest_neighbour_distances():
+    mask = np.zeros((60, 60), bool)
+    mask[5:9, 5:9] = True     # Centroid (6.5, 6.5)
+    mask[5:9, 25:29] = True   # 20 px to the right
+    mask[45:49, 5:9] = True   # 40 px down
+    t = quantify.object_table(mask, None, (0.5, 0.5)).sort_values("centroid_x_um")
+    assert sorted(t["nearest_neighbour_um"].round(3).tolist()) == [10.0, 10.0, 20.0]
+    stack = np.zeros((3, 60, 60), bool)
+    stack[:, 5:9, 5:9] = True
+    stack[:, 5:9, 45:49] = True
+    o = quantify.objects_3d(stack, (2.0, 0.5, 0.5))
+    assert o["nearest_neighbour_um"].round(3).tolist() == [20.0, 20.0]
+    assert np.isnan(quantify.nearest_neighbour_um(np.zeros((1, 2)))[0])
