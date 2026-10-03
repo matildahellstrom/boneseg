@@ -155,6 +155,11 @@ python scripts/benchmark_head.py "data/liudata/10-26-40_6_Blaze_crop2 quantified
 
 Every step is a plain function. `notebooks/boneseg_quickstart.ipynb` walks through loading a stack, segmenting from clicks, measuring, running the stack, histomorphometry and training the learned model. The web API is documented at http://127.0.0.1:8000/docs while the app runs.
 
+## References
+
+- Oquab M, et al. DINOv2: Learning robust visual features without supervision. Transactions on Machine Learning Research (2024). The backbone.
+- Dempster DW, et al. Standardized nomenclature, symbols, and units for bone histomorphometry: a 2012 update of the report of the ASBMR Histomorphometry Nomenclature Committee. J Bone Miner Res 28:2–17 (2013). The histomorphometry names and definitions.
+
 ## Project layout
 
 | Path | Contents |

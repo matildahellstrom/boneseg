@@ -275,6 +275,9 @@ def test_report(client):
     r = client.get(f"/api/datasets/{did}/report", params={"c": 0, "z": 1})
     assert r.status_code == 200
     page = r.text
+    client.patch(f"/api/datasets/{did}", json={"notes": "TRAP stain, <b>batch 2</b>"})
+    page_with_notes = client.get(f"/api/datasets/{did}/report", params={"c": 0, "z": 1}).text
+    assert "TRAP stain, &lt;b&gt;batch 2&lt;/b&gt;" in page_with_notes and "DINOv2: Learning robust" in page_with_notes
     for text in ("Segmentation", "Dice", "Latest stack run", "Methods", "data:image/png;base64", "6 background clicks"):
         assert text in page, text
     r = client.get(f"/api/datasets/{did}/report", params={"c": 0, "z": 1, "download": True})

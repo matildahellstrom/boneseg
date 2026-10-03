@@ -50,6 +50,7 @@ async function openDataset(id) {
   const rs = $("refSelect");
   rs.innerHTML = `<option value="">None</option>` + d.channel_names.map((n, i) => `<option value="${i}">${i}: ${esc(n)}</option>`).join("");
   rs.value = d.reference_channel ?? "";
+  $("notesInput").value = d.notes || "";
   $("overlaySelect").innerHTML = `<option value="">None</option>` + d.channel_names.map((n, i) => `<option value="${i}">${i}: ${esc(n)}</option>`).join("");
   $("refHint").textContent = d.reference_channel != null
     ? (d.reference_guessed ? "Guessed from the channel name. Every result is scored against it." : "Every result is scored against this expert mask.")

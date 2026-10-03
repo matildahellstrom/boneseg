@@ -46,6 +46,12 @@ function bind() {
     } catch (e) { toast(e.message, true); }
   };
   $("overlaySelect").onchange = redrawBase;
+  let notesTimer = null;
+  $("notesInput").addEventListener("input", () => {
+    clearTimeout(notesTimer);
+    const dsId = S.ds?.id;
+    notesTimer = setTimeout(() => dsId && api(`/api/datasets/${dsId}`, { method: "PATCH", body: { notes: $("notesInput").value.slice(0, 4000) } }).catch((e) => toast(e.message, true)), 600);
+  });
   $("overlayColor").onchange = redrawBase;
   $("zNext").onclick = () => stepZ(1);
   const contrast = () => { S.low = +$("lowSlider").value; S.high = +$("highSlider").value; rememberSettings(); loadPlane(); };
@@ -194,7 +200,7 @@ function bind() {
   $("helpBtn").onclick = () => $("helpDialog").showModal();
 
   window.addEventListener("keydown", (e) => {
-    if (e.target.matches("input[type=text], input[type=number], select, textarea") || document.querySelector("dialog[open]")) return;
+    if (e.target.matches("input[type=text], input[type=number], select, textarea") || document.querySelector("dialog[open]")) return;  // Typing in a field never triggers shortcuts
     const k = e.key.toLowerCase();
     if (k === " ") { S.space = true; e.preventDefault(); }
     else if (k === "1") setMode("pos");

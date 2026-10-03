@@ -113,6 +113,8 @@ def build_report(info: dict, c: int, z: int, image_png: bytes, stats: dict | Non
     file_rows = [("Image size", f"{info['width']} × {info['height']} px, {info['n_z']} slices, {info['n_channels']} channels"),
                  ("Pixel size", f"{info['voxel_um'][2]:.3f} µm" + ("" if info["voxel_size_known"] else " (unknown, measurements are in pixels)")),
                  ("Slice spacing", f"{info['voxel_um'][0]:.2f} µm")]
+    if info.get("notes"):
+        file_rows.append(("Notes", info["notes"]))
     parts += ["<h2>Image</h2>", _table(file_rows)]
     if stats:
         rows = [("Area", f"{_fmt(stats['area_um2'], 1)} µm²"), ("Area fraction", f"{100 * stats['area_fraction']:.2f}%"),
@@ -148,7 +150,11 @@ def build_report(info: dict, c: int, z: int, image_png: bytes, stats: dict | Non
         parts += ["<h2>Latest stack run</h2>", _table(rows), _chart(stack.get("slices", []))]
     parts += ["<h2>Settings</h2>", _table([(k, str(v)) for k, v in settings.items()]),
               "<h2>Methods</h2>", f"<p>{html.escape(methods)}</p>",
-              "<p class='small'>Generated automatically. Check the numbers and adapt the text before using it in a publication.</p>"]
+              "<p class='small'>Generated automatically. Check the numbers and adapt the text before using it in a publication.</p>",
+              "<h2>References</h2><ul class='small'>"
+              "<li>Oquab M, et al. DINOv2: Learning robust visual features without supervision. Transactions on Machine Learning Research (2024).</li>"
+              "<li>Dempster DW, et al. Standardized nomenclature, symbols, and units for bone histomorphometry: a 2012 update of the report of the "
+              "ASBMR Histomorphometry Nomenclature Committee. J Bone Miner Res 28:2–17 (2013).</li></ul>"]
     css = """body{font:15px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;max-width:860px;margin:32px auto;padding:0 16px;color:#16202e;background:#fff}
 h1{font-size:22px;margin-bottom:0}h2{font-size:15px;margin-top:28px;border-bottom:1px solid #dde3ec;padding-bottom:4px}
 img,svg{max-width:100%;border-radius:6px}table{border-collapse:collapse;width:100%}th,td{text-align:left;padding:5px 8px;border-bottom:1px solid #eef1f5;vertical-align:top}
