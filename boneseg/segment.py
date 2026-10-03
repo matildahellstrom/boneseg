@@ -282,19 +282,26 @@ def uncertainty_map(emb: Embedding, pos: torch.Tensor, neg: torch.Tensor, settin
     return upsample(u, (emb.height, emb.width)).clip(0, 1)
 
 
-def suggest_click(uncertainty: np.ndarray, existing_points, min_dist_frac: float = 0.05) -> tuple[int, int] | None:
-    """The most uncertain location that is not close to an existing click."""
+def suggest_click(uncertainty: np.ndarray, existing_points, min_dist_frac: float = 0.05, work_side: int = 400) -> tuple[int, int] | None:
+    """The most uncertain location that is not close to an existing click.
+    Works on a copy at most work_side pixels wide, since only a rough location is needed."""
     if uncertainty.max() <= 1e-6:
         return None
     h, w = uncertainty.shape
-    u = ndi.gaussian_filter(uncertainty, sigma=max(1.0, min(h, w) / 100))
+    f = max(1, int(np.ceil(max(h, w) / work_side)))
+    small = uncertainty[: h - h % f or h, : w - w % f or w]
+    small = small.reshape(small.shape[0] // f, f, small.shape[1] // f, f).mean(axis=(1, 3)) if f > 1 else small.copy()
+    sh, sw = small.shape
+    u = ndi.gaussian_filter(small, sigma=max(1.0, min(sh, sw) / 100))
     if len(existing_points):
-        yy, xx = np.ogrid[:h, :w]
-        r = min_dist_frac * max(h, w)
+        yy, xx = np.ogrid[:sh, :sw]
+        r = min_dist_frac * max(sh, sw)
         for y, x in existing_points:
-            u[(yy - y) ** 2 + (xx - x) ** 2 < r ** 2] = 0
+            u[(yy - y / f) ** 2 + (xx - x / f) ** 2 < r ** 2] = 0
     y, x = np.unravel_index(int(np.argmax(u)), u.shape)
-    return (int(y), int(x)) if u[y, x] > 1e-6 else None
+    if u[y, x] <= 1e-6:
+        return None
+    return (int(min(h - 1, y * f + f // 2)), int(min(w - 1, x * f + f // 2)))
 
 
 @dataclass

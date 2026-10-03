@@ -1,4 +1,5 @@
 import numpy as np
+import scipy.ndimage as ndi
 import pytest
 import tifffile
 
@@ -275,3 +276,17 @@ def test_compare_groups():
     assert small["min_possible_p"] == pytest.approx(0.2) and "cannot show a difference" in small["note"]
     assert compare_groups({"a": [1, 2, 3]})["test"] is None
     assert compare_groups({"a": [1], "b": [2, 3]})["test"] is None
+
+
+def test_fast_paths_match_exact_versions():
+    img, gt, _ = make_blobs(h=600, w=640, n=10, radius=(15, 30), seed=2)
+    pred = ndi.binary_dilation(gt, iterations=3)
+    exact = metrics.hd95(pred, gt, (0.5, 0.5))
+    approx = metrics.hd95(pred, gt, (0.5, 0.5), max_side=200)
+    assert abs(approx - exact) <= 2.0  # Within a few downsampled pixels
+    # Object counts from the fast summary agree with the full table
+    assert quantify.summarize_mask(gt)["n_objects"] == len(quantify.object_table(gt, None))
+    u = np.zeros((900, 1200), np.float32)
+    u[600:640, 900:940] = 1
+    y, x = segment.suggest_click(u, [])
+    assert 590 <= y <= 650 and 890 <= x <= 950

@@ -62,7 +62,7 @@ def router(ctx: AppContext) -> APIRouter:
         }
         ref = store.reference_mask(ds_id, req.z, req.channel)
         if ref is not None:
-            out["evaluation"] = metrics.compare(res.mask, ref, ds.volume.pixel_um, roi)
+            out["evaluation"] = metrics.compare(res.mask, ref, ds.volume.pixel_um, roi, hd95_max_side=1500)
             out["evaluation"]["against"] = "reference channel" if ds.meta.get("reference_channel") is not None else "your saved label"
             refc = ref & roi if roi is not None else ref
             out["error_png"] = render.data_url(render.error_png(res.mask, refc, req.max_side))

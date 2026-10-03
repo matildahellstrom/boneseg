@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
+import scipy.ndimage as ndi
 from skimage import measure
 
 
@@ -43,7 +44,11 @@ def summarize_mask(mask: np.ndarray, image: np.ndarray | None = None, pixel_um=(
     py, px = pixel_um
     total_um2 = (roi.sum() if roi is not None else mask.size) * py * px
     area_um2 = float(mask.sum() * py * px)
-    objects = object_table(mask, image, pixel_um)
+    # Object sizes from a labelling and a bincount: the full shape table (object_table) is much slower
+    # on large images and only needed for the CSV export
+    labels, n_obj = ndi.label(mask, structure=np.ones((3, 3)))
+    sizes = np.bincount(labels.ravel())[1:] * py * px if n_obj else np.zeros(0)
+    objects = pd.DataFrame({"area_um2": sizes})
     out = {
         "area_um2": area_um2,
         "area_fraction": float(area_um2 / total_um2) if total_um2 else 0.0,
