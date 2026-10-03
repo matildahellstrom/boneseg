@@ -106,6 +106,16 @@ class HistoRequest(BaseModel):
     max_side: int = 1600
 
 
+class HistoStackRequest(BaseModel):
+    bone: MaskSpec
+    cells: MaskSpec
+    contact_um: float = 3.0
+    z_start: int = 0
+    z_end: int | None = None
+    z_step: int = 1
+    settings: dict = Field(default_factory=dict)
+
+
 class PathRequest(BaseModel):
     path: str
 

@@ -17,6 +17,10 @@ def router(ctx: AppContext) -> APIRouter:
         for ds in sorted(store.datasets.values(), key=lambda d: d.volume.name):
             job = store.latest_job(ds.id)
             summary = derived(job.result.get("summary", {}), ds.volume.voxel_um, ds.volume.height * ds.volume.width) if job else {}
+            hjob = store.latest_job(ds.id, kind="histo")
+            if hjob is not None and (job is None or hjob.created > job.created or "Oc.Pm/B.Pm_%" not in summary):
+                # A whole-stack histomorphometry run, with bone and cells possibly from different channels
+                summary.update(hjob.result.get("summary", {}).get("histomorphometry") or {})
             out.append({"dataset_id": ds.id, "name": ds.volume.name, "group": ds.meta.get("group") or "",
                         "has_stack_run": job is not None, "channel": job.meta.get("channel") if job else None,
                         **{k: summary.get(k) for k in METRICS}})

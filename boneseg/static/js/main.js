@@ -161,6 +161,7 @@ function bind() {
     loadPlane();
   };
   $("histoBtn").onclick = runHisto;
+  $("histoStackBtn").onclick = runHistoStack;
   $("roiBtn").onclick = () => (S.roiDraft ? finishRoi() : startRoi());
   $("roiClear").onclick = () => saveRoi(null);
   $("voxelSave").onclick = saveVoxel;

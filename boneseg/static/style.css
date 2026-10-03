@@ -166,3 +166,4 @@ dialog.wide { max-width: 860px; width: 92vw; }
 .struct .sw { width: 9px; height: 9px; border-radius: 50%; }
 .struct .x { color: var(--muted); margin-left: 2px; }
 .struct.add { color: var(--accent); border-style: dashed; }
+#histoStackText a { color: var(--accent); }

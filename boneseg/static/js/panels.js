@@ -227,8 +227,31 @@ function histoFromStructures() {
   $("hBoneSrc").value = `structure:${boneK}`; $("hCellSrc").value = `structure:${cellK}`;
 }
 
+const histoSpec = (c, src) => src.startsWith("profile:") ? { channel: +$(c).value, source: "profile", profile_id: src.slice(8) } : { channel: +$(c).value, source: src };
+
+async function runHistoStack() {
+  const bone = histoSpec("hBoneC", $("hBoneSrc").value), cells = histoSpec("hCellC", $("hCellSrc").value);
+  $("histoStackBtn").disabled = true;
+  try {
+    const job = await api(`/api/datasets/${S.ds.id}/histomorphometry/stack`, {
+      method: "POST",
+      body: { bone, cells, contact_um: +$("hContact").value, z_start: +$("zStart").value, z_end: +$("zEnd").value, z_step: +$("zStep").value, settings: settings() },
+    });
+    const poll = async () => {
+      const j = await api(`/api/jobs/${job.id}`);
+      if (j.status === "running" || j.status === "queued") { $("histoStackText").textContent = j.message || "Starting…"; setTimeout(poll, 700); return; }
+      $("histoStackBtn").disabled = false;
+      if (j.status === "failed") { $("histoStackText").textContent = `Failed: ${j.error}`; return; }
+      const h = j.result.summary.histomorphometry;
+      $("histoStackText").innerHTML = `${j.result.summary.n_slices} slices: B.Ar/T.Ar ${fmt(h["B.Ar/T.Ar_%"])}% · Oc.Pm/B.Pm ${fmt(h["Oc.Pm/B.Pm_%"])}% · N.Oc/B.Pm ${fmt(h["N.Oc/B.Pm_per_mm"], 2)} /mm `
+        + `<a href="/api/jobs/${job.id}/files/histomorphometry.csv" download>CSV</a>. These values also appear in Compare samples.`;
+    };
+    poll();
+  } catch (e) { $("histoStackBtn").disabled = false; $("histoStackText").textContent = e.message; toast(e.message, true); }
+}
+
 async function runHisto() {
-  const spec = (c, src) => src.startsWith("profile:") ? { channel: +$(c).value, source: "profile", profile_id: src.slice(8) } : { channel: +$(c).value, source: src };
+  const spec = histoSpec;
   busy(true, "Measuring…");
   try {
     const out = await api(`/api/datasets/${S.ds.id}/histomorphometry`, {

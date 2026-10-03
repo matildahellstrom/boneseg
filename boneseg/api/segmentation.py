@@ -275,7 +275,7 @@ def router(ctx: AppContext) -> APIRouter:
     @r.get("/api/jobs/{job_id}/files/{name}")
     def job_file(job_id: str, name: str):
         job = store.get_job(job_id)
-        if name not in ("masks.tif", "labels.tif", "labels_3d.tif", "slices.csv", "summary.json", "objects_3d.csv", "histomorphometry.csv"):
+        if name not in ("masks.tif", "labels.tif", "labels_3d.tif", "slices.csv", "summary.json", "objects_3d.csv", "histomorphometry.csv"):  # noqa: E501
             raise HTTPException(404, "Unknown file")
         path = job.out_dir / name
         if not path.exists():

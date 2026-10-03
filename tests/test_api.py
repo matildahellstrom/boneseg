@@ -641,3 +641,34 @@ def test_labels_from_reference(client):
     assert client.post(f"/api/datasets/{did}/labels/from-reference", json={"channel": 1, "n": 2}).status_code == 400
     info = client.post(f"/api/datasets/{did}/head", json={"channel": 0, "settings": SETTINGS}).json()
     assert info["reference_check"]["mean_dice"] > 0.5
+
+
+def test_histomorphometry_stack_across_channels(client):
+    ds = client.post("/api/datasets/demo").json()
+    did = ds["id"]
+    import glob
+    from pathlib import Path
+    stack = tifffile.imread(glob.glob(str(Path(client.app.state.store.root) / "datasets" / did / "*.tif"))[0])
+    z = 6
+    s = {"backbone": "classic", "vit_size": 252}
+    m = stack[z, 0].astype(float)
+    hi, lo = np.argwhere(m > np.percentile(m, 85)), np.argwhere(m < np.percentile(m, 15))
+    rng = np.random.default_rng(0)
+    bone_prof = client.post("/api/profiles", json={"name": "bone", "dataset_id": did, "channel": 0, "z": z,
+                                                   "pos": hi[rng.choice(len(hi), 6)].tolist(), "neg": lo[rng.choice(len(lo), 6)].tolist(), "settings": s}).json()
+    client.patch(f"/api/datasets/{did}", json={"group": "control"})
+    body = {"bone": {"channel": 0, "source": "profile", "profile_id": bone_prof["id"]}, "cells": {"channel": 1, "source": "reference"},
+            "z_step": 3, "settings": s}
+    assert client.post(f"/api/datasets/{did}/histomorphometry/stack", json={**body, "cells": {"channel": 1, "source": "current"}}).status_code == 400
+    job = client.post(f"/api/datasets/{did}/histomorphometry/stack", json=body).json()
+    for _ in range(200):
+        job = client.get(f"/api/jobs/{job['id']}").json()
+        if job["status"] in ("done", "failed"):
+            break
+        time.sleep(0.05)
+    assert job["status"] == "done", job
+    hm = job["result"]["summary"]["histomorphometry"]
+    assert hm["Oc.Pm/B.Pm_%"] is not None and job["result"]["summary"]["n_slices"] == 4
+    assert client.get(f"/api/jobs/{job['id']}/files/histomorphometry.csv").text.startswith("z,")
+    row = [r for r in client.get("/api/study", params={"metric": "Oc.Pm/B.Pm_%"}).json()["rows"] if r["dataset_id"] == did][0]
+    assert row["Oc.Pm/B.Pm_%"] == pytest.approx(hm["Oc.Pm/B.Pm_%"])

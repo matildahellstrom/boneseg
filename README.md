@@ -65,7 +65,7 @@ The image runs on the CPU. For an NVIDIA GPU, change the PyTorch wheel index in 
 3. "Train model", check the held-out Dice, and run the stack or a batch with the learned model.
 
 **Osteoclast surface per sample.**
-1. On a channel where both osteoclasts and bone are visible, click osteoclasts, then add a structure named "Bone matrix" and click bone. If they are on different channels, segment each on its own channel and use "Bone histomorphometry" per slice instead.
+1. On a channel where both osteoclasts and bone are visible, click osteoclasts, then add a structure named "Bone matrix" and click bone. If they are on different channels, save a profile on each channel, pick them as the bone and cell sources under "Bone histomorphometry" and click "Measure the whole stack".
 2. "Save as profile", then in "Compare samples" run it on every sample. Each run measures histomorphometry on every slice.
 3. Compare Oc.Pm/B.Pm or N.Oc/B.Pm between groups.
 

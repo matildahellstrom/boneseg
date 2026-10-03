@@ -214,7 +214,8 @@
         <label class="small">Bone <span class="row"><select id="hBoneC"></select><select id="hBoneSrc"></select></span></label>
         <label class="small">Osteoclasts or cells <span class="row"><select id="hCellC"></select><select id="hCellSrc"></select></span></label>
         <label class="small">Contact distance <span class="value" id="hContactValue">3 µm</span><input type="range" id="hContact" min="0" max="15" step="0.5" value="3"></label>
-        <button class="primary" id="histoBtn">Measure this slice</button>
+        <div class="row"><button class="primary" id="histoBtn">Measure this slice</button><button class="ghost" id="histoStackBtn" title="Every slice in the range of section 5. Each mask must come from a profile, the learned model or the reference">Measure the whole stack</button></div>
+        <div class="small" id="histoStackText"></div>
         <div class="cards hidden" id="histoCards"></div>
         <div class="row hidden" id="histoDownloads"><button class="ghost" id="histoCsv">Cells CSV</button></div>
       </section>
