@@ -295,7 +295,7 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
     @app.get("/api/jobs/{job_id}/files/{name}")
     def job_file(job_id: str, name: str):
         job = store.get_job(job_id)
-        if name not in ("masks.tif", "slices.csv", "summary.json"):
+        if name not in ("masks.tif", "slices.csv", "summary.json", "objects_3d.csv"):
             raise HTTPException(404, "Unknown file")
         path = job.out_dir / name
         if not path.exists():

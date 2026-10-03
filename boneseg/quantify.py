@@ -75,3 +75,28 @@ def summarize_stack(per_slice: pd.DataFrame, voxel_um=(1.0, 1.0, 1.0), slice_ste
         "total_objects_counted": int(per_slice["n_objects"].sum()),
         "slice_spacing_um": float(dz),
     }
+
+
+def objects_3d(stack: np.ndarray, voxel_um=(1.0, 1.0, 1.0), z_values=None, min_voxels: int = 1) -> pd.DataFrame:
+    """Connected objects in a (Z, Y, X) mask stack, so a cell spanning several slices counts once.
+
+    voxel_um should already include any slice step (z spacing times step)."""
+    labels = measure.label(stack.astype(bool), connectivity=1)
+    cols = ["label", "volume_um3", "n_slices", "z_first", "z_last", "centroid_z_um", "centroid_y_um", "centroid_x_um",
+            "max_area_um2", "touches_stack_edge"]
+    if labels.max() == 0:
+        return pd.DataFrame(columns=cols)
+    vz, vy, vx = voxel_um
+    z_values = np.arange(stack.shape[0]) if z_values is None else np.asarray(z_values)
+    rows = []
+    for r in measure.regionprops(labels):
+        if r.area < min_voxels:
+            continue
+        z0, _, _, z1, _, _ = r.bbox
+        areas = [(labels[z] == r.label).sum() * vy * vx for z in range(z0, z1)]
+        cz, cy, cx = r.centroid
+        rows.append({"label": r.label, "volume_um3": r.area * vz * vy * vx, "n_slices": z1 - z0,
+                     "z_first": int(z_values[z0]), "z_last": int(z_values[z1 - 1]),
+                     "centroid_z_um": cz * vz, "centroid_y_um": cy * vy, "centroid_x_um": cx * vx,
+                     "max_area_um2": float(max(areas)), "touches_stack_edge": bool(z0 == 0 or z1 == stack.shape[0])})
+    return pd.DataFrame(rows, columns=cols).sort_values("volume_um3", ascending=False).reset_index(drop=True)

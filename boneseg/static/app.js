@@ -544,9 +544,10 @@ async function pollJob(id) {
   if (job.status === "failed") { $("jobText").textContent = `Failed: ${job.error}`; return; }
   const s = job.result.summary || {};
   $("jobText").innerHTML = `${job.status === "cancelled" ? "Cancelled after" : "Done:"} ${s.n_slices || 0} slices · volume ${fmt(s.volume_um3)} µm³ · mean area ${(100 * (s.mean_area_fraction || 0)).toFixed(1)}%`
+    + (s.n_objects_3d != null ? ` · ${s.n_objects_3d} objects in 3D (${s.n_objects_3d_inside} not cut by the stack ends), median ${fmt(s.median_object_volume_um3)} µm³` : "")
     + (s.mean_dice_vs_reference != null ? ` · mean Dice ${s.mean_dice_vs_reference.toFixed(3)}` : "");
   drawChart(job.result.slices || []);
-  $("jobDownloads").innerHTML = ["masks.tif", "slices.csv", "summary.json"]
+  $("jobDownloads").innerHTML = ["masks.tif", "slices.csv", "objects_3d.csv", "summary.json"]
     .map((f) => `<a class="small" href="/api/jobs/${id}/files/${f}" download><button class="ghost">${f}</button></a>`).join("");
 }
 

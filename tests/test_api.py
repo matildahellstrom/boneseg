@@ -107,6 +107,8 @@ def test_profiles_and_stack_job(client):
         masks = tifffile.imread(io.BytesIO(client.get(f"/api/jobs/{job['id']}/files/masks.tif").content))
         assert masks.shape == (4, *gt.shape)
         assert client.get(f"/api/jobs/{job['id']}/files/slices.csv").text.startswith("z,")
+        assert job["result"]["summary"]["n_objects_3d"] >= 1
+        assert client.get(f"/api/jobs/{job['id']}/files/objects_3d.csv").text.startswith("label,volume_um3")
     assert client.delete(f"/api/profiles/{pid}").json()["ok"]
 
 

@@ -179,3 +179,14 @@ def test_score_norm_does_not_change_clicked_slice(blobs):
         emb = segment.embed_image(bb, img, s)
         masks.append(segment.segment(emb, centers[:3], negs, s).mask)
     assert metrics.dice(*masks) > 0.99
+
+
+def test_objects_3d_counts_each_cell_once():
+    stack = np.zeros((5, 40, 40), bool)
+    stack[1:4, 5:15, 5:15] = True     # One cell over three slices
+    stack[0:2, 25:30, 25:30] = True   # One cell cut by the top of the stack
+    obj = quantify.objects_3d(stack, (2.0, 0.5, 0.5), z_values=[10, 12, 14, 16, 18])
+    assert len(obj) == 2
+    big = obj.iloc[0]
+    assert big["n_slices"] == 3 and big["volume_um3"] == pytest.approx(300 * 2 * 0.25) and not big["touches_stack_edge"]
+    assert obj.iloc[1]["touches_stack_edge"] and obj.iloc[1]["z_first"] == 10
