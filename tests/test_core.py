@@ -331,3 +331,23 @@ def test_segment_multi_separates_two_structures():
     assert not np.any((res.labels == 1) & (res.labels == 2))
     with pytest.raises(ValueError):
         segment.segment_multi(emb, [{"name": "x", "pos": []}], [], s)
+
+
+def test_head_context_and_old_models(tmp_path):
+    import torch
+
+    from boneseg.head import Head, segment_with_head, train_head
+
+    img, gt, _ = make_blobs(seed=3)
+    s = classic_settings()
+    emb = segment.embed_image(get_backbone("classic"), img, s)
+    head = train_head([(emb, gt)], s, [(0, 0)])
+    assert head.context == 5 and segment_with_head(head, emb, s).mask.shape == gt.shape
+    head.save(tmp_path / "h.pt")
+    assert Head.load(tmp_path / "h.pt").context == 5
+    # A model saved before context existed (no 'context' key) still loads and runs on patch features only
+    old = Head(s.backbone, 1, s.vit_size, "linear", torch.nn.Linear(64, 1).state_dict(), 64).__dict__
+    old.pop("context")
+    torch.save(old, tmp_path / "old.pt")
+    loaded = Head.load(tmp_path / "old.pt")
+    assert loaded.context == 1 and segment_with_head(loaded, emb, s).mask.shape == gt.shape
