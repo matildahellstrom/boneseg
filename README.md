@@ -52,6 +52,23 @@ The image runs on the CPU. For an NVIDIA GPU, change the PyTorch wheel index in 
 7. **Scale up.** "Run stack" segments a range of slices. "Save as profile" keeps the clicks, a learned model or all structures for other images. "Compare samples" at the top runs a profile on every sample and compares groups.
 8. **Export.** Masks as PNG or TIFF, label images, per-object CSV with each object's intensity in every channel, stack outputs, an HTML report, or a project zip with everything except the image.
 
+### Recipes
+
+**Some files have expert masks, others do not** (as in the Liu data, where the last channel is the expert segmentation).
+1. Open a file with expert masks and pick its image channel. The reference channel is picked up from its name.
+2. Click "Label 5 slices from the reference", then "Train model". The summary shows the model's Dice against the expert mask on slices it was not trained on.
+3. "Save model as profile". Open the other files, then in "Compare samples" run the profile on every sample, assign groups and compare.
+
+**No expert masks.**
+1. Click a few examples and background spots on one slice, and check the mask.
+2. Press E to correct it, save it as a label, and repeat on two or three more slices spread through the stack ("Copy to next slice" helps).
+3. "Train model", check the held-out Dice, and run the stack or a batch with the learned model.
+
+**Osteoclast surface per sample.**
+1. On the TRAP channel, click osteoclasts, then add a structure named "Bone matrix" and click bone.
+2. "Save as profile", then in "Compare samples" run it on every sample. Each run measures histomorphometry on every slice.
+3. Compare Oc.Pm/B.Pm or N.Oc/B.Pm between groups.
+
 ### Keyboard shortcuts
 
 | Key | Action |
