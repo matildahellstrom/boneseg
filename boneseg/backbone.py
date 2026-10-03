@@ -131,7 +131,13 @@ def get_backbone(name: str) -> Backbone:
                 gc.collect()
                 if torch.cuda.is_available():
                     torch.cuda.empty_cache()
-                _cache[name] = DinoBackbone(name, pick_device())
+                try:
+                    _cache[name] = DinoBackbone(name, pick_device())
+                except Exception as e:  # Usually no internet on first use, or a blocked download
+                    raise ValueError(
+                        f"Could not load {BACKBONE_LABELS[name]}. The first use downloads its code and weights from GitHub "
+                        f"and Meta, so check the internet connection, or pick 'Classic features', which needs no download "
+                        f"({type(e).__name__}: {str(e)[:160]})") from None
         return _cache[name]
 
 

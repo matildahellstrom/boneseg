@@ -351,3 +351,24 @@ def test_head_context_and_old_models(tmp_path):
     torch.save(old, tmp_path / "old.pt")
     loaded = Head.load(tmp_path / "old.pt")
     assert loaded.context == 1 and segment_with_head(loaded, emb, s).mask.shape == gt.shape
+
+
+def test_friendly_errors(monkeypatch):
+    import torch
+
+    from boneseg import backbone as bmod
+
+    # Download failure on first use
+    monkeypatch.setattr(bmod, "DinoBackbone", lambda name, dev: (_ for _ in ()).throw(OSError("no network")))
+    bmod._cache.pop("dinov2_b14", None)
+    with pytest.raises(ValueError, match="internet"):
+        bmod.get_backbone("dinov2_b14")
+
+    # Out of GPU memory while embedding
+    class Boom(bmod.Backbone):
+        patch_size = 14
+
+        def embed(self, img, in_h, in_w, layer_from_end=1):
+            raise torch.OutOfMemoryError("CUDA out of memory")
+    with pytest.raises(ValueError, match="ran out of memory"):
+        segment.embed_image(Boom(), np.zeros((50, 50), np.float32), classic_settings())

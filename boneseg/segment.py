@@ -61,7 +61,15 @@ def embed_image(backbone: Backbone, img: np.ndarray, settings: SegmentationSetti
     """Embeds a normalized [0, 1] image."""
     h, w = img.shape
     in_h, in_w = vit_input_size(h, w, settings.vit_size, backbone.patch_size)
-    grid = backbone.embed(torch.from_numpy(np.ascontiguousarray(img, dtype=np.float32)), in_h, in_w, settings.layer_from_end)
+    try:
+        grid = backbone.embed(torch.from_numpy(np.ascontiguousarray(img, dtype=np.float32)), in_h, in_w, settings.layer_from_end)
+    except (torch.OutOfMemoryError, RuntimeError) as e:
+        if "out of memory" not in str(e).lower() and not isinstance(e, torch.OutOfMemoryError):
+            raise
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        raise ValueError("The GPU ran out of memory. Pick a smaller backbone, such as DINOv2 Small, or a lower "
+                         "'Detail' setting under 'Clean-up and advanced'") from None
     return Embedding(grid=grid, height=h, width=w)
 
 
