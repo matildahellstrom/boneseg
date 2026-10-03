@@ -339,3 +339,32 @@ def test_teach_several_structures(page, server):
     cards = page.inner_text("#statCards")
     assert "Object" in cards and "Bone matrix" in cards
     assert not page.errors, page.errors
+
+
+def test_histomorphometry_whole_stack(page, server):
+    url, data = server
+    stack = open_demo(page, url, data)
+    page.select_option("#channelSelect", "0")
+    page.wait_for_timeout(700)
+    m = ndi.gaussian_filter(stack[6, 0].astype(float), 3)
+    rng = np.random.default_rng(5)
+    hi, lo = np.argwhere(m > np.percentile(m, 85)), np.argwhere(m < np.percentile(m, 15))
+    for y, x in hi[rng.choice(len(hi), 4, replace=False)]:
+        click_full(page, y, x)
+    for y, x in lo[rng.choice(len(lo), 4, replace=False)]:
+        click_full(page, y, x, shift=True)
+    wait_result(page)
+    page.click("#saveProfileBtn")
+    page.fill("#profileName", "Demo bone")
+    page.click("#profileSaveConfirm")
+    page.wait_for_function("S.profiles.some(p => p.name === 'Demo bone')", timeout=10000)
+    pid = page.evaluate("S.profiles.find(p => p.name === 'Demo bone').id")
+    page.select_option("#hBoneC", "0")
+    page.select_option("#hBoneSrc", f"profile:{pid}")
+    page.select_option("#hCellC", "1")
+    page.select_option("#hCellSrc", "reference")
+    page.fill("#zStep", "3")
+    page.click("#histoStackBtn")
+    page.wait_for_function("document.querySelector('#histoStackText').textContent.includes('slices:')", timeout=60000)
+    assert "Oc.Pm/B.Pm" in page.inner_text("#histoStackText")
+    assert not page.errors, page.errors
