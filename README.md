@@ -17,6 +17,15 @@ The app opens at http://127.0.0.1:8000. Click **Try a synthetic demo image** to 
 
 The app runs on an NVIDIA GPU, an Apple Silicon GPU or the CPU, whichever it finds. Small and Base are comfortable on a laptop. Giant needs a large GPU.
 
+### With Docker
+
+```bash
+docker build -t boneseg .
+docker run -p 8000:8000 -v "$PWD/projects:/data" boneseg
+```
+
+The image runs on the CPU. For an NVIDIA GPU, change the PyTorch wheel index in the Dockerfile to a CUDA one and add `--gpus all` to `docker run`. The Dockerfile has not been built yet, because the development machine was short on disk space.
+
 ## How to use it
 
 1. **Load an image.** Drop a file on the left panel. For multi-gigabyte Imaris files, use "Open a large file from disk instead" and paste the path, which opens the file in place without copying it.

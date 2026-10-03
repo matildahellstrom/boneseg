@@ -1,0 +1,13 @@
+.venv
+data
+projects
+cache
+outputs
+results
+notebooks
+docs
+tests
+scripts
+ci
+*.ims
+.git
