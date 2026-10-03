@@ -168,6 +168,26 @@ def create_app(data_dir: str | Path | None = None, allow_paths: bool = True) -> 
 
         return store.add_dataset_file(file.filename or "upload", write).info()
 
+    @app.post("/api/datasets/stream")
+    async def upload_stream(request: Request, filename: str):
+        """Upload with the raw file as the request body. Written straight to its final place, so a
+        multi-gigabyte Imaris file needs its own size in free disk, not twice that."""
+        import asyncio
+        import uuid as _uuid
+
+        tmp = store.root / "datasets" / f".incoming-{_uuid.uuid4().hex}"
+        try:
+            with open(tmp, "wb") as out:
+                async for chunk in request.stream():
+                    out.write(chunk)
+
+            def write(dest: Path):
+                tmp.replace(dest)  # Same filesystem, so this is a rename, not a copy
+
+            return (await asyncio.to_thread(store.add_dataset_file, filename, write)).info()
+        finally:
+            tmp.unlink(missing_ok=True)
+
     @app.post("/api/datasets/demo")
     def demo():
         from .demo import DEMO_CHANNEL_NAMES, write_demo_tiff

@@ -237,8 +237,7 @@ async function loadReference() {
 }
 
 function uploadFile(file) {
-  const fd = new FormData();
-  fd.append("file", file);
+  // The raw file is the request body, so the server writes it once without a temporary copy
   const xhr = new XMLHttpRequest();
   $("uploadProgress").classList.remove("hidden");
   xhr.upload.onprogress = (e) => {
@@ -260,8 +259,9 @@ function uploadFile(file) {
   };
   xhr.onerror = () => { $("uploadProgress").classList.add("hidden"); toast("Upload failed", true); };
   $("uploadText").textContent = `Uploading ${file.name}…`;
-  xhr.open("POST", "/api/datasets");
-  xhr.send(fd);
+  xhr.open("POST", `/api/datasets/stream?filename=${encodeURIComponent(file.name)}`);
+  xhr.setRequestHeader("Content-Type", "application/octet-stream");
+  xhr.send(file);
 }
 
 // ---------------------------------------------------------------------------------------------

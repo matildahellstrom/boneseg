@@ -325,3 +325,18 @@ def test_side_view(client):
         time.sleep(0.05)
     assert client.get(f"/api/datasets/{did}/xz", params={"c": 0, "y": int(centers[0][0]), "job_id": job["id"]}).status_code == 200
     assert client.get(f"/api/datasets/{did}/xz", params={"c": 0, "y": 9999}).status_code == 400
+
+
+def test_streaming_upload(client):
+    img, gt, _ = make_blobs()
+    buf = io.BytesIO()
+    tifffile.imwrite(buf, np.stack([img, img]).astype(np.float32))
+    r = client.post("/api/datasets/stream", params={"filename": "../../evil name.tif"}, content=buf.getvalue(),
+                    headers={"Content-Type": "application/octet-stream"})
+    assert r.status_code == 200, r.text
+    d = r.json()
+    assert d["name"] == "evil name.tif" and d["n_z"] == 2
+    root = client.app.state.store.root / "datasets"
+    assert not list(root.glob(".incoming-*"))   # No temporary file left behind
+    r = client.post("/api/datasets/stream", params={"filename": "x.bmp"}, content=b"abc")
+    assert r.status_code == 400 and not list(root.glob(".incoming-*"))

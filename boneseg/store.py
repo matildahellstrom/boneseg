@@ -137,7 +137,11 @@ class Store:
 
     # Datasets ---------------------------------------------------------------------------------
     def _load_existing(self):
+        for leftover in (self.root / "datasets").glob(".incoming-*"):  # Uploads cut off by a restart
+            leftover.unlink(missing_ok=True)
         for d in sorted((self.root / "datasets").iterdir()):
+            if not d.is_dir():
+                continue
             meta_path = d / "dataset.json"
             if not meta_path.exists():
                 continue
