@@ -57,6 +57,7 @@ class StructureSpec(BaseModel):
 
 
 class MultiSegmentRequest(BaseModel):
+    method: str = "clicks"  # "clicks" or "learned" (a model trained on labels with several structures)
     channel: int = 0
     z: int = 0
     profile_id: str | None = None  # A multi-structure profile, used instead of clicks
@@ -70,6 +71,7 @@ class LabelRequest(BaseModel):
     channel: int
     z: int
     mask_png: str | None = None   # Data URL of an edited mask at any resolution; None saves the last result
+    structures: list[str] = Field(default_factory=list)  # Two or more: the red channel of mask_png holds the structure index
 
 
 class ProfileFromHeadRequest(BaseModel):

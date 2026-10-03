@@ -109,8 +109,9 @@ def _step(zs: list[int]) -> int:
 def run_stack_multi(z_list: list[int], ref_z: int | None, model, settings: SegmentationSettings,
                     get_embedding: Callable[[int], Embedding], get_image: Callable[[int], np.ndarray], voxel_um, out_dir: Path,
                     progress: Callable[[float, str], None] = lambda p, m: None, cancelled: Callable[[], bool] = lambda: False,
-                    lock=None, roi: np.ndarray | None = None) -> dict:
-    """Several structures through a stack. Writes a label stack (0 background, k for structure k),
+                    lock=None, roi: np.ndarray | None = None, labeler: Callable | None = None) -> dict:
+    """Several structures through a stack. model needs .names; labeler(embedding) -> label map replaces
+    the prototype rule, for a learned model of several structures. Writes a label stack (0 background, k for structure k),
     a union mask stack for the side view, per-slice measurements per structure and 3D objects per structure."""
     from .segment import apply_multi
 
@@ -132,7 +133,8 @@ def run_stack_multi(z_list: list[int], ref_z: int | None, model, settings: Segme
             break
         progress(i / max(1, len(order)), f"Slice {z} ({i + 1}/{len(order)})")
         with (lock or contextlib.nullcontext()):
-            lab = apply_multi(get_embedding(z), model, settings, pixel_um)
+            emb = get_embedding(z)
+            lab = labeler(emb) if labeler is not None else apply_multi(emb, model, settings, pixel_um)
         if roi is not None:
             lab = np.where(roi, lab, 0).astype(np.uint8)
         labels[z] = lab

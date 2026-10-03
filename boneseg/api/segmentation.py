@@ -31,6 +31,8 @@ def router(ctx: AppContext) -> APIRouter:
             profile_head = ctx.learned_profile_head(req.profile_id, settings)
             if req.method == "learned" or profile_head is not None:
                 head = profile_head or ctx.load_head(ds_id, req.channel, settings)
+                if head.names:
+                    raise ValueError("This learned model predicts several structures; add the structures to use it")
                 emb = store.embedding(ds_id, req.channel, req.z, settings)
                 t_embed = time.time() - t0
                 res = segment_with_head(head, emb, settings, ds.volume.pixel_um)
@@ -93,11 +95,23 @@ def router(ctx: AppContext) -> APIRouter:
         settings = SegmentationSettings.from_dict(req.settings)
         from ..segment import MultiResult, apply_multi
 
+        from ..head import labels_with_head
+
         classes = [{"name": st.name, "pos": st.pos} for st in req.structures if st.pos]
         model, prof = ctx.multi_profile_model(req.profile_id, settings)
+        head = ctx.learned_profile_head(req.profile_id, settings)
+        if head is None and req.method == "learned":
+            head = ctx.load_head(ds_id, req.channel, settings)
+        if head is not None and not head.names:
+            raise ValueError("This learned model has a single structure; use it without several structures")
         with store.compute_lock:
             emb = store.embedding(ds_id, req.channel, req.z, settings)
-            if model is not None:
+            if head is not None:
+                res = MultiResult(labels=labels_with_head(head, emb, settings, ds.volume.pixel_um), thresholds=[], names=list(head.names))
+                palette = ["#22d27a", "#ffa53a", "#c78bff", "#ff5ad2", "#ffe14a", "#5ad1ff"]
+                given = {st.name: st.color for st in req.structures}
+                req.structures = [StructureSpec(name=n, color=given.get(n, palette[k % len(palette)]), pos=[(0, 0)]) for k, n in enumerate(head.names)]
+            elif model is not None:
                 res = MultiResult(labels=apply_multi(emb, model, settings, ds.volume.pixel_um), thresholds=model.thresholds, names=model.names)
                 req.structures = [StructureSpec(name=st["name"], color=st.get("color") or "#00c8f0", pos=[(0, 0)]) for st in prof.structures]
             else:
@@ -196,6 +210,27 @@ def router(ctx: AppContext) -> APIRouter:
         head = ctx.learned_profile_head(req.profile_id, settings)
         if head is None and req.method == "learned":
             head = ctx.load_head(ds_id, req.channel, settings)
+        if head is not None and head.names:
+            # A learned model of several structures runs through the multi-structure pipeline
+            from types import SimpleNamespace
+
+            from ..head import labels_with_head
+            from ..pipeline import run_stack_multi
+
+            c = req.channel
+
+            def work_learned_multi(job):
+                return run_stack_multi(z_list, ref_z, SimpleNamespace(names=list(head.names)), settings,
+                                       get_embedding=lambda z: store.embedding(ds_id, c, z, settings),
+                                       get_image=lambda z: store.plane(ds_id, c, z, settings.clip_low, settings.clip_high),
+                                       voxel_um=ds.volume.voxel_um, out_dir=job.out_dir,
+                                       progress=lambda p, m: (setattr(job, "progress", p), setattr(job, "message", m)),
+                                       cancelled=job.cancel.is_set, lock=store.compute_lock, roi=store.roi_mask(ds_id),
+                                       labeler=lambda emb: labels_with_head(head, emb, settings, ds.volume.pixel_um))
+
+            job = store.start_job("stack", work_learned_multi, meta={"dataset_id": ds_id, "n_slices": len(z_list), "channel": c,
+                                                                      "method": "learned structures", "structures": list(head.names)})
+            return job.info()
         with store.compute_lock:
             if head is not None:
                 import torch

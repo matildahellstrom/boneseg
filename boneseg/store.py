@@ -363,10 +363,35 @@ class Store:
         Image.fromarray(mask.astype(np.uint8) * 255).save(self.label_path(ds_id, c, z))
 
     def load_label(self, ds_id: str, c: int, z: int) -> np.ndarray | None:
+        """The label as a mask: any structure counts."""
+        m = self.load_label_map(ds_id, c, z)
+        return None if m is None else m > 0
+
+    def save_label_map(self, ds_id: str, c: int, z: int, labels: np.ndarray, names: list[str]):
+        """A label with several structures: 0 background, k for structure k. Single-structure labels are
+        stored as 255, so the two kinds are told apart when loading."""
+        from PIL import Image
+
+        vol = self.get(ds_id).volume
+        img = Image.fromarray(labels.astype(np.uint8))
+        if labels.shape != (vol.height, vol.width):
+            img = img.resize((vol.width, vol.height), Image.NEAREST)
+        img.save(self.label_path(ds_id, c, z))
+        names_by_channel = dict(self.get(ds_id).meta.get("label_structures") or {})
+        names_by_channel[str(int(c))] = list(names)
+        self.update_meta(ds_id, label_structures=names_by_channel)
+
+    def load_label_map(self, ds_id: str, c: int, z: int) -> np.ndarray | None:
         from PIL import Image
 
         p = self.label_path(ds_id, c, z)
-        return np.asarray(Image.open(p)) > 127 if p.exists() else None
+        if not p.exists():
+            return None
+        m = np.asarray(Image.open(p)).astype(np.uint8)
+        return np.where(m == 255, 1, m).astype(np.uint8)
+
+    def label_structures(self, ds_id: str, c: int) -> list[str] | None:
+        return (self.get(ds_id).meta.get("label_structures") or {}).get(str(int(c)))
 
     def list_labels(self, ds_id: str) -> list[dict]:
         out = []

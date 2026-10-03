@@ -372,3 +372,28 @@ def test_friendly_errors(monkeypatch):
             raise torch.OutOfMemoryError("CUDA out of memory")
     with pytest.raises(ValueError, match="ran out of memory"):
         segment.embed_image(Boom(), np.zeros((50, 50), np.float32), classic_settings())
+
+
+def test_multi_structure_learned_model():
+    from boneseg.head import labels_with_head, train_head_multi
+
+    def scene(seed):
+        rng = np.random.default_rng(seed)
+        h, w = 200, 260
+        yy, xx = np.mgrid[:h, :w]
+        lab = np.zeros((h, w), np.uint8)
+        for _ in range(3):
+            cy, cx = rng.integers(30, h - 30), rng.integers(30, w - 30)
+            lab[(yy - cy) ** 2 + (xx - cx) ** 2 < 18 ** 2] = 1
+        y0, x0 = rng.integers(10, h - 70), rng.integers(10, w - 70)
+        lab[y0:y0 + 50, x0:x0 + 50] = np.where(lab[y0:y0 + 50, x0:x0 + 50] == 0, 2, lab[y0:y0 + 50, x0:x0 + 50])
+        img = np.choose(lab, [0.1, 0.9, 0.45]).astype(np.float32) + rng.normal(0, 0.03, (h, w)).astype(np.float32)
+        return np.clip(img, 0, 1), lab
+    s = SegmentationSettings(backbone="classic", vit_size=504)
+    bb = get_backbone("classic")
+    samples = [(segment.embed_image(bb, img, s), lab) for img, lab in (scene(i) for i in range(3))]
+    head = train_head_multi(samples[:2], ["cells", "blocks"], s, [(0, 0), (0, 1)])
+    assert head.names == ["cells", "blocks"] and head.n_out == 3 and head.cv["chosen"]
+    pred = labels_with_head(head, samples[2][0], s)
+    truth = samples[2][1]
+    assert metrics.dice(pred == 1, truth == 1) > 0.5 and metrics.dice(pred == 2, truth == 2) > 0.5

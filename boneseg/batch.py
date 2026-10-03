@@ -42,6 +42,14 @@ def run_batch(files: list[str | Path], profile: Profile, channel: int, out_dir: 
     backbone = get_backbone(settings.backbone)
     pos, neg = profile.tensors()
     multi = profile.multi_model() if profile.structures else None
+    labeler_names = None
+    if head is not None and head.names:
+        # A learned model of several structures runs through the multi-structure pipeline
+        from types import SimpleNamespace
+
+        from .head import labels_with_head
+
+        multi, labeler_names = SimpleNamespace(names=list(head.names)), head
     rows = []
     for f in files:
         f = Path(f)
@@ -66,7 +74,8 @@ def run_batch(files: list[str | Path], profile: Profile, channel: int, out_dir: 
                 from .pipeline import run_stack_multi
 
                 out = run_stack_multi(zs, None, multi, settings, get_embedding=lambda z: embed_image(backbone, image(z), settings),
-                                      get_image=image, voxel_um=vol.voxel_um, out_dir=target)
+                                      get_image=image, voxel_um=vol.voxel_um, out_dir=target,
+                                      labeler=(lambda e: labels_with_head(labeler_names, e, settings, vol.pixel_um)) if labeler_names else None)
                 s = out["summary"]
                 row = {"file": f.name, "status": "ok", "seconds": round(time.time() - t0, 1), "n_slices": s["n_slices"]}
                 for name, st in s["structures"].items():

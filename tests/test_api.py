@@ -562,3 +562,52 @@ def test_batch_from_the_app_feeds_compare(client):
             break
         time.sleep(0.05)
     assert job["status"] == "done" and [s["status"] for s in job["result"]["samples"]].count("skipped") == 1
+
+
+def test_labels_and_learned_model_with_several_structures(client, tmp_path):
+    import base64
+    from PIL import Image
+
+    ds, gt, centers = upload_stack(client, n_z=3, with_reference=False)
+    did = ds["id"]
+    ys, xs = np.nonzero(~ndi_dilate(gt))
+    other = [[int(ys[i]), int(xs[i])] for i in np.linspace(0, len(ys) - 1, 4).astype(int)]
+    body = {"channel": 0, "z": 0, "neg": bg_points(gt)[:3], "settings": SETTINGS,
+            "structures": [{"name": "cells", "pos": [list(c) for c in centers[:3]]}, {"name": "matrix", "pos": other}]}
+    assert client.post(f"/api/datasets/{did}/segment_multi", json=body).status_code == 200
+    # Label slice 0 from the multi result, and slice 1 from a painted map (red channel = structure index)
+    assert client.post(f"/api/datasets/{did}/labels", json={"channel": 0, "z": 0, "structures": ["cells", "matrix"]}).status_code == 200
+    lab = np.zeros(gt.shape, np.uint8)
+    lab[gt] = 1
+    lab[:20, :] = 2
+    rgba = np.zeros(gt.shape + (4,), np.uint8)
+    rgba[..., 0] = lab
+    rgba[..., 3] = np.where(lab > 0, 255, 0)
+    buf = io.BytesIO()
+    Image.fromarray(rgba, "RGBA").save(buf, format="PNG")
+    url = "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode()
+    assert client.post(f"/api/datasets/{did}/labels", json={"channel": 0, "z": 1, "mask_png": url, "structures": ["cells", "matrix"]}).status_code == 200
+    assert client.get(f"/api/datasets/{did}").json()["label_structures"]["0"] == ["cells", "matrix"]
+    info = client.post(f"/api/datasets/{did}/head", json={"channel": 0, "settings": SETTINGS}).json()
+    assert info["names"] == ["cells", "matrix"]
+    r = client.post(f"/api/datasets/{did}/segment_multi", json={"method": "learned", "channel": 0, "z": 2, "settings": SETTINGS})
+    assert r.status_code == 200, r.text
+    assert [s["name"] for s in r.json()["structures"]] == ["cells", "matrix"]
+    r = client.post(f"/api/datasets/{did}/segment", json={"method": "learned", "channel": 0, "z": 2, "settings": SETTINGS})
+    assert r.status_code == 400 and "several structures" in r.json()["detail"]
+    job = client.post(f"/api/datasets/{did}/stack", json={"method": "learned", "channel": 0, "settings": SETTINGS}).json()
+    for _ in range(200):
+        job = client.get(f"/api/jobs/{job['id']}").json()
+        if job["status"] in ("done", "failed"):
+            break
+        time.sleep(0.05)
+    assert job["status"] == "done", job
+    assert set(job["result"]["summary"]["structures"]) == {"cells", "matrix"} and "histomorphometry" in job["result"]["summary"]
+    # Exported as a profile, it segments other files in batch
+    prof = client.post(f"/api/datasets/{did}/head/export", json={"channel": 0, "name": "learned two"}).json()
+    from boneseg.__main__ import main
+    root = client.app.state.store.root
+    main(["batch", str(next((root / "datasets" / did).glob("*.tif"))), "--profile", prof["id"], "--channel", "0",
+          "--out", str(tmp_path / "o"), "--data-dir", str(root)])
+    import pandas as pd
+    assert "cells_volume_um3" in pd.read_csv(tmp_path / "o" / "summary.csv")

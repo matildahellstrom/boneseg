@@ -59,6 +59,15 @@ def router(ctx: AppContext) -> APIRouter:
                 prog = lambda p, m, f0=frac0: setattr(job, "progress", f0 + p * span)  # noqa: E731
 
                 def run(out_dir, ds=ds, zs=zs, emb=emb, img=img, prog=prog, did=did, c=c):
+                    if head is not None and head.names:
+                        from types import SimpleNamespace
+
+                        from ..head import labels_with_head
+
+                        return run_stack_multi(zs, None, SimpleNamespace(names=list(head.names)), settings, get_embedding=emb, get_image=img,
+                                               voxel_um=ds.volume.voxel_um, out_dir=out_dir, progress=prog, cancelled=job.cancel.is_set,
+                                               lock=store.compute_lock, roi=store.roi_mask(did),
+                                               labeler=lambda e, ds=ds: labels_with_head(head, e, settings, ds.volume.pixel_um))
                     if multi is not None:
                         return run_stack_multi(zs, None, multi, settings, get_embedding=emb, get_image=img, voxel_um=ds.volume.voxel_um,
                                                out_dir=out_dir, progress=prog, cancelled=job.cancel.is_set, lock=store.compute_lock,

@@ -35,6 +35,7 @@ def router(ctx: AppContext) -> APIRouter:
 
     @r.post("/api/datasets/{ds_id}/labels")
     def save_label(ds_id: str, req: LabelRequest):
+        multi = len(req.structures) > 1
         if req.mask_png:
             import base64
 
@@ -42,18 +43,27 @@ def router(ctx: AppContext) -> APIRouter:
 
             raw = base64.b64decode(req.mask_png.split(",", 1)[-1])
             img = np.asarray(Image.open(io.BytesIO(raw)).convert("RGBA"))
-            mask = img[..., 3] > 127  # Painted pixels are opaque
+            painted = img[..., 3] > 127  # Painted pixels are opaque
+            if multi:
+                labels = np.where(painted, np.clip(img[..., 0], 0, len(req.structures)), 0).astype(np.uint8)
+                store.save_label_map(ds_id, req.channel, req.z, labels, req.structures)
+            else:
+                store.save_label(ds_id, req.channel, req.z, painted)
+        elif multi:
+            res = store.get(ds_id).results.get(("multi", req.channel, req.z))
+            if res is None:
+                raise HTTPException(404, "Segment several structures on this slice first")
+            store.save_label_map(ds_id, req.channel, req.z, res["labels"], res["names"])
         else:
-            mask = ctx.last_result(ds_id, req.channel, req.z).mask
-        store.save_label(ds_id, req.channel, req.z, mask)
+            store.save_label(ds_id, req.channel, req.z, ctx.last_result(ds_id, req.channel, req.z).mask)
         return {"ok": True, "labels": store.list_labels(ds_id)}
 
     @r.get("/api/datasets/{ds_id}/labels/png")
     def label_png(ds_id: str, c: int = 0, z: int = 0, max_side: int = 1600):
-        m = store.load_label(ds_id, c, z)
+        m = store.load_label_map(ds_id, c, z)
         if m is None:
             raise HTTPException(404, "No label for this slice")
-        return Response(render.mask_png(m, max_side, color=(255, 210, 0), fill_alpha=0), media_type="image/png")
+        return Response(render.mask_png(m > 0, max_side, color=(255, 210, 0), fill_alpha=0), media_type="image/png")
 
     @r.delete("/api/datasets/{ds_id}/labels")
     def delete_label(ds_id: str, c: int = 0, z: int = 0):
@@ -67,9 +77,17 @@ def router(ctx: AppContext) -> APIRouter:
         if not labels:
             raise ValueError("Save at least one corrected mask as a label on this channel first")
         t0 = time.time()
+        names = store.label_structures(ds_id, req.channel)
         with store.compute_lock:
-            samples = [(store.embedding(ds_id, req.channel, l["z"], settings), store.load_label(ds_id, req.channel, l["z"])) for l in labels]
-            head = train_head(samples, settings, [(req.channel, l["z"]) for l in labels], kind=req.kind, pixel_um=store.get(ds_id).volume.pixel_um)
+            if names and len(names) > 1:
+                # Labels with several structures train a model that predicts all of them
+                from ..head import train_head_multi
+
+                samples = [(store.embedding(ds_id, req.channel, l["z"], settings), store.load_label_map(ds_id, req.channel, l["z"])) for l in labels]
+                head = train_head_multi(samples, names, settings, [(req.channel, l["z"]) for l in labels], pixel_um=store.get(ds_id).volume.pixel_um)
+            else:
+                samples = [(store.embedding(ds_id, req.channel, l["z"], settings), store.load_label(ds_id, req.channel, l["z"])) for l in labels]
+                head = train_head(samples, settings, [(req.channel, l["z"]) for l in labels], kind=req.kind, pixel_um=store.get(ds_id).volume.pixel_um)
         head.save(store.head_path(ds_id, req.channel))
         return {**head.info(), "seconds": round(time.time() - t0, 2)}
 
