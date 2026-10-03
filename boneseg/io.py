@@ -30,6 +30,8 @@ class Volume:
     _reader: object = None
 
     def get_plane(self, channel: int, z: int) -> np.ndarray:
+        # Plain ints: the Imaris reader treats NumPy integers as slices and fails
+        channel, z = int(channel), int(z)
         if not 0 <= channel < self.n_channels:
             raise IndexError(f"Channel {channel} is out of range, the file has {self.n_channels}")
         if not 0 <= z < self.n_z:

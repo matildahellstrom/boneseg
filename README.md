@@ -1,0 +1,101 @@
+# boneseg
+
+Segment structures in bone microscopy images with a few clicks. boneseg turns the DINO few-shot segmentation from the notebook in `notebooks/` into a web app. You upload an Imaris, TIFF or PNG file, click a few cells and a few background spots, and get a mask with measurements in micrometres. You can then run the whole z-stack, export the results, or save the clicks as a profile for the next image.
+
+![The boneseg interface segmenting the demo stack](docs/screenshot.png)
+
+## Quick start
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+python -m boneseg serve --open
+```
+
+The app opens at http://127.0.0.1:8000. Click **Try a synthetic demo image** to explore it without your own data. The first time you pick a DINOv2 backbone, its weights download from Meta, about 85 MB for Small.
+
+The app runs on an NVIDIA GPU, an Apple Silicon GPU or the CPU, whichever it finds. Small and Base are comfortable on a laptop. Giant needs a large GPU.
+
+## How to use it
+
+1. **Load an image.** Drop a file on the left panel. For multi-gigabyte Imaris files, use "Open a large file from disk instead" and paste the path, which opens the file in place without copying it.
+2. **Pick the channel** that shows the structure. If the file has an expert segmentation channel, choose it as the reference mask. Every result is then scored with Dice, IoU and HD95 against it. Channels named "segmentation", "mask" or "surface" are picked up automatically.
+3. **Click.** Click a few examples of the structure, then shift-click a few background spots. The mask updates after every click.
+4. **Refine.** The orange overlay shows where the mask depends on single clicks, and a dashed ring suggests the most useful next click.
+5. **Export or scale up.**
+   - Download the mask as PNG or TIFF, or the per-object measurements as CSV.
+   - Run the whole stack, which writes a mask stack, per-slice measurements and a 3D object table.
+   - Save the clicks as a profile to segment the next image of the same stain without clicking.
+
+### Keyboard shortcuts
+
+| Key | Action |
+|---|---|
+| Click / Shift-click | Add an object / background point |
+| Right-click | Remove the nearest point |
+| 1, 2 | Switch between object and background clicks |
+| Ctrl+Z | Undo the last point |
+| , and . | Previous and next slice |
+| F | Fit the image to the window |
+| M, H, U | Toggle the mask, heatmap and uncertainty overlays |
+| Scroll, drag | Zoom, pan |
+
+## How it works
+
+The image goes through a frozen, self-supervised DINOv2 backbone, which gives one feature vector per 14×14 pixel patch. The patches under your clicks become prototypes. Every patch is then scored by its mean cosine similarity to the object prototypes, minus λ times its similarity to the background prototypes. The score map is upsampled and thresholded into a mask.
+
+Three choices differ from the notebook. Each was tested on the demo stack with the benchmark script.
+
+- **The threshold comes from your clicks.** It sits halfway between the scores at the object clicks and those at the background clicks. On the demo stack this raised Dice from 0.36 with Otsu to 0.89. Otsu tended to separate tissue from empty space instead of the target from everything else.
+- **Scores are standardized per slice.** The median and spread of each slice's scores are used to standardize it. This never changes the slice you clicked. It keeps the calibrated threshold meaningful on deeper, dimmer slices, raising stack Dice from 0.69 to 0.81 on a strongly degraded stack.
+- **The image keeps its aspect ratio** when resized for the backbone, and measurements use the voxel size from the file.
+
+An adaptive mode that refreshed the prototypes slice by slice was tried and removed, because it lowered Dice in every setting tested.
+
+| Mean Dice on the demo stack, DINOv2 Small | Clicked slice | Whole stack |
+|---|---|---|
+| Otsu threshold | 0.58 | 0.36 |
+| Fixed 6% of the image | 0.69 | 0.58 |
+| Threshold from clicks (default) | 0.88 | 0.89 |
+
+On real data the gap is smaller. Results for Liu file A, channel 3, scored against its masked channel 4 on 12 slices, using DINOv2 Small (`scripts/benchmark_file.py`):
+
+| Mean Dice on Liu file A | From clicks | Otsu | Fixed 10% |
+|---|---|---|---|
+| Clicks on each slice, 3 object + 6 background | 0.58 | 0.51 | 0.56 |
+| Clicks on each slice, 25 + 25 | 0.63 | 0.54 | 0.62 |
+| Clicks on the middle slice, run over the stack, 25 + 25 | 0.57 | 0.50 | 0.56 |
+
+On that file a smaller backbone input of 644 px did slightly better than the default 980 px (0.66 against 0.65 with 25 + 25 clicks), and Base was close to Small. Try the "Detail" setting under "Clean-up and advanced" if the mask looks too fragmented.
+
+Run the benchmarks yourself:
+
+```bash
+python scripts/benchmark_demo.py --ref top --depth-degradation 1.0
+python scripts/benchmark_file.py "data/liudata/10-26-40_6_Blaze_crop2 quantified.ims" --channel 3 --reference 4
+```
+
+## Project layout
+
+| Path | Contents |
+|---|---|
+| `boneseg/io.py` | Lazy loading of Imaris, TIFF, PNG/JPG and NumPy files as (channel, z, y, x) volumes |
+| `boneseg/backbone.py` | DINOv2 backbones pinned to a fixed commit, plus a fast "classic" backbone for tests and offline use |
+| `boneseg/segment.py` | Prototypes, scores, thresholds, clean-up, uncertainty and profiles |
+| `boneseg/pipeline.py` | Whole-stack runs |
+| `boneseg/quantify.py`, `metrics.py` | Measurements in micrometres, 3D objects, Dice, IoU and HD95 |
+| `boneseg/api.py`, `store.py` | The web server and its storage |
+| `boneseg/static/` | The browser interface, plain HTML, CSS and JavaScript |
+| `notebooks/` | The research notebook, with a Kaggle batch-run setup in `kernel-metadata.json` |
+| `scripts/` | Benchmarks |
+| `tests/` | Tests on synthetic images, run with `pytest` |
+
+## Development
+
+```bash
+pip install -r requirements-dev.txt
+pytest
+```
+
+Uploaded files, profiles and job outputs go to `projects/`, or to the folder set with `--data-dir` or the `BONESEG_DATA_DIR` environment variable. Microscopy files and outputs are kept out of git.

@@ -117,6 +117,7 @@ def test_load_formats(tmp_path, blobs):
     assert (v.n_channels, v.n_z, v.height, v.width) == (2, 2, *img.shape)
     assert v.voxel_um == pytest.approx((2.0, 0.5, 0.5)) and v.voxel_size_known
     assert np.allclose(v.get_plane(0, 1), img * 0.5)
+    assert np.allclose(v.get_plane(np.int64(0), np.int64(1)), img * 0.5)
     np.save(tmp_path / "a.npy", img)
     v = io.load_volume(tmp_path / "a.npy")
     assert (v.n_channels, v.n_z) == (1, 1)
