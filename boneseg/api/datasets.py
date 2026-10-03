@@ -118,7 +118,8 @@ def router(ctx: AppContext) -> APIRouter:
         return Response(render.gray_png(p, max_side, gamma), media_type="image/png", headers={"Cache-Control": "max-age=3600"})
 
     @r.get("/api/datasets/{ds_id}/xz")
-    def side_view(ds_id: str, c: int = 0, y: int = 0, job_id: str | None = None, low: float = 1.0, high: float = 99.5, max_width: int = 1600):
+    def side_view(ds_id: str, c: int = 0, y: int = 0, job_id: str | None = None, low: float = 1.0, high: float = 99.5, max_width: int = 1600,
+                  colors: str = ""):
         """A side view through every slice at row y, stretched so z spacing and pixel size match,
         with the mask from a finished stack run on top."""
         from PIL import Image
@@ -132,12 +133,16 @@ def router(ctx: AppContext) -> APIRouter:
         rgb = np.repeat((xz * 255).astype(np.uint8)[..., None], 3, -1)
         if job_id:
             job = store.get_job(job_id)
-            mpath = job.out_dir / "masks.tif"
+            # A multi-structure run has a label stack; colour each structure with the colours the interface uses
+            lpath = job.out_dir / "labels.tif"
+            mpath = lpath if lpath.exists() else job.out_dir / "masks.tif"
             zs = job.result.get("summary", {}).get("z_processed", [])
             if mpath.exists() and zs:
                 with tifffile.TiffFile(mpath) as tf:
-                    rows = np.stack([tf.pages[i].asarray()[y] for i in range(len(zs))]) > 0
-                full = np.zeros((vol.n_z, vol.width), bool)
+                    rows = np.stack([tf.pages[i].asarray()[y] for i in range(len(zs))])
+                if mpath != lpath:
+                    rows = (rows > 0).astype(np.uint8)
+                full = np.zeros((vol.n_z, vol.width), np.uint8)
                 zs_arr = np.asarray(zs)
                 step = int(np.median(np.diff(zs_arr))) if len(zs_arr) > 1 else 1
                 for z in range(vol.n_z):
@@ -145,7 +150,11 @@ def router(ctx: AppContext) -> APIRouter:
                     i = int(np.argmin(np.abs(zs_arr - z)))
                     if abs(int(zs_arr[i]) - z) <= step / 2:
                         full[z] = rows[i]
-                rgb[full] = (rgb[full] * 0.5 + np.array([0, 220, 255]) * 0.5).astype(np.uint8)
+                palette = [tuple(int(h[i:i + 2], 16) for i in (0, 2, 4)) for h in (x.strip().lstrip("#") for x in colors.split(",")) if len(h) == 6]
+                for k in range(1, int(full.max()) + 1):
+                    color = np.array(palette[k - 1] if k - 1 < len(palette) else (0, 220, 255))
+                    sel = full == k
+                    rgb[sel] = (rgb[sel] * 0.5 + color * 0.5).astype(np.uint8)
         img = Image.fromarray(rgb).resize((w, h), Image.NEAREST if stretch > 1 else Image.BILINEAR)
         return Response(render.to_png_bytes(img), media_type="image/png", headers={"X-Stretch": f"{stretch:.3f}"})
 
