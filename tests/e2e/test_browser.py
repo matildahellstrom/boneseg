@@ -185,3 +185,38 @@ def test_two_structures(page, server):
     page.wait_for_timeout(500)
     assert page.evaluate("S.structures.map(s => s.name)") == ["Object", "Bone matrix"]
     assert not page.errors, page.errors
+
+
+def test_names_from_files_and_profiles_cannot_inject_html(page, server):
+    """A shared profile or a channel name with markup in it must show as text and never run."""
+    import io as _io
+
+    import httpx
+
+    from boneseg.segment import Profile
+
+    url, data = server
+    evil = '<img src=x onerror="window.__pwned = 1">'
+    buf = _io.BytesIO()
+    import tempfile
+    with tempfile.NamedTemporaryFile(suffix=".npz") as tmp:
+        Profile(name=evil, backbone="classic", layer_from_end=1, pos=np.zeros((1, 64), np.float32), neg=np.zeros((0, 64), np.float32),
+                settings={}, description=evil, source=evil).save(tmp.name)
+        buf.write(open(tmp.name, "rb").read())
+    r = httpx.post(f"{url}/api/profiles/import", files={"file": ("p.npz", buf.getvalue(), "application/octet-stream")})
+    assert r.status_code == 200
+    arr = _io.BytesIO()
+    np.save(arr, np.random.default_rng(0).random((64, 64)).astype(np.float32))
+    r = httpx.post(f"{url}/api/datasets/stream", params={"filename": evil + ".npy"}, content=arr.getvalue())
+    assert r.status_code == 200, r.text
+    open_demo(page, url, data)
+    ds_id = page.evaluate("S.ds.id")
+    httpx.patch(f"{url}/api/datasets/{ds_id}", json={"group": evil})
+    page.reload()
+    page.wait_for_function("S.ds && S.base", timeout=20000)
+    page.click("#studyBtn")
+    page.wait_for_timeout(800)
+    assert page.evaluate("window.__pwned") is None
+    assert evil in page.inner_text("#profileSelect")
+    assert evil + ".npy" in page.inner_text("#datasetList")
+    assert not page.errors, page.errors

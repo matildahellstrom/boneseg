@@ -107,7 +107,7 @@ async function runMulti() {
 
 function showMultiResults(out) {
   $("resultsSection").classList.remove("hidden");
-  $("statCards").innerHTML = out.structures.map((st) => `<div class="card" style="border-left:3px solid ${st.color}"><div class="k">${st.name}</div>
+  $("statCards").innerHTML = out.structures.map((st) => `<div class="card" style="border-left:3px solid ${safeColor(st.color)}"><div class="k">${esc(st.name)}</div>
     <div class="v">${(100 * st.area_fraction).toFixed(1)}%</div><div class="k">${st.n_objects} objects · ${fmt(st.area_um2)} µm²</div></div>`).join("");
   $("evalBox").classList.add("hidden");
   $("suggestionBox").classList.add("hidden");
@@ -202,7 +202,7 @@ function renderStructures() {
     const b = document.createElement("button");
     b.className = "struct" + (k === S.active ? " active" : "");
     b.title = k === S.active ? "Object clicks go to this structure" : "Click to send object clicks to this structure";
-    b.innerHTML = `<span class="sw" style="background:${st.color}"></span>${st.name}${k > 0 ? '<span class="x" title="Remove this structure">✕</span>' : ""}`;
+    b.innerHTML = `<span class="sw" style="background:${safeColor(st.color)}"></span>${esc(st.name)}${k > 0 ? '<span class="x" title="Remove this structure">✕</span>' : ""}`;
     b.onclick = (e) => {
       if (e.target.classList.contains("x")) { removeStructure(k); return; }
       S.active = k; renderStructures(); updateCounts();
@@ -240,7 +240,7 @@ function structuresFromAnnotations(points) {
   // Rebuild the structure list from saved clicks, in the order they were added
   const out = [{ name: "Object", color: STRUCT_COLORS[0] }];
   for (const p of Object.values(points)) {
-    (p.extra || []).forEach((e, i) => { if (!out[i + 1] && e.name) out[i + 1] = { name: e.name, color: e.color || STRUCT_COLORS[(i + 1) % STRUCT_COLORS.length] }; });
+    (p.extra || []).forEach((e, i) => { if (!out[i + 1] && e.name) out[i + 1] = { name: e.name, color: safeColor(e.color) }; });
   }
   return out.filter(Boolean);
 }

@@ -11,7 +11,7 @@ async function refreshDatasets(selectId) {
   for (const d of S.datasets) {
     const el = document.createElement("div");
     el.className = "dataset-item" + (S.ds?.id === d.id ? " active" : "");
-    el.innerHTML = `<span class="name" title="${d.name}">${d.name}</span><span class="small muted">${d.n_z}z·${d.n_channels}c</span><button title="Remove from the app">✕</button>`;
+    el.innerHTML = `<span class="name" title="${esc(d.name)}">${esc(d.name)}</span><span class="small muted">${d.n_z}z·${d.n_channels}c</span><button title="Remove from the app">✕</button>`;
     el.onclick = () => openDataset(d.id);
     el.querySelector("button").onclick = async (e) => {
       e.stopPropagation();
@@ -46,9 +46,9 @@ async function openDataset(id) {
   S.z = Math.floor(d.n_z / 2);
   $("datasetTitle").textContent = `${d.name} · ${d.width}×${d.height} px · ${d.n_z} slices · ${d.voxel_size_known ? `${d.voxel_um[2].toFixed(3)} µm/px` : "pixel size unknown"}`;
   const cs = $("channelSelect");
-  cs.innerHTML = d.channel_names.map((n, i) => `<option value="${i}">${i}: ${n}</option>`).join("");
+  cs.innerHTML = d.channel_names.map((n, i) => `<option value="${i}">${i}: ${esc(n)}</option>`).join("");
   const rs = $("refSelect");
-  rs.innerHTML = `<option value="">None</option>` + d.channel_names.map((n, i) => `<option value="${i}">${i}: ${n}</option>`).join("");
+  rs.innerHTML = `<option value="">None</option>` + d.channel_names.map((n, i) => `<option value="${i}">${i}: ${esc(n)}</option>`).join("");
   rs.value = d.reference_channel ?? "";
   $("refHint").textContent = d.reference_channel != null
     ? (d.reference_guessed ? "Guessed from the channel name. Every result is scored against it." : "Every result is scored against this expert mask.")

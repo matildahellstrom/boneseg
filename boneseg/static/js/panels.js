@@ -49,9 +49,9 @@ async function loadStudy() {
   $("studyValueHead").textContent = out.label + unit;
   const val = (v) => (v == null ? "–" : fmt(v * out.scale, Number.isInteger(v * out.scale) ? 0 : 2));
   const groups = [...new Set(out.rows.map((r) => r.group).filter(Boolean))];
-  $("groupNames").innerHTML = groups.map((g) => `<option value="${g}">`).join("");
-  $("studyRows").innerHTML = out.rows.map((r) => `<tr><td title="${r.name}">${r.name.length > 34 ? r.name.slice(0, 32) + "…" : r.name}</td>
-      <td><input type="text" list="groupNames" value="${r.group}" data-id="${r.dataset_id}" placeholder="group" aria-label="Group of ${r.name}"></td>
+  $("groupNames").innerHTML = groups.map((g) => `<option value="${esc(g)}">`).join("");
+  $("studyRows").innerHTML = out.rows.map((r) => `<tr><td title="${esc(r.name)}">${esc(r.name.length > 34 ? r.name.slice(0, 32) + "…" : r.name)}</td>
+      <td><input type="text" list="groupNames" value="${esc(r.group)}" data-id="${esc(r.dataset_id)}" placeholder="group" aria-label="Group of ${esc(r.name)}"></td>
       <td class="num">${r.has_stack_run ? val(r[metric]) : '<span class="muted">no stack run</span>'}</td></tr>`).join("");
   $("studyRows").querySelectorAll("input").forEach((inp) => {
     inp.onchange = async () => {
@@ -88,7 +88,7 @@ function drawStudyPlot(out, groups, metric) {
     gv.forEach((v, j) => { g += `<circle cx="${cx + (j - (gv.length - 1) / 2) * 7}" cy="${sy(v)}" r="4.5" fill="${color}" fill-opacity=".85"><title>${fmt(v, 3)}</title></circle>`; });
     const med = out.comparison.groups[name]?.median;
     if (med != null) g += `<line x1="${cx - bw * 0.28}" x2="${cx + bw * 0.28}" y1="${sy(med * out.scale)}" y2="${sy(med * out.scale)}" stroke="#e6edf7" stroke-width="2"/>`;
-    g += `<text x="${cx}" y="${H - 10}" text-anchor="middle" font-size="11" fill="#e6edf7">${name} (n=${gv.length})</text>`;
+    g += `<text x="${cx}" y="${H - 10}" text-anchor="middle" font-size="11" fill="#e6edf7">${esc(name)} (n=${gv.length})</text>`;
   });
   svg.innerHTML = g;
 }
@@ -164,16 +164,16 @@ function updateRoiHint() {
 // Histomorphometry
 function fillHistoControls() {
   if (!S.ds) return;
-  const chans = S.ds.channel_names.map((n, i) => `<option value="${i}">${i}: ${n}</option>`).join("");
+  const chans = S.ds.channel_names.map((n, i) => `<option value="${i}">${i}: ${esc(n)}</option>`).join("");
   for (const id of ["hBoneC", "hCellC"]) {
     const cur = $(id).value;
     $(id).innerHTML = chans;
     if (cur !== "" && +cur < S.ds.n_channels) $(id).value = cur;
   }
-  const structs = S.structures.length > 1 ? S.structures.map((st, k) => `<option value="structure:${k}">Structure: ${st.name}</option>`).join("") : "";
+  const structs = S.structures.length > 1 ? S.structures.map((st, k) => `<option value="structure:${k}">Structure: ${esc(st.name)}</option>`).join("") : "";
   const sources = `<option value="current">Current result</option>${structs}<option value="learned">Learned model</option><option value="label">Saved label</option>`
     + (S.ds.reference_channel != null ? `<option value="reference">Reference channel</option>` : "")
-    + S.profiles.map((p) => `<option value="profile:${p.id}">Profile: ${p.name}</option>`).join("");
+    + S.profiles.map((p) => `<option value="profile:${esc(p.id)}">Profile: ${esc(p.name)}</option>`).join("");
   for (const id of ["hBoneSrc", "hCellSrc"]) { const cur = $(id).value; $(id).innerHTML = sources; if ([...$(id).options].some((o) => o.value === cur)) $(id).value = cur; }
 }
 

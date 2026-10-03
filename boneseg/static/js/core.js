@@ -59,6 +59,13 @@ function toast(msg, isError = false) {
   toastTimer = setTimeout(() => t.classList.add("hidden"), isError ? 6000 : 3000);
 }
 
+// Text from files, profiles or other users goes through esc() before it becomes HTML, so a shared
+// profile or a channel name cannot inject markup or script into the page
+function esc(v) {
+  return String(v ?? "").replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]));
+}
+const safeColor = (c) => (/^#[0-9a-f]{3,8}$/i.test(c || "") ? c : "#00c8f0");
+
 function status(msg) { $("statusbar").textContent = msg; }
 function busy(on, text = "Working…") { $("busy").classList.toggle("hidden", !on); $("busyText").textContent = text; }
 const key = () => `${S.c}:${S.z}`;

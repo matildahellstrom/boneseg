@@ -9,7 +9,7 @@ async function refreshProfiles(selectId) {
   const sel = $("profileSelect");
   const current = selectId ?? sel.value;
   sel.innerHTML = `<option value="">None, use my clicks</option>` +
-    S.profiles.map((p) => `<option value="${p.id}" title="${p.description || p.source}">${p.name} · ${p.kind === "learned" ? "learned model" : p.backbone}</option>`).join("");
+    S.profiles.map((p) => `<option value="${esc(p.id)}" title="${esc(p.description || p.source)}">${esc(p.name)} · ${p.kind === "learned" ? "learned model" : esc(p.backbone)}</option>`).join("");
   sel.value = S.profiles.some((p) => p.id === current) ? current : "";
   $("deleteProfileBtn").classList.toggle("hidden", !sel.value);
   $("downloadProfileBtn").classList.toggle("hidden", !sel.value);
