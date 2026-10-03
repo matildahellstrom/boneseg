@@ -121,7 +121,7 @@ python scripts/benchmark_file.py "data/liudata/10-26-40_6_Blaze_crop2 quantified
 | `boneseg/quantify.py`, `metrics.py` | Measurements in micrometres, 3D objects, Dice, IoU and HD95 |
 | `boneseg/api.py`, `store.py` | The web server and its storage |
 | `boneseg/static/` | The browser interface, plain HTML, CSS and JavaScript |
-| `notebooks/` | The research notebook, with a Kaggle batch-run setup in `kernel-metadata.json` |
+| `notebooks/` | The research notebook, with a Kaggle batch-run setup in `kernel-metadata.json`, and `boneseg_quickstart.ipynb`, which uses the package from Python |
 | `scripts/` | Benchmarks |
 | `tests/` | Tests on synthetic images, run with `pytest` |
 
