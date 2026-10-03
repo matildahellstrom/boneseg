@@ -1,6 +1,7 @@
 """Segmenting whole z-stacks from one annotated slice or a saved profile."""
 from __future__ import annotations
 
+import contextlib
 import json
 from dataclasses import dataclass
 from pathlib import Path
@@ -57,7 +58,8 @@ def processing_order(z_list: list[int], ref_z: int | None) -> list[int]:
 def run_stack(req: StackRequest, pos: torch.Tensor, neg: torch.Tensor, settings: SegmentationSettings,
               get_embedding: Callable[[int], Embedding], get_image: Callable[[int], np.ndarray],
               get_reference: Callable[[int], np.ndarray | None], voxel_um, out_dir: Path,
-              progress: Callable[[float, str], None] = lambda p, m: None, cancelled: Callable[[], bool] = lambda: False) -> dict:
+              progress: Callable[[float, str], None] = lambda p, m: None, cancelled: Callable[[], bool] = lambda: False,
+              lock=None) -> dict:
     """Segments every slice in req.z_list. Writes a mask stack, per-slice stats and a summary to out_dir."""
     out_dir = Path(out_dir)
     pixel_um = (voxel_um[1], voxel_um[2])
@@ -71,13 +73,14 @@ def run_stack(req: StackRequest, pos: torch.Tensor, neg: torch.Tensor, settings:
         if cancelled():
             break
         progress(i / max(1, len(order)), f"Slice {z} ({i + 1}/{len(order)})")
-        emb = get_embedding(z)
-        direction = "up" if req.ref_z is None or z >= req.ref_z else "down"
-        ap, an = adaptive[direction]
-        p = torch.cat([pos.cpu(), ap]) if req.adaptive and len(ap) else pos
-        n = torch.cat([neg.cpu(), an]) if req.adaptive and len(an) else neg
-        res = segment_with_prototypes(emb, p, n, settings, pixel_um)
-        masks[z] = res.mask
+        with (lock or contextlib.nullcontext()):
+            emb = get_embedding(z)
+            direction = "up" if req.ref_z is None or z >= req.ref_z else "down"
+            ap, an = adaptive[direction]
+            p = torch.cat([pos.cpu(), ap]) if req.adaptive and len(ap) else pos
+            n = torch.cat([neg.cpu(), an]) if req.adaptive and len(an) else neg
+            res = segment_with_prototypes(emb, p, n, settings, pixel_um)
+            masks[z] = res.mask
         img = get_image(z)
         row = {"z": z, "z_um": z * voxel_um[0], "threshold": res.threshold, **quantify.summarize_mask(res.mask, img, pixel_um)}
         ref = get_reference(z)
@@ -85,7 +88,8 @@ def run_stack(req: StackRequest, pos: torch.Tensor, neg: torch.Tensor, settings:
             row.update(metrics.compare(res.mask, ref, pixel_um))
         rows.append(row)
         if req.adaptive:
-            fp, fn = _confident_prototypes(emb, res.heat, res.mask, req.adaptive_k)
+            with (lock or contextlib.nullcontext()):
+                fp, fn = _confident_prototypes(emb, res.heat, res.mask, req.adaptive_k)
             adaptive[direction] = (torch.cat([ap, fp])[-req.adaptive_keep:], torch.cat([an, fn])[-req.adaptive_keep:])
     df = pd.DataFrame(rows).sort_values("z").reset_index(drop=True) if rows else pd.DataFrame()
     zs = sorted(masks)

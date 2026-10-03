@@ -64,12 +64,12 @@ def mask_png(mask: np.ndarray, max_side: int = 1600, color=(0, 220, 255), fill_a
 
 
 def uncertainty_png(u: np.ndarray, max_side: int = 1600) -> bytes:
-    """Orange where the mask is unstable, transparent where it is stable."""
+    """Orange where the mask depends on single clicks, transparent where it is stable."""
     shape = display_shape(*u.shape, max_side)
-    small = np.asarray(_resize(Image.fromarray((np.clip(u / 0.5, 0, 1) * 255).astype(np.uint8), "L"), shape)).astype(np.float32) / 255
+    small = np.asarray(_resize(Image.fromarray((np.clip(u, 0, 1) * 255).astype(np.uint8), "L"), shape)).astype(np.float32) / 255
     rgba = np.zeros(small.shape + (4,), np.uint8)
     rgba[..., 0], rgba[..., 1], rgba[..., 2] = 255, 140, 0
-    rgba[..., 3] = (small * 200).astype(np.uint8)
+    rgba[..., 3] = (np.sqrt(small) * 220).astype(np.uint8)
     return to_png_bytes(Image.fromarray(rgba, "RGBA"))
 
 

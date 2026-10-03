@@ -12,6 +12,7 @@ import numpy as np
 import scipy.ndimage as ndi
 import torch
 import torch.nn.functional as F
+from skimage import measure, morphology  # Imported eagerly: lazy imports deadlock across server threads
 from skimage.filters import threshold_otsu
 
 from .backbone import Backbone
@@ -131,7 +132,6 @@ def remove_small(mask: np.ndarray, min_px: int) -> np.ndarray:
 
 def postprocess(mask: np.ndarray, settings: SegmentationSettings, pixel_um: tuple[float, float]) -> np.ndarray:
     """Optional smoothing, hole filling and removal of small objects, with sizes in square micrometres."""
-    from skimage import morphology
 
     px_area = float(pixel_um[0] * pixel_um[1])
     mask = mask.astype(bool)
@@ -180,24 +180,41 @@ def segment(emb: Embedding, pos_points, neg_points, settings: SegmentationSettin
 @torch.no_grad()
 def uncertainty_map(emb: Embedding, pos: torch.Tensor, neg: torch.Tensor, settings: SegmentationSettings,
                     n_boot: int = 16, seed: int = 0) -> np.ndarray:
-    """How much the mask changes when the clicks are resampled with replacement.
+    """Where the mask depends on individual clicks.
 
-    Each bootstrap draw recomputes the patch scores from a resampled set of prototypes. The output
-    is the fraction of draws that disagree with the majority vote, so 0 is stable and 0.5 is a coin flip.
-    Works at patch resolution and is upsampled at the end, so it is cheap."""
-    g = torch.Generator().manual_seed(seed)
-    votes = []
-    for _ in range(n_boot):
-        pi = torch.randint(0, pos.shape[0], (pos.shape[0],), generator=g)
-        ni = torch.randint(0, neg.shape[0], (neg.shape[0],), generator=g) if neg.shape[0] else torch.zeros(0, dtype=torch.long)
-        s = score_grid(emb.grid, pos[pi.to(pos.device)], neg[ni.to(neg.device)] if neg.shape[0] else neg, settings.neg_weight)
-        s = s.cpu().numpy()
-        h = rescale01(s)
-        m, _ = threshold_heatmap(h, settings)
-        votes.append(m)
-    p = np.mean(votes, axis=0)
-    disagreement = np.minimum(p, 1 - p).astype(np.float32)
-    return upsample(torch.from_numpy(disagreement), (emb.height, emb.width)).clip(0, 0.5)
+    With few clicks, each one is left out in turn (a jackknife). With many clicks, random 80% subsets
+    are drawn instead. Every draw is scored on the same scale and with the same threshold as the full
+    result, so only the change in clicks matters. The output is the fraction of draws that disagree
+    with the full mask, from 0 (stable) to 1. Works at patch resolution, so it is cheap."""
+    full = score_grid(emb.grid, pos, neg, settings.neg_weight)
+    lo, hi = float(full.min()), float(full.max())
+    norm = lambda s: ((s - lo) / max(hi - lo, 1e-12)).clamp(0, 1)
+    heat_full = upsample(full, (emb.height, emb.width))
+    _, thr = threshold_heatmap(rescale01(heat_full), settings)
+    full_mask = norm(full) >= thr
+    n_pos, n_neg = pos.shape[0], neg.shape[0]
+    draws = []
+    if n_pos + n_neg <= 24:
+        for i in range(n_pos):
+            if n_pos > 1:
+                keep = torch.arange(n_pos, device=pos.device) != i
+                draws.append((pos[keep], neg))
+        for i in range(n_neg):
+            keep = torch.arange(n_neg, device=neg.device) != i
+            draws.append((pos, neg[keep]))
+    else:
+        g = torch.Generator().manual_seed(seed)
+        for _ in range(n_boot):
+            pi = torch.randperm(n_pos, generator=g)[: max(1, int(0.8 * n_pos))].to(pos.device)
+            ni = torch.randperm(n_neg, generator=g)[: int(0.8 * n_neg)].to(neg.device)
+            draws.append((pos[pi], neg[ni]))
+    if not draws:
+        return np.zeros((emb.height, emb.width), np.float32)
+    disagree = torch.zeros_like(full)
+    for p, n in draws:
+        disagree += (norm(score_grid(emb.grid, p, n, settings.neg_weight)) >= thr) != full_mask
+    u = (disagree / len(draws)).float()
+    return upsample(u, (emb.height, emb.width)).clip(0, 1)
 
 
 def suggest_click(uncertainty: np.ndarray, existing_points, min_dist_frac: float = 0.05) -> tuple[int, int] | None:

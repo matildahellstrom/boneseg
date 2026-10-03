@@ -115,6 +115,15 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
 
         return store.add_dataset_file(file.filename or "upload", write).info()
 
+    @app.post("/api/datasets/demo")
+    def demo():
+        from .demo import DEMO_CHANNEL_NAMES, write_demo_tiff
+
+        ds = store.add_dataset_file("demo_bone_stack.tif", lambda dest: write_demo_tiff(dest))
+        ds.volume.channel_names = list(DEMO_CHANNEL_NAMES)
+        store.update_meta(ds.id, reference_channel=2, reference_guessed=False, channel_names=DEMO_CHANNEL_NAMES, default_channel=1)
+        return ds.info()
+
     @app.post("/api/datasets/from-path")
     def from_path(req: PathRequest):
         try:
@@ -175,11 +184,13 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
         t0 = time.time()
         ds = store.get(ds_id)
         settings = SegmentationSettings.from_dict(req.settings)
-        # Prototypes first, so that a profile made with another backbone fails before any model is loaded
-        pos, neg = _prototypes_for(ds_id, req.channel, req.z, req.pos, req.neg, req.profile_id, settings)
-        emb = store.embedding(ds_id, req.channel, req.z, settings)
-        t_embed = time.time() - t0
-        res = segment_with_prototypes(emb, pos, neg, settings, ds.volume.pixel_um)
+        with store.compute_lock:
+            # Prototypes first, so that a profile made with another backbone fails before any model is loaded
+            pos, neg = _prototypes_for(ds_id, req.channel, req.z, req.pos, req.neg, req.profile_id, settings)
+            emb = store.embedding(ds_id, req.channel, req.z, settings)
+            t_embed = time.time() - t0
+            res = segment_with_prototypes(emb, pos, neg, settings, ds.volume.pixel_um)
+            u = uncertainty_map(emb, pos, neg, settings) if req.uncertainty and pos.shape[0] > 0 else None
         ds.results[(req.channel, req.z)] = res
         img = store.plane(ds_id, req.channel, req.z, settings.clip_low, settings.clip_high)
         out = {
@@ -192,11 +203,10 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
         ref = store.reference_mask(ds_id, req.z)
         if ref is not None:
             out["evaluation"] = metrics.compare(res.mask, ref, ds.volume.pixel_um)
-        if req.uncertainty and pos.shape[0] > 0:
-            u = uncertainty_map(emb, pos, neg, settings)
+        if u is not None:
             res.uncertainty = u
             out["uncertainty_png"] = render.data_url(render.uncertainty_png(u, req.max_side))
-            out["uncertain_fraction"] = float((u > 0.2).mean())
+            out["uncertain_fraction"] = float((u > 0.05).mean())
             sug = suggest_click(u, list(req.pos) + list(req.neg))
             out["suggestion"] = list(sug) if sug else None
         out["timing"]["total_s"] = round(time.time() - t0, 3)
@@ -238,13 +248,15 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
         if not z_list:
             raise ValueError("The slice range is empty")
         ref_z = req.ref_z if req.ref_z is not None else z_list[0]
-        pos, neg = _prototypes_for(ds_id, req.channel, ref_z, req.pos, req.neg, req.profile_id, settings)
+        with store.compute_lock:
+            pos, neg = _prototypes_for(ds_id, req.channel, ref_z, req.pos, req.neg, req.profile_id, settings)
         c = req.channel
 
         def work(job):
             return run_stack(
                 StackRequest(z_list=z_list, ref_z=ref_z, adaptive=req.adaptive), pos, neg, settings,
                 get_embedding=lambda z: store.embedding(ds_id, c, z, settings),
+                lock=store.compute_lock,
                 get_image=lambda z: store.plane(ds_id, c, z, settings.clip_low, settings.clip_high),
                 get_reference=lambda z: store.reference_mask(ds_id, z),
                 voxel_um=ds.volume.voxel_um, out_dir=job.out_dir,
@@ -286,10 +298,12 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
         settings = SegmentationSettings.from_dict(req.settings)
         if not req.pos:
             raise ValueError("A profile needs at least one positive click")
-        emb = store.embedding(req.dataset_id, req.channel, req.z, settings)
+        with store.compute_lock:
+            emb = store.embedding(req.dataset_id, req.channel, req.z, settings)
+            pos_np, neg_np = prototypes(emb, req.pos).cpu().numpy(), prototypes(emb, req.neg).cpu().numpy()
         ds = store.get(req.dataset_id)
         prof = Profile(name=req.name.strip() or "Profile", backbone=settings.backbone, layer_from_end=settings.layer_from_end,
-                       pos=prototypes(emb, req.pos).cpu().numpy(), neg=prototypes(emb, req.neg).cpu().numpy(),
+                       pos=pos_np, neg=neg_np,
                        settings=settings.to_dict(), description=req.description,
                        source=f"{ds.volume.name}, channel {req.channel}, slice {req.z}")
         pid = store.save_profile(prof)

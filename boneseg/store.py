@@ -88,6 +88,8 @@ class Store:
         self.jobs: dict[str, Job] = {}
         self._embed_locks: dict = {}
         self._lock = threading.Lock()
+        # One model computation at a time: GPU backends such as Apple MPS crash when used from several threads at once
+        self.compute_lock = threading.RLock()
         self._load_existing()
 
     # Datasets ---------------------------------------------------------------------------------
@@ -200,7 +202,8 @@ class Store:
         with lock:
             emb = self.embeddings.get(key)
             if emb is None:
-                emb = embed_image(get_backbone(s.backbone), self.plane(ds_id, c, z, s.clip_low, s.clip_high), s)
+                with self.compute_lock:
+                    emb = embed_image(get_backbone(s.backbone), self.plane(ds_id, c, z, s.clip_low, s.clip_high), s)
                 self.embeddings.put(key, emb)
         return emb
 

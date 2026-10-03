@@ -63,7 +63,10 @@ def test_uncertainty_and_suggestion(blobs):
     emb = segment.embed_image(get_backbone("classic"), img, s)
     pos, neg = segment.prototypes(emb, centers[:2]), segment.prototypes(emb, background_points(gt, 3))
     u = segment.uncertainty_map(emb, pos, neg, s, n_boot=8)
-    assert u.shape == img.shape and u.min() >= 0 and u.max() <= 0.5
+    assert u.shape == img.shape and u.min() >= 0 and u.max() <= 1
+    # More clicks make the mask less dependent on any single one
+    u_more = segment.uncertainty_map(emb, segment.prototypes(emb, centers), segment.prototypes(emb, background_points(gt, 10)), s)
+    assert (u_more > 0.05).mean() < (u > 0.05).mean()
     sug = segment.suggest_click(u + 0.01, centers[:2])
     assert sug is not None and all((sug[0] - y) ** 2 + (sug[1] - x) ** 2 > 1 for y, x in centers[:2])
 
