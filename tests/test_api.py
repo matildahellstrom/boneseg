@@ -452,6 +452,7 @@ def test_stack_with_two_structures(client):
     other = [[int(ys[i]), int(xs[i])] for i in np.linspace(0, len(ys) - 1, 4).astype(int)]
     body = {"channel": 0, "ref_z": 1, "neg": bg_points(gt)[:3], "settings": SETTINGS,
             "structures": [{"name": "cells", "pos": [list(c) for c in centers[:3]]}, {"name": "matrix", "pos": other}]}
+    client.patch(f"/api/datasets/{did}", json={"group": "control"})
     job = client.post(f"/api/datasets/{did}/stack", json=body).json()
     for _ in range(200):
         job = client.get(f"/api/jobs/{job['id']}").json()
@@ -465,6 +466,12 @@ def test_stack_with_two_structures(client):
     assert labels.shape == (3, *gt.shape) and set(np.unique(labels)) <= {0, 1, 2}
     assert client.get(f"/api/jobs/{job['id']}/files/objects_3d.csv").text.startswith("structure,label")
     assert client.get(f"/api/datasets/{did}/xz", params={"c": 0, "y": 40, "job_id": job["id"]}).status_code == 200
+    # A structure named like bone ("matrix") turns on stack-level histomorphometry, which Compare samples can use
+    hm = s["histomorphometry"]
+    assert hm["bone"] == "matrix" and hm["cells"] == "cells" and hm["Oc.Pm/B.Pm_%"] is not None
+    assert client.get(f"/api/jobs/{job['id']}/files/histomorphometry.csv").text.startswith("z,")
+    row = [r for r in client.get("/api/study", params={"metric": "Oc.Pm/B.Pm_%"}).json()["rows"] if r["dataset_id"] == did][0]
+    assert row["Oc.Pm/B.Pm_%"] == pytest.approx(hm["Oc.Pm/B.Pm_%"])
 
 
 def test_project_export(client):

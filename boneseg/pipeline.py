@@ -114,11 +114,19 @@ def run_stack_multi(z_list: list[int], ref_z: int | None, model, settings: Segme
     a union mask stack for the side view, per-slice measurements per structure and 3D objects per structure."""
     from .segment import apply_multi
 
+    import re
+
+    from . import histo
+
     out_dir = Path(out_dir)
     pixel_um = (voxel_um[1], voxel_um[2])
     order = processing_order(z_list, ref_z)
     labels: dict[int, np.ndarray] = {}
     rows = []
+    histo_rows = []
+    # With a structure named like bone, histomorphometry runs on every slice against the first other structure
+    bone_k = next((k for k, n in enumerate(model.names) if re.search(r"bone|matrix", n, re.I)), None)
+    cell_k = next((k for k in range(len(model.names)) if k != bone_k), None) if bone_k is not None else None
     for i, z in enumerate(order):
         if cancelled():
             break
@@ -131,6 +139,9 @@ def run_stack_multi(z_list: list[int], ref_z: int | None, model, settings: Segme
         img = get_image(z)
         for k, name in enumerate(model.names):
             rows.append({"z": z, "z_um": z * voxel_um[0], "structure": name, **quantify.summarize_mask(lab == k + 1, img, pixel_um, roi)})
+        if bone_k is not None and cell_k is not None:
+            hm, _ = histo.histomorphometry(lab == bone_k + 1, lab == cell_k + 1, pixel_um, roi=roi)
+            histo_rows.append({"z": z, **hm})
     df = pd.DataFrame(rows).sort_values(["structure", "z"]).reset_index(drop=True) if rows else pd.DataFrame()
     zs = sorted(labels)
     summary: dict = {"n_slices": len(zs), "z_processed": zs, "structures": {}}
@@ -151,6 +162,18 @@ def run_stack_multi(z_list: list[int], ref_z: int | None, model, settings: Segme
             st.update(n_objects_3d=int(len(obj)), median_object_volume_um3=float(obj["volume_um3"].median()) if len(obj) else 0.0)
             summary["structures"][name] = st
         pd.concat(objs, ignore_index=True).to_csv(out_dir / "objects_3d.csv", index=False)
+        if histo_rows:
+            hdf = pd.DataFrame(histo_rows).sort_values("z")
+            hdf.to_csv(out_dir / "histomorphometry.csv", index=False)
+            # Stack-level values: perimeters and counts summed over slices, so thin slices do not dominate
+            b_pm = hdf["B.Pm_mm"].sum()
+            summary["histomorphometry"] = {
+                "bone": model.names[bone_k], "cells": model.names[cell_k],
+                "B.Ar/T.Ar_%": float(100 * hdf["B.Ar_mm2"].sum() / hdf["T.Ar_mm2"].sum()) if hdf["T.Ar_mm2"].sum() else None,
+                "Oc.Pm/B.Pm_%": float(100 * hdf["Oc.Pm_mm"].sum() / b_pm) if b_pm else None,
+                "N.Oc/B.Pm_per_mm": float(hdf["N.Oc"].sum() / b_pm) if b_pm else None,
+                "B.Pm_mm_total": float(b_pm),
+            }
     df.to_csv(out_dir / "slices.csv", index=False)
     (out_dir / "summary.json").write_text(json.dumps(summary, indent=1))
     return {"summary": summary, "slices": json.loads(df.to_json(orient="records")) if len(df) else []}

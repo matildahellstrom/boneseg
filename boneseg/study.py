@@ -15,12 +15,16 @@ METRICS = {
     "median_object_volume_um3": ("Median object volume", "µm³", 1.0),
     "objects_per_mm3": ("Objects per mm³", "/mm³", 1.0),
     "mean_dice_vs_reference": ("Mean Dice against the reference", "", 1.0),
+    "B.Ar/T.Ar_%": ("Bone area fraction, B.Ar/T.Ar", "%", 1.0),
+    "Oc.Pm/B.Pm_%": ("Osteoclast surface, Oc.Pm/B.Pm", "%", 1.0),
+    "N.Oc/B.Pm_per_mm": ("Osteoclast number, N.Oc/B.Pm", "/mm", 1.0),
 }
 
 
 def derived(summary: dict, voxel_um, n_pixels: int) -> dict:
     """Adds measurements computed from a stack summary, such as object density."""
     out = dict(summary)
+    out.update(summary.get("histomorphometry") or {})  # Stack-level histomorphometry from multi-structure runs
     n = summary.get("n_slices", 0)
     if n and summary.get("n_objects_3d") is not None:
         span_um = n * summary.get("slice_spacing_um", voxel_um[0])
