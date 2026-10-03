@@ -136,3 +136,5 @@ dialog label { margin-top: 8px; }
 .more[open] summary { border-color: var(--accent); color: var(--text); }
 .more-menu { position: absolute; top: 120%; left: 0; z-index: 5; background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; padding: 10px; display: flex; flex-direction: column; gap: 8px; min-width: 200px; box-shadow: 0 8px 24px rgba(0,0,0,.4); }
 .more-menu input[type=range] { width: 100%; }
+.linkish { color: var(--accent); cursor: pointer; }
+.linkish:hover { text-decoration: underline; }

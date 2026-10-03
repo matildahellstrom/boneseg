@@ -673,6 +673,31 @@ def create_app(data_dir: str | Path | None = None, allow_paths: bool = True) -> 
         pid = store.save_profile(prof)
         return {"id": pid, **[p for p in store.list_profiles() if p["id"] == pid][0]}
 
+    @app.get("/api/profiles/{pid}/download")
+    def download_profile(pid: str):
+        path = store.profile_path(pid)
+        if not path.exists():
+            raise HTTPException(404, "Unknown profile")
+        return FileResponse(path, filename=f"{pid}.boneseg-profile.npz", media_type="application/octet-stream")
+
+    @app.post("/api/profiles/import")
+    def import_profile(file: UploadFile = File(...)):
+        """Adds a profile file shared by someone else. It is checked by loading it before it is stored."""
+        import tempfile
+
+        with tempfile.NamedTemporaryFile(suffix=".npz", delete=False) as tmp:
+            shutil.copyfileobj(file.file, tmp)
+        try:
+            prof = Profile.load(tmp.name)
+        except Exception as e:
+            raise HTTPException(400, f"Not a boneseg profile: {type(e).__name__}") from None
+        finally:
+            Path(tmp.name).unlink(missing_ok=True)
+        if prof.backbone not in BACKBONE_LABELS:
+            raise HTTPException(400, f"Unknown backbone {prof.backbone}")
+        pid = store.save_profile(prof)
+        return {"id": pid, **[p for p in store.list_profiles() if p["id"] == pid][0]}
+
     @app.delete("/api/profiles/{pid}")
     def delete_profile(pid: str):
         store.delete_profile(pid)

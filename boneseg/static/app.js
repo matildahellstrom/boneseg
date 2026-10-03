@@ -890,6 +890,7 @@ async function refreshProfiles(selectId) {
     S.profiles.map((p) => `<option value="${p.id}" title="${p.description || p.source}">${p.name} · ${p.kind === "learned" ? "learned model" : p.backbone}</option>`).join("");
   sel.value = S.profiles.some((p) => p.id === current) ? current : "";
   $("deleteProfileBtn").classList.toggle("hidden", !sel.value);
+  $("downloadProfileBtn").classList.toggle("hidden", !sel.value);
   fillHistoControls();
 }
 
@@ -1039,6 +1040,7 @@ function bind() {
   $("autoNegBtn").onclick = autoBackground;
   $("profileSelect").onchange = () => {
     $("deleteProfileBtn").classList.toggle("hidden", !$("profileSelect").value);
+    $("downloadProfileBtn").classList.toggle("hidden", !$("profileSelect").value);
     const prof = S.profiles.find((p) => p.id === $("profileSelect").value);
     if (prof && prof.backbone !== $("backboneSelect").value) { $("backboneSelect").value = prof.backbone; syncSettingLabels(); }
     if (prof?.kind === "learned" && prof.vit_size) $("vitSize").value = prof.vit_size;
@@ -1058,6 +1060,20 @@ function bind() {
     $("profileDialog").showModal();
   };
   $("profileSaveConfirm").onclick = saveProfile;
+  $("downloadProfileBtn").onclick = () => { window.location = `/api/profiles/${$("profileSelect").value}/download`; };
+  $("importProfile").onchange = async (e) => {
+    const f = e.target.files[0];
+    if (!f) return;
+    const fd = new FormData();
+    fd.append("file", f);
+    try {
+      const prof = await api("/api/profiles/import", { method: "POST", body: fd });
+      await refreshProfiles(prof.id);
+      toast(`Imported profile ${prof.name}`);
+      $("profileSelect").dispatchEvent(new Event("change"));
+    } catch (err) { toast(err.message, true); }
+    e.target.value = "";
+  };
   $("profileCancel").onclick = () => $("profileDialog").close();
   $("deleteProfileBtn").onclick = async () => {
     const id = $("profileSelect").value;

@@ -343,3 +343,14 @@ def test_streaming_upload(client):
     assert not list(root.glob(".incoming-*"))   # No temporary file left behind
     r = client.post("/api/datasets/stream", params={"filename": "x.bmp"}, content=b"abc")
     assert r.status_code == 400 and not list(root.glob(".incoming-*"))
+
+
+def test_profile_download_and_import(client, tmp_path):
+    ds, gt, centers = upload_stack(client, n_z=1)
+    prof = client.post("/api/profiles", json={"name": "Shared", "dataset_id": ds["id"], "channel": 0, "z": 0,
+                                              "pos": [list(c) for c in centers], "neg": bg_points(gt), "settings": SETTINGS}).json()
+    blob = client.get(f"/api/profiles/{prof['id']}/download").content
+    other = TestClient(create_app(tmp_path / "other"))
+    r = other.post("/api/profiles/import", files={"file": ("p.npz", blob, "application/octet-stream")})
+    assert r.status_code == 200 and r.json()["name"] == "Shared"
+    assert other.post("/api/profiles/import", files={"file": ("p.npz", b"not a profile", "application/octet-stream")}).status_code == 400

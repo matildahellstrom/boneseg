@@ -79,7 +79,7 @@ Three choices differ from the notebook. Each was tested on the demo stack with t
 
 The learned model is the app's take on the notebook's supervised U-Net step. It is a linear or small two-layer classifier over the frozen patch features, fitted to the share of each patch covered by your corrected masks, so it trains in seconds. On Liu file A, a model trained on four labelled slices scored 0.67 Dice on eight unseen slices, against 0.63 for 25 + 25 clicks on every slice (`scripts/benchmark_head.py`). One labelled slice already scored 0.64.
 
-Two more ideas were tested on Liu file A and left out. Feeding DINOv2 three different channels as a colour image instead of one grey channel scored the same or worse (0.65 against 0.65 and 0.63 Dice with 25 + 25 clicks). Tuning the input size and λ on one labelled slice picked settings that did worse on the other slices (0.61 against 0.64), so the defaults stay fixed.
+Two more ideas were tested on Liu file A and left out. Feeding DINOv2 three different channels as a colour image instead of one grey channel scored the same or worse (0.65 against 0.65 and 0.63 Dice with 25 + 25 clicks). Tuning the input size and λ on one labelled slice picked settings that did worse on the other slices (0.61 against 0.64), so the defaults stay fixed. The masks on that file mostly spill over the expert boundary, but neither doubling the feature resolution with half-patch-shifted passes (0.61 against 0.65) nor a stricter threshold (better with 25 clicks, worse with 3) fixed it reliably.
 
 An adaptive mode that refreshed the prototypes slice by slice was tried and removed, because it lowered Dice in every setting tested.
 
