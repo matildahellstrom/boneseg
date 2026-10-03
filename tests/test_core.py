@@ -290,3 +290,16 @@ def test_fast_paths_match_exact_versions():
     u[600:640, 900:940] = 1
     y, x = segment.suggest_click(u, [])
     assert 590 <= y <= 650 and 890 <= x <= 950
+
+
+def test_channel_intensities():
+    mask = np.zeros((20, 20), bool)
+    mask[2:6, 2:6] = True
+    mask[10:14, 10:14] = True
+    other = np.zeros((20, 20))
+    other[10:14, 10:14] = 5.0
+    t = quantify.channel_intensities(mask, {"sost": other})
+    assert t["sost_mean"].tolist() == [0.0, 5.0] and t["sost_integrated"].tolist() == [0.0, 80.0]
+    # Labels line up with the object table
+    table = quantify.object_table(mask, None).sort_values("label")
+    assert table["label"].tolist() == t["label"].tolist()

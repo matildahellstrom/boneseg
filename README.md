@@ -35,7 +35,7 @@ The image runs on the CPU. For an NVIDIA GPU, change the PyTorch wheel index in 
 5. **Correct and teach.** Press E to fix the mask with a brush, then save it as a label. After one or more labels, "Train model" fits a small classifier on the backbone features in a few seconds and reports its leave-one-slice-out Dice. Switch the method to "Learned model" to segment new slices without clicks. "Save model as profile" makes it reusable on other images and in batch runs.
 6. **Measure bone.** "Bone histomorphometry" combines a bone mask and an osteoclast mask on the slice. It reports B.Ar/T.Ar, B.Pm, Oc.Pm/B.Pm, N.Oc/B.Pm and each cell's distance to bone, following the ASBMR nomenclature for 2D sections. Either mask can come from the current result, a profile, the learned model, a saved label or the reference channel.
 7. **Export or scale up.**
-   - Download the mask as PNG or TIFF, or the per-object measurements as CSV.
+   - Download the mask as PNG or TIFF, or the per-object measurements as CSV. The CSV includes each object's mean and integrated raw intensity in every channel, for example SOST inside cells segmented on the TRAP channel.
    - Run the whole stack, which writes a mask stack, a 3D label image with one ID per object, per-slice measurements and a 3D object table. Turn on "Side view" to see a cut through all slices with the stack mask on top, which shows at a glance whether the segmentation stays consistent with depth.
    - Save the clicks as a profile to segment the next image of the same stain without clicking.
    - Click "Compare samples" at the top to put samples into groups and compare their latest stack runs, with a dot plot and a Mann-Whitney U or Kruskal-Wallis test. The app says when the groups are too small for the test to show anything.
@@ -124,6 +124,10 @@ python scripts/benchmark_file.py "data/liudata/10-26-40_6_Blaze_crop2 quantified
 | `notebooks/` | The research notebook, with a Kaggle batch-run setup in `kernel-metadata.json`, and `boneseg_quickstart.ipynb`, which uses the package from Python |
 | `scripts/` | Benchmarks |
 | `tests/` | Tests on synthetic images, run with `pytest` |
+
+## API
+
+Everything the interface does goes through a JSON API, documented interactively at http://127.0.0.1:8000/docs while the app runs.
 
 ## Development
 

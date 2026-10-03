@@ -65,6 +65,8 @@ def test_upload_plane_segment_export(client):
     assert tifffile.imread(io.BytesIO(r.content)).shape == gt.shape
     r = client.get(f"/api/datasets/{ds['id']}/export/objects.csv", params={"c": 0, "z": 1})
     assert r.text.startswith("label,area_um2")
+    header = r.text.split("\n")[0]
+    assert "ch0_Channel_0_mean" in header and "ch1_" not in header  # The reference channel is left out
     assert client.get(f"/api/datasets/{ds['id']}/export/mask", params={"c": 0, "z": 3}).status_code == 404
 
 

@@ -36,6 +36,22 @@ def object_table(mask: np.ndarray, image: np.ndarray | None, pixel_um=(1.0, 1.0)
     return out.sort_values("area_um2", ascending=False).reset_index(drop=True)
 
 
+def channel_intensities(mask: np.ndarray, channels: dict[str, np.ndarray]) -> pd.DataFrame:
+    """Mean and integrated raw intensity of every object in every channel, for example the SOST signal
+    inside cells segmented on a TRAP channel. Rows follow the labels of object_table."""
+    labels = measure.label(mask, connectivity=2)
+    n = int(labels.max())
+    out = pd.DataFrame({"label": np.arange(1, n + 1)})
+    if n == 0:
+        return out
+    counts = np.bincount(labels.ravel(), minlength=n + 1)[1:]
+    for name, img in channels.items():
+        sums = np.bincount(labels.ravel(), weights=np.asarray(img, np.float64).ravel(), minlength=n + 1)[1:]
+        out[f"{name}_mean"] = sums / np.maximum(counts, 1)
+        out[f"{name}_integrated"] = sums
+    return out
+
+
 def summarize_mask(mask: np.ndarray, image: np.ndarray | None = None, pixel_um=(1.0, 1.0), roi: np.ndarray | None = None) -> dict:
     """Headline numbers for one plane. With a region of interest, areas and fractions refer to the region."""
     mask = mask.astype(bool)

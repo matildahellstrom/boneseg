@@ -96,10 +96,23 @@ def router(ctx: AppContext) -> APIRouter:
         return Response(render.mask_full_png(res.mask), media_type="image/png", headers={"Content-Disposition": f'attachment; filename="{stem}.png"'})
 
     @r.get("/api/datasets/{ds_id}/export/objects.csv")
-    def export_objects(ds_id: str, c: int = 0, z: int = 0):
+    def export_objects(ds_id: str, c: int = 0, z: int = 0, all_channels: bool = True):
+        """One row per object with size and shape, plus its raw intensity in every channel."""
+        import re
+
         ds = store.get(ds_id)
         res = ctx.last_result(ds_id, c, z)
         table = quantify.object_table(res.mask, store.plane(ds_id, c, z), ds.volume.pixel_um)
+        if all_channels and len(table):
+            ref = ds.meta.get("reference_channel")
+            names = ds.info().get("channel_names", ds.volume.channel_names)
+            chans = {}
+            for i in range(ds.volume.n_channels):
+                if i == ref:
+                    continue
+                safe = re.sub(r"[^A-Za-z0-9]+", "_", f"ch{i}_{names[i]}").strip("_")
+                chans[safe] = store.raw_plane(ds_id, i, z)
+            table = table.merge(quantify.channel_intensities(res.mask, chans), on="label", how="left")
         stem = f"{Path(ds.volume.name).stem}_c{c}_z{z}_objects"
         return Response(table.to_csv(index=False), media_type="text/csv", headers={"Content-Disposition": f'attachment; filename="{stem}.csv"'})
 
