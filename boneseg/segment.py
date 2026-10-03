@@ -12,7 +12,7 @@ import numpy as np
 import scipy.ndimage as ndi
 import torch
 import torch.nn.functional as F
-from skimage import measure, morphology  # Imported eagerly: lazy imports deadlock across server threads
+from skimage import morphology  # Imported eagerly: lazy imports deadlock across server threads
 from skimage.filters import threshold_otsu
 
 from .backbone import Backbone

@@ -220,7 +220,7 @@ class Store:
         return self.datasets[ds_id]
 
     def delete(self, ds_id: str):
-        ds = self.get(ds_id)
+        self.get(ds_id)  # Raises KeyError for an unknown id
         d = self.root / "datasets" / ds_id
         shutil.rmtree(d, ignore_errors=True)
         del self.datasets[ds_id]

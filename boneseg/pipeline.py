@@ -14,7 +14,7 @@ import torch
 
 from . import metrics, quantify
 from .head import segment_with_head
-from .segment import SegmentationSettings, segment_with_prototypes
+from .segment import Embedding, SegmentationSettings, segment_with_prototypes
 
 
 @dataclass
