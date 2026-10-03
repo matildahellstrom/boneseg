@@ -58,6 +58,7 @@ The image runs on the CPU. For an NVIDIA GPU, change the PyTorch wheel index in 
 | [ and ], Ctrl+Z | While correcting: smaller or larger brush, undo the last stroke |
 | R, Enter | Draw a region of interest and finish it |
 | Alt-click | Move the side-view cut to this row |
+| Tab, Shift+Tab | With several structures, switch which one object clicks go to |
 | Scroll, drag | Zoom, pan |
 
 ## Batch processing

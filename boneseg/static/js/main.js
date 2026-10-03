@@ -184,6 +184,7 @@ function bind() {
     else if (k === "escape" && S.roiDraft) cancelRoi();
     else if (k === "enter" && S.roiDraft) finishRoi();
     else if (k === "r") (S.roiDraft ? finishRoi() : startRoi());
+    else if (k === "tab" && isMulti()) { e.preventDefault(); S.active = (S.active + (e.shiftKey ? S.structures.length - 1 : 1)) % S.structures.length; setMode("pos"); renderStructures(); updateCounts(); }
   });
   window.addEventListener("keyup", (e) => { if (e.key === " ") S.space = false; });
 }
