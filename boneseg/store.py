@@ -439,6 +439,22 @@ class Store:
         threading.Thread(target=run, daemon=True).start()
         return job
 
+    def record_job(self, kind: str, meta: dict, run: Callable[[Path], dict]) -> Job:
+        """Runs work synchronously in a new job folder and stores it as a finished job, for example one
+        sample of a batch run, so it shows up like any other stack run."""
+        job = Job(id=uuid.uuid4().hex[:10], kind=kind, meta=meta, status="running")
+        job.out_dir = self.root / "jobs" / job.id
+        job.out_dir.mkdir(parents=True, exist_ok=True)
+        self.jobs[job.id] = job
+        try:
+            job.result = run(job.out_dir) or {}
+            job.status, job.progress = "done", 1.0
+        except Exception as e:
+            traceback.print_exc()
+            job.status, job.error = "failed", f"{type(e).__name__}: {e}"
+        self._save_job(job)
+        return job
+
     def _save_job(self, job: Job):
         """Finished jobs are written next to their outputs, so results survive a restart."""
         try:

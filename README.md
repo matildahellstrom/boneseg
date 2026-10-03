@@ -39,7 +39,7 @@ The image runs on the CPU. For an NVIDIA GPU, change the PyTorch wheel index in 
    - Download the mask as PNG or TIFF, or the per-object measurements as CSV. The CSV includes each object's mean and integrated raw intensity in every channel, for example SOST inside cells segmented on the TRAP channel.
    - Run the whole stack, which writes a mask stack, a 3D label image with one ID per object, per-slice measurements and a 3D object table. Turn on "Side view" to see a cut through all slices with the stack mask on top, which shows at a glance whether the segmentation stays consistent with depth.
    - Save the clicks as a profile to segment the next image of the same stain without clicking.
-   - Click "Compare samples" at the top to put samples into groups and compare their latest stack runs, with a dot plot and a Mann-Whitney U or Kruskal-Wallis test. The app says when the groups are too small for the test to show anything.
+   - Click "Compare samples" at the top, optionally run a saved profile on every sample from there, then put samples into groups and compare their latest stack runs, with a dot plot and a Mann-Whitney U or Kruskal-Wallis test. The app says when the groups are too small for the test to show anything.
    - "Project zip" bundles everything done on the image except the image itself: settings, clicks, labels, learned models, profiles and stack results, with a README.
    - Open the report, a self-contained HTML page with the image, measurements, settings, the latest stack run and a draft methods paragraph.
 

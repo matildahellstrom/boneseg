@@ -273,3 +273,28 @@ def test_multi_structure_profile_in_browser(page, server):
     cards = page.inner_text("#statCards")
     assert "Object" in cards and "Bone matrix" in cards
     assert not page.errors, page.errors
+
+
+def test_batch_from_compare_dialog(page, server):
+    url, data = server
+    stack = open_demo(page, url, data)
+    click_cells(page, stack)
+    wait_result(page)
+    page.click("#saveProfileBtn")
+    page.fill("#profileName", "Batch cells")
+    page.click("#profileSaveConfirm")
+    page.wait_for_function("S.profiles.some(p => p.name === 'Batch cells')", timeout=10000)
+    page.click("#studyBtn")
+    page.click("#batchBox summary")
+    pid = page.evaluate("S.profiles.find(p => p.name === 'Batch cells').id")
+    page.select_option("#batchProfile", pid)
+    page.fill("#batchStep", "4")
+    page.click("#batchRun")
+    page.wait_for_function("document.querySelector('#batchText').textContent.startsWith('Done')", timeout=120000)
+    text = page.inner_text("#batchText")
+    assert "failed" not in text
+    # Samples without the channel (a one-channel file from another test) are skipped and keep no stack run
+    import re
+    m = re.search(r"(\d+) skipped", text)
+    assert page.inner_text("#studyRows").count("no stack run") == (int(m.group(1)) if m else 0)
+    assert not page.errors, page.errors

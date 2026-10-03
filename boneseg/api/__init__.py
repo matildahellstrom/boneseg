@@ -14,7 +14,7 @@ from .. import __version__
 from ..backbone import BACKBONE_LABELS, dino_weights_cached, pick_device
 from ..segment import SegmentationSettings
 from ..store import Store
-from . import analysis, datasets, learning, profiles, segmentation, study
+from . import analysis, batch, datasets, learning, profiles, segmentation, study
 from .context import AppContext
 
 STATIC = Path(__file__).resolve().parent.parent / "static"
@@ -75,6 +75,6 @@ def create_app(data_dir: str | Path | None = None, allow_paths: bool = True) -> 
             "backbones": [{"id": k, "label": v, "ready": dino_weights_cached(k)} for k, v in BACKBONE_LABELS.items()],
         }
 
-    for module in (datasets, segmentation, learning, analysis, profiles, study):
+    for module in (datasets, segmentation, learning, analysis, profiles, study, batch):
         app.include_router(module.router(ctx))
     return app

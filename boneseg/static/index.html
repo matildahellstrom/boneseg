@@ -246,6 +246,17 @@
   <dialog id="studyDialog" class="wide">
     <h2>Compare samples</h2>
     <p class="muted small">Each sample uses its latest whole-stack run. Type a group for each sample, such as control or treated, then pick a measurement.</p>
+    <details class="small" id="batchBox">
+      <summary>Run a profile on every sample first</summary>
+      <div class="row" style="margin-top:6px">
+        <label class="small">Profile <select id="batchProfile"></select></label>
+        <label class="small">Channel <input type="number" id="batchChannel" min="0" value="0"></label>
+        <label class="small">Every n-th slice <input type="number" id="batchStep" min="1" value="1"></label>
+        <button class="primary" id="batchRun">Run on all samples</button>
+      </div>
+      <div class="bar" style="margin-top:6px"><span id="batchBar"></span></div>
+      <p class="muted small" id="batchText">Each sample gets a stack run with the profile, and the table below updates when they finish.</p>
+    </details>
     <div class="row"><label class="small">Measurement <select id="studyMetric"></select></label><a href="/api/study.csv" download><button class="ghost">Download table</button></a></div>
     <div class="study-grid">
       <table class="study-table"><thead><tr><th>Sample</th><th>Group</th><th id="studyValueHead">Value</th></tr></thead><tbody id="studyRows"></tbody></table>

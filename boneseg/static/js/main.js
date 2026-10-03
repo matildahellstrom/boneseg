@@ -153,6 +153,7 @@ function bind() {
     try { localStorage.setItem("boneseg-theme", light ? "light" : "dark"); } catch (_) { /* storage unavailable */ }
   };
   $("studyMetric").onchange = loadStudy;
+  $("batchRun").onclick = runBatch;
   $("reportBtn").onclick = () => window.open(`/api/datasets/${S.ds.id}/report?c=${S.c}&z=${S.z}`, "_blank");
   $("hContact").oninput = () => { $("hContactValue").textContent = `${$("hContact").value} µm`; };
   $("histoCsv").onclick = () => { window.location = `/api/datasets/${S.ds.id}/histomorphometry/cells.csv?z=${S.histoZ ?? S.z}`; };

@@ -531,3 +531,34 @@ def test_multi_structure_profile(client, tmp_path):
     import pandas as pd
     out = pd.read_csv(tmp_path / "o" / "summary.csv")
     assert out["status"].iloc[0] == "ok" and "cells_volume_um3" in out and "Oc.Pm/B.Pm_%" in out
+
+
+def test_batch_from_the_app_feeds_compare(client):
+    ids = []
+    for i in range(3):
+        ds, gt, centers = upload_stack(client, n_z=2)
+        ids.append(ds["id"])
+        client.patch(f"/api/datasets/{ds['id']}", json={"group": "a" if i < 2 else "b"})
+    prof = client.post("/api/profiles", json={"name": "cells", "dataset_id": ids[0], "channel": 0, "z": 0, "pos": [list(c) for c in centers],
+                                              "neg": bg_points(gt), "settings": SETTINGS}).json()
+    job = client.post("/api/batch", json={"profile_id": prof["id"], "channel": 0, "settings": SETTINGS}).json()
+    for _ in range(200):
+        job = client.get(f"/api/jobs/{job['id']}").json()
+        if job["status"] in ("done", "failed"):
+            break
+        time.sleep(0.05)
+    assert job["status"] == "done", job
+    assert [s["status"] for s in job["result"]["samples"]] == ["done"] * 3
+    rows = client.get("/api/study", params={"metric": "mean_area_fraction"}).json()["rows"]
+    assert all(r["has_stack_run"] for r in rows if r["dataset_id"] in ids)
+    assert client.post("/api/batch", json={"profile_id": prof["id"], "channel": 7, "settings": SETTINGS}).status_code == 400
+    # A sample without the channel is skipped, not fatal
+    np.save(client.app.state.store.root / "one_channel.npy", np.zeros((40, 40), np.float32))
+    client.post("/api/datasets/from-path", json={"path": str(client.app.state.store.root / "one_channel.npy")})
+    job = client.post("/api/batch", json={"profile_id": prof["id"], "channel": 1, "settings": SETTINGS}).json()
+    for _ in range(200):
+        job = client.get(f"/api/jobs/{job['id']}").json()
+        if job["status"] in ("done", "failed"):
+            break
+        time.sleep(0.05)
+    assert job["status"] == "done" and [s["status"] for s in job["result"]["samples"]].count("skipped") == 1

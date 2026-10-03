@@ -33,8 +33,37 @@ function placeSideZ() {
 const GROUP_COLORS = ["#00c8f0", "#ffa53a", "#22d27a", "#c78bff", "#ff5a6e"];
 
 async function openStudy() {
+  $("batchProfile").innerHTML = S.profiles.length
+    ? S.profiles.map((p) => `<option value="${esc(p.id)}">${esc(p.name)}</option>`).join("")
+    : `<option value="">Save a profile first</option>`;
+  $("batchChannel").value = S.c;
   await loadStudy();
   $("studyDialog").showModal();
+}
+
+async function runBatch() {
+  const pid = $("batchProfile").value;
+  if (!pid) { toast("Save a profile first"); return; }
+  $("batchRun").disabled = true;
+  try {
+    const job = await api("/api/batch", { method: "POST", body: { profile_id: pid, channel: +$("batchChannel").value, z_step: +$("batchStep").value, settings: settings() } });
+    const poll = async () => {
+      const j = await api(`/api/jobs/${job.id}`);
+      $("batchBar").style.width = `${100 * j.progress}%`;
+      $("batchText").textContent = j.status === "running" || j.status === "queued" ? `Running ${j.message || "…"}` : "";
+      if (j.status === "running" || j.status === "queued") { setTimeout(poll, 800); return; }
+      $("batchRun").disabled = false;
+      if (j.status === "failed") { $("batchText").textContent = `Failed: ${j.error}`; return; }
+      const samples = j.result.samples || [];
+      const failed = samples.filter((s) => s.status === "failed");
+      const skipped = samples.filter((s) => s.status === "skipped");
+      $("batchText").textContent = `Done: ${samples.filter((s) => s.status === "done").length} samples`
+        + (skipped.length ? `, ${skipped.length} skipped without that channel` : "")
+        + (failed.length ? `, ${failed.length} failed (${failed.map((f) => f.name).join(", ")})` : "");
+      loadStudy();
+    };
+    poll();
+  } catch (e) { $("batchText").textContent = e.message; toast(e.message, true); $("batchRun").disabled = false; }
 }
 
 async function loadStudy() {
