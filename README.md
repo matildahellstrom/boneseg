@@ -24,7 +24,8 @@ The app runs on an NVIDIA GPU, an Apple Silicon GPU or the CPU, whichever it fin
 3. **Click.** Click a few examples of the structure, then shift-click a few background spots. The mask updates after every click.
 4. **Refine.** The orange overlay shows where the mask depends on single clicks, and a dashed ring suggests the most useful next click.
 5. **Correct and teach.** Press E to fix the mask with a brush, then save it as a label. After one or more labels, "Train model" fits a small classifier on the backbone features in a few seconds and reports its leave-one-slice-out Dice. Switch the method to "Learned model" to segment new slices without clicks.
-6. **Export or scale up.**
+6. **Measure bone.** "Bone histomorphometry" combines a bone mask and an osteoclast mask on the slice. It reports B.Ar/T.Ar, B.Pm, Oc.Pm/B.Pm, N.Oc/B.Pm and each cell's distance to bone, following the ASBMR nomenclature for 2D sections. Either mask can come from the current result, a profile, the learned model, a saved label or the reference channel.
+7. **Export or scale up.**
    - Download the mask as PNG or TIFF, or the per-object measurements as CSV.
    - Run the whole stack, which writes a mask stack, per-slice measurements and a 3D object table.
    - Save the clicks as a profile to segment the next image of the same stain without clicking.
@@ -88,6 +89,8 @@ python scripts/benchmark_file.py "data/liudata/10-26-40_6_Blaze_crop2 quantified
 | `boneseg/backbone.py` | DINOv2 backbones pinned to a fixed commit, plus a fast "classic" backbone for tests and offline use |
 | `boneseg/segment.py` | Prototypes, scores, thresholds, clean-up, uncertainty and profiles |
 | `boneseg/pipeline.py` | Whole-stack runs |
+| `boneseg/histo.py` | 2D bone histomorphometry |
+| `boneseg/head.py` | The small model trained on corrected masks |
 | `boneseg/quantify.py`, `metrics.py` | Measurements in micrometres, 3D objects, Dice, IoU and HD95 |
 | `boneseg/api.py`, `store.py` | The web server and its storage |
 | `boneseg/static/` | The browser interface, plain HTML, CSS and JavaScript |

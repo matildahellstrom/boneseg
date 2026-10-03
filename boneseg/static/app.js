@@ -193,6 +193,10 @@ async function openDataset(id) {
   await refreshDatasets();
   await refreshLabels();
   await refreshHead();
+  fillHistoControls();
+  histoDefaults();
+  $("histoCards").classList.add("hidden");
+  $("histoDownloads").classList.add("hidden");
   await loadPlane(true);
 }
 
@@ -417,6 +421,7 @@ function draw() {
   else if ($("showMask").checked) layer(S.layers.mask, Math.min(1, op + 0.3));
   if ($("showRef").checked) layer(S.layers.ref, 0.9);
   if ($("showLabel").checked && !S.editing) layer(S.layers.label, 0.95);
+  if ($("showHisto").checked && !S.editing && S.histoZ === S.z) layer(S.layers.histo, 1);
   $("zoomLabel").textContent = `${Math.round(scale * fullToDisp() * 100)}%`;
 
   const f = fullToDisp();
@@ -666,6 +671,59 @@ function setMethod(m) {
 }
 
 // ---------------------------------------------------------------------------------------------
+// Histomorphometry
+function fillHistoControls() {
+  if (!S.ds) return;
+  const chans = S.ds.channel_names.map((n, i) => `<option value="${i}">${i}: ${n}</option>`).join("");
+  for (const id of ["hBoneC", "hCellC"]) {
+    const cur = $(id).value;
+    $(id).innerHTML = chans;
+    if (cur !== "" && +cur < S.ds.n_channels) $(id).value = cur;
+  }
+  const sources = `<option value="current">Current result</option><option value="learned">Learned model</option><option value="label">Saved label</option>`
+    + (S.ds.reference_channel != null ? `<option value="reference">Reference channel</option>` : "")
+    + S.profiles.map((p) => `<option value="profile:${p.id}">Profile: ${p.name}</option>`).join("");
+  for (const id of ["hBoneSrc", "hCellSrc"]) { const cur = $(id).value; $(id).innerHTML = sources; if ([...$(id).options].some((o) => o.value === cur)) $(id).value = cur; }
+}
+
+function histoDefaults() {
+  // Guess bone and cell channels from their names
+  const names = S.ds.channel_names.map((n) => n.toLowerCase());
+  const bone = names.findIndex((n) => /bone|matrix|col|autofl/.test(n));
+  const cell = names.findIndex((n) => /trap|osteoclast|ctsk|cell/.test(n));
+  $("hBoneC").value = bone >= 0 ? bone : 0;
+  $("hCellC").value = cell >= 0 ? cell : S.c;
+}
+
+async function runHisto() {
+  const spec = (c, src) => src.startsWith("profile:") ? { channel: +$(c).value, source: "profile", profile_id: src.slice(8) } : { channel: +$(c).value, source: src };
+  busy(true, "Measuring…");
+  try {
+    const out = await api(`/api/datasets/${S.ds.id}/histomorphometry`, {
+      method: "POST",
+      body: { z: S.z, bone: spec("hBoneC", $("hBoneSrc").value), cells: spec("hCellC", $("hCellSrc").value), contact_um: +$("hContact").value, settings: settings() },
+    });
+    S.layers.histo = await loadImage(out.overlay_png);
+    S.histoZ = S.z;
+    const m = out.summary;
+    const cards = [
+      ["B.Ar/T.Ar", `${m["B.Ar/T.Ar_%"].toFixed(1)}%`],
+      ["B.Pm", `${m["B.Pm_mm"].toFixed(2)} mm`],
+      ["Oc.Pm/B.Pm", `${m["Oc.Pm/B.Pm_%"].toFixed(1)}%`],
+      ["N.Oc/B.Pm", `${m["N.Oc/B.Pm_per_mm"].toFixed(1)} /mm`],
+      ["Cells on bone", `${m["N.Oc"]} of ${m.cells_total}`],
+      ["Median distance", `${fmt(m.median_distance_to_bone_um)} µm`],
+    ];
+    $("histoCards").innerHTML = cards.map(([k, v]) => `<div class="card"><div class="k">${k}</div><div class="v">${v}</div></div>`).join("");
+    $("histoCards").classList.remove("hidden");
+    $("histoDownloads").classList.remove("hidden");
+    $("showHisto").checked = true;
+    draw();
+    status("Histomorphometry overlay: white is bone surface, magenta is surface covered by cells, cyan are the cells");
+  } catch (e) { toast(e.message, true); } finally { busy(false); }
+}
+
+// ---------------------------------------------------------------------------------------------
 // Profiles
 async function refreshProfiles(selectId) {
   S.profiles = await api("/api/profiles");
@@ -675,6 +733,7 @@ async function refreshProfiles(selectId) {
     S.profiles.map((p) => `<option value="${p.id}" title="${p.description || p.source}">${p.name} · ${p.backbone}</option>`).join("");
   sel.value = S.profiles.some((p) => p.id === current) ? current : "";
   $("deleteProfileBtn").classList.toggle("hidden", !sel.value);
+  fillHistoControls();
 }
 
 async function saveProfile() {
@@ -807,6 +866,7 @@ function bind() {
       S.ds = await api(`/api/datasets/${S.ds.id}`, { method: "PATCH", body: { reference_channel: v } });
       $("refHint").textContent = v == null ? "Pick a channel that holds an expert mask to score results with Dice." : "Every result is scored against this expert mask.";
       await loadReference();
+      fillHistoControls();
       draw();
       if (S.result) scheduleSegment(0);
     } catch (err) { toast(err.message, true); }
@@ -862,6 +922,10 @@ function bind() {
   $("methodClicks").onclick = () => { setMethod("clicks"); if (pts().pos.length || $("profileSelect").value) scheduleSegment(0); };
   $("methodLearned").onclick = () => { setMethod("learned"); scheduleSegment(0); };
   $("showLabel").addEventListener("input", draw);
+  $("showHisto").addEventListener("input", draw);
+  $("histoBtn").onclick = runHisto;
+  $("hContact").oninput = () => { $("hContactValue").textContent = `${$("hContact").value} µm`; };
+  $("histoCsv").onclick = () => { window.location = `/api/datasets/${S.ds.id}/histomorphometry/cells.csv?z=${S.histoZ ?? S.z}`; };
   $("cancelBtn").onclick = () => S.job && api(`/api/jobs/${S.job}/cancel`, { method: "POST" });
   $("helpBtn").onclick = () => $("helpDialog").showModal();
 

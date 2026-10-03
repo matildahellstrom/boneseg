@@ -191,3 +191,27 @@ def test_objects_3d_counts_each_cell_once():
     big = obj.iloc[0]
     assert big["n_slices"] == 3 and big["volume_um3"] == pytest.approx(300 * 2 * 0.25) and not big["touches_stack_edge"]
     assert obj.iloc[1]["touches_stack_edge"] and obj.iloc[1]["z_first"] == 10
+
+
+def test_histomorphometry():
+    from boneseg import histo
+
+    bone = np.zeros((100, 100), bool)
+    bone[30:70, 30:70] = True              # A 40x40 px bone square, perimeter about 160 px
+    cells = np.zeros_like(bone)
+    cells[24:29, 40:50] = True             # Touches the top surface
+    cells[5:10, 5:10] = True               # Far from bone
+    summary, table = histo.histomorphometry(bone, cells, (1.0, 1.0), contact_um=3.0)
+    assert summary["B.Ar/T.Ar_%"] == pytest.approx(16.0)
+    assert 140 < summary["B.Pm_mm"] * 1000 < 170
+    assert summary["N.Oc"] == 1 and summary["cells_total"] == 2
+    assert 3 < summary["Oc.Pm/B.Pm_%"] < 15
+    assert sorted(table["on_bone"].tolist()) == [False, True]
+    # The image border is not counted as bone surface
+    edge_bone = np.zeros_like(bone)
+    edge_bone[:, :50] = True
+    s2, _ = histo.histomorphometry(edge_bone, np.zeros_like(bone))
+    assert histo.bone_boundary(edge_bone)[:, 49].all() and not histo.bone_boundary(edge_bone)[0, 10]
+    assert 90 < s2["B.Pm_mm"] * 1000 < 110  # Only the internal edge at x = 49 counts
+    rgba = histo.overlay(bone, cells)
+    assert rgba.shape == (100, 100, 4)

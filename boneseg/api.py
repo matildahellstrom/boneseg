@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import io
+import json
 import os
 import shutil
 import time
@@ -79,6 +80,21 @@ class HeadRequest(BaseModel):
     channel: int
     settings: dict = Field(default_factory=dict)
     kind: str = "auto"
+
+
+class MaskSpec(BaseModel):
+    channel: int
+    source: str = "current"   # "current", "profile", "learned", "label" or "reference"
+    profile_id: str | None = None
+
+
+class HistoRequest(BaseModel):
+    z: int
+    bone: MaskSpec
+    cells: MaskSpec
+    contact_um: float = 3.0
+    settings: dict = Field(default_factory=dict)
+    max_side: int = 1600
 
 
 class PathRequest(BaseModel):
@@ -408,6 +424,62 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
         """The learned model for a channel, or null when none has been trained."""
         path = store.head_path(ds_id, c)
         return Head.load(path).info() if path.exists() else None
+
+    # Histomorphometry ---------------------------------------------------------------------------
+    def _mask_from_spec(ds_id: str, z: int, spec: MaskSpec, settings: SegmentationSettings) -> np.ndarray:
+        ds = store.get(ds_id)
+        if spec.source == "current":
+            res = ds.results.get((spec.channel, z))
+            if res is None:
+                raise ValueError(f"Segment channel {spec.channel} on slice {z} first, or pick another source")
+            return res.mask
+        if spec.source == "label":
+            m = store.load_label(ds_id, spec.channel, z)
+            if m is None:
+                raise ValueError(f"No saved label for channel {spec.channel} on slice {z}")
+            return m
+        if spec.source == "reference":
+            ref = ds.meta.get("reference_channel")
+            if ref is None:
+                raise ValueError("No reference channel is set")
+            return store.raw_plane(ds_id, int(ref), z) > 0
+        with store.compute_lock:
+            emb = store.embedding(ds_id, spec.channel, z, settings)
+            if spec.source == "learned":
+                return segment_with_head(_load_head(ds_id, spec.channel, settings), emb, settings, ds.volume.pixel_um).mask
+            if spec.source == "profile":
+                if not spec.profile_id:
+                    raise ValueError("Pick a profile")
+                pos, neg, thr = _prototypes_for(ds_id, spec.channel, z, [], [], spec.profile_id, settings)
+                return segment_with_prototypes(emb, pos, neg, settings, ds.volume.pixel_um, raw_threshold=thr).mask
+        raise ValueError(f"Unknown mask source {spec.source}")
+
+    @app.post("/api/datasets/{ds_id}/histomorphometry")
+    def histomorphometry_endpoint(ds_id: str, req: HistoRequest):
+        from . import histo
+
+        ds = store.get(ds_id)
+        settings = SegmentationSettings.from_dict(req.settings)
+        bone = _mask_from_spec(ds_id, req.z, req.bone, settings)
+        cells = _mask_from_spec(ds_id, req.z, req.cells, settings)
+        summary, table = histo.histomorphometry(bone, cells, ds.volume.pixel_um, req.contact_um)
+        ds.results[("histo", req.z)] = table
+        from PIL import Image
+
+        rgba = histo.overlay(bone, cells, ds.volume.pixel_um, req.contact_um)
+        h, w = render.display_shape(*bone.shape, req.max_side)
+        img = Image.fromarray(rgba, "RGBA").resize((w, h), Image.NEAREST)
+        return {"summary": summary, "overlay_png": render.data_url(render.to_png_bytes(img)),
+                "cells": json.loads(table.head(500).to_json(orient="records"))}
+
+    @app.get("/api/datasets/{ds_id}/histomorphometry/cells.csv")
+    def histo_cells(ds_id: str, z: int = 0):
+        ds = store.get(ds_id)
+        table = ds.results.get(("histo", z))
+        if table is None:
+            raise HTTPException(404, "Run histomorphometry on this slice first")
+        stem = f"{Path(ds.volume.name).stem}_z{z}_histomorphometry_cells"
+        return Response(table.to_csv(index=False), media_type="text/csv", headers={"Content-Disposition": f'attachment; filename="{stem}.csv"'})
 
     # Profiles -----------------------------------------------------------------------------------
     @app.get("/api/profiles")

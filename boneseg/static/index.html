@@ -75,8 +75,9 @@
         <label class="toggle"><input type="checkbox" id="showUnc"> Uncertainty</label>
         <label class="toggle"><input type="checkbox" id="showRef" checked> Reference</label>
         <label class="toggle"><input type="checkbox" id="showPoints" checked> Points</label>
-        <label class="small">Opacity <input type="range" id="opacity" min="0" max="1" step="0.05" value="0.6"></label>
+        <label class="small toggle" title="Overlay opacity">Opacity <input type="range" id="opacity" min="0" max="1" step="0.05" value="0.6"></label>
         <label class="toggle"><input type="checkbox" id="showLabel" checked> Label</label>
+        <label class="toggle"><input type="checkbox" id="showHisto" checked> Histo</label>
         <span class="spacer"></span>
         <span class="editbar hidden" id="editBar">
           <b>Correcting</b> · drag to paint, Shift-drag to erase ·
@@ -175,6 +176,17 @@
         <div class="labels" id="labelList"><span class="muted small">No labels yet.</span></div>
         <button class="primary" id="trainBtn" disabled>Train model</button>
         <div class="small" id="trainResult"></div>
+      </section>
+
+      <section id="histoSection" class="disabled-until-data">
+        <h2>7. Bone histomorphometry</h2>
+        <p class="muted small">Combines a bone mask and a cell mask on this slice into the standard 2D measurements: bone area, bone perimeter, and how much of it osteoclasts cover.</p>
+        <label class="small">Bone <span class="row"><select id="hBoneC"></select><select id="hBoneSrc"></select></span></label>
+        <label class="small">Osteoclasts or cells <span class="row"><select id="hCellC"></select><select id="hCellSrc"></select></span></label>
+        <label class="small">Contact distance <span class="value" id="hContactValue">3 µm</span><input type="range" id="hContact" min="0" max="15" step="0.5" value="3"></label>
+        <button class="primary" id="histoBtn">Measure this slice</button>
+        <div class="cards hidden" id="histoCards"></div>
+        <div class="row hidden" id="histoDownloads"><button class="ghost" id="histoCsv">Cells CSV</button></div>
       </section>
     </aside>
   </main>

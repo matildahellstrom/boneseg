@@ -170,3 +170,32 @@ def test_annotations_labels_and_learned_model(client):
         time.sleep(0.05)
     assert job["status"] == "done", job
     assert client.delete(f"/api/datasets/{did}/labels", params={"c": 0, "z": 1}).json()["labels"] == [{"channel": 0, "z": 0}]
+
+
+def test_histomorphometry_endpoint(client):
+    ds = client.post("/api/datasets/demo").json()
+    did = ds["id"]
+    import glob
+    from pathlib import Path
+    stack = tifffile.imread(glob.glob(str(Path(client.app.state.store.root) / "datasets" / did / "*.tif"))[0])
+    z = 6
+    gt_cells = stack[z, 2] > 0
+    bone = stack[z, 0] > np.percentile(stack[z, 0], 60)
+    ys, xs = np.nonzero(gt_cells)
+    by, bx = np.nonzero(bone & ~gt_cells)
+    ny, nx = np.nonzero(~bone & ~gt_cells)
+    pick = lambda a, b, k: [[int(a[i]), int(b[i])] for i in np.linspace(0, len(a) - 1, k).astype(int)]
+    s = {"backbone": "classic", "vit_size": 252}
+    # Segment bone on channel 0 and cells on channel 1, then measure
+    assert client.post(f"/api/datasets/{did}/segment", json={"channel": 0, "z": z, "pos": pick(by, bx, 8), "neg": pick(ny, nx, 8), "settings": s}).status_code == 200
+    assert client.post(f"/api/datasets/{did}/segment", json={"channel": 1, "z": z, "pos": pick(ys, xs, 6), "neg": pick(ny, nx, 8), "settings": s}).status_code == 200
+    r = client.post(f"/api/datasets/{did}/histomorphometry", json={"z": z, "bone": {"channel": 0}, "cells": {"channel": 1}, "settings": s})
+    assert r.status_code == 200, r.text
+    out = r.json()
+    assert 0 < out["summary"]["B.Ar/T.Ar_%"] < 100 and out["summary"]["B.Pm_mm"] > 0
+    assert out["overlay_png"].startswith("data:image/png")
+    assert client.get(f"/api/datasets/{did}/histomorphometry/cells.csv", params={"z": z}).text.startswith("label,")
+    # Reference channel as the cell source, and a clear error for a missing result
+    assert client.post(f"/api/datasets/{did}/histomorphometry", json={"z": z, "bone": {"channel": 0}, "cells": {"channel": 1, "source": "reference"}, "settings": s}).status_code == 200
+    r = client.post(f"/api/datasets/{did}/histomorphometry", json={"z": 2, "bone": {"channel": 0}, "cells": {"channel": 1}, "settings": s})
+    assert r.status_code == 400 and "Segment channel" in r.json()["detail"]
