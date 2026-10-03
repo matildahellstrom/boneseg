@@ -12,12 +12,15 @@ function startEditing() {
   const g = c.getContext("2d");
   // Start from the current mask, or the saved label if there is no result yet
   const src = S.layers.mask || S.layers.labelFill;
+  const multi = isMulti() && S.result?.multi;
   if (src) {
     g.drawImage(src, 0, 0, w, h);
     const d = g.getImageData(0, 0, w, h);
     for (let i = 0; i < d.data.length; i += 4) {
       const on = d.data[i + 3] > 0;
-      d.data[i] = 255; d.data[i + 1] = 216; d.data[i + 2] = 74; d.data[i + 3] = on ? 255 : 0;
+      // With several structures each keeps its colour; a single mask is painted in yellow
+      if (!multi) { d.data[i] = 255; d.data[i + 1] = 216; d.data[i + 2] = 74; }
+      d.data[i + 3] = on ? 255 : 0;
     }
     g.putImageData(d, 0, 0);
   }
@@ -50,7 +53,7 @@ function paintAt(ev, erase, last) {
   const toImg = (e) => [(e.clientX - r.left - S.view.ox) / S.view.scale, (e.clientY - r.top - S.view.oy) / S.view.scale];
   const g = S.edit.getContext("2d");
   g.globalCompositeOperation = erase ? "destination-out" : "source-over";
-  g.strokeStyle = g.fillStyle = "rgb(255,216,74)";
+  g.strokeStyle = g.fillStyle = isMulti() && S.result?.multi ? safeColor(S.structures[S.active].color) : "rgb(255,216,74)";
   g.lineCap = "round";
   g.lineWidth = +$("brush").value;
   const [x, y] = toImg(ev);
@@ -61,10 +64,32 @@ function paintAt(ev, erase, last) {
   draw();
 }
 
+// A painted canvas with structure colours becomes an index map: red channel = structure number
+function editToIndexPng() {
+  const w = S.edit.width, h = S.edit.height;
+  const src = S.edit.getContext("2d").getImageData(0, 0, w, h).data;
+  const cols = S.structures.map((st) => { const c = safeColor(st.color).slice(1); const f = c.length === 3 ? c.split("").map((x) => x + x).join("") : c; return [0, 2, 4].map((i) => parseInt(f.slice(i, i + 2), 16)); });
+  const out = document.createElement("canvas");
+  out.width = w; out.height = h;
+  const og = out.getContext("2d");
+  const img = og.createImageData(w, h);
+  for (let i = 0; i < src.length; i += 4) {
+    if (src[i + 3] < 128) continue;
+    let best = 0, bd = Infinity;
+    cols.forEach(([r, g, b], k) => { const d = (src[i] - r) ** 2 + (src[i + 1] - g) ** 2 + (src[i + 2] - b) ** 2; if (d < bd) { bd = d; best = k; } });
+    img.data[i] = img.data[i + 1] = img.data[i + 2] = best + 1;
+    img.data[i + 3] = 255;
+  }
+  og.putImageData(img, 0, 0);
+  return out.toDataURL("image/png");
+}
+
 async function saveLabel(fromEdit) {
   try {
     const body = { channel: S.c, z: S.z };
-    if (fromEdit && S.edit) body.mask_png = S.edit.toDataURL("image/png");
+    const multi = isMulti() && S.result?.multi;
+    if (multi) body.structures = S.structures.map((st) => st.name);
+    if (fromEdit && S.edit) body.mask_png = multi ? editToIndexPng() : S.edit.toDataURL("image/png");
     else if (!S.result) { toast("Segment the slice or correct a mask first"); return; }
     const out = await api(`/api/datasets/${S.ds.id}/labels`, { method: "POST", body });
     S.labels = out.labels;
@@ -122,6 +147,13 @@ async function refreshHead() {
 
 function showHeadInfo() {
   const h = S.head;
+  if (h?.names?.length) {
+    // A model of several structures brings its structures along, keeping colours for names already present
+    const prev = Object.fromEntries(S.structures.map((st) => [st.name, st.color]));
+    S.structures = h.names.map((n, k) => ({ name: n, color: safeColor(prev[n] || STRUCT_COLORS[k % STRUCT_COLORS.length]) }));
+    S.active = Math.min(S.active, S.structures.length - 1);
+    renderStructures();
+  }
   $("exportHeadBtn").classList.toggle("hidden", !h);
   if (!h) { $("trainResult").textContent = ""; return; }
   const cv = h.cv[h.cv.chosen];

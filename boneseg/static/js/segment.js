@@ -15,6 +15,7 @@ async function runSegment() {
   const p = pts();
   const profile = $("profileSelect").value || null;
   const profKind = S.profiles.find((pp) => pp.id === profile)?.kind;
+  if (S.method === "learned" && S.head?.names?.length) { runMulti(null, "learned"); return; }
   if (S.method === "clicks" && profKind === "structures") { runMulti(profile); return; }
   if (S.method === "clicks" && !profile && isMulti()) { runMulti(); return; }
   if (S.method === "clicks" && !p.pos.length && !profile) { toast("Click the structure you want first, or pick a profile"); return; }
@@ -83,15 +84,16 @@ function showResults(out) {
   $("timing").textContent = `Threshold ${out.threshold.toFixed(3)} (${src}) · features ${out.timing.embed_s.toFixed(2)} s · total ${out.timing.total_s.toFixed(2)} s`;
 }
 
-async function runMulti(profileId = null) {
+async function runMulti(profileId = null, method = "clicks") {
   const p = pts();
-  const structures = profileId ? [] : S.structures.map((st, k) => ({ name: st.name, color: st.color, pos: posList(p, k) }));
-  if (!profileId && !structures.some((st) => st.pos.length)) { toast("Click examples of at least one structure"); return; }
+  const structures = profileId || method === "learned" ? S.structures.map((st) => ({ name: st.name, color: st.color, pos: [] }))
+    : S.structures.map((st, k) => ({ name: st.name, color: st.color, pos: posList(p, k) }));
+  if (!profileId && method !== "learned" && !structures.some((st) => st.pos.length)) { toast("Click examples of at least one structure"); return; }
   const seq = ++S.seq;
   busy(true, "Segmenting structures…");
   try {
     const out = await api(`/api/datasets/${S.ds.id}/segment_multi`, {
-      method: "POST", body: { channel: S.c, z: S.z, structures, neg: p.neg, settings: settings(), profile_id: profileId },
+      method: "POST", body: { method, channel: S.c, z: S.z, structures, neg: p.neg, settings: settings(), profile_id: profileId },
     });
     if (seq !== S.seq) return;
     S.layers.mask = await loadImage(out.labels_png);
@@ -114,11 +116,10 @@ function showMultiResults(out) {
   $("evalBox").classList.add("hidden");
   $("suggestionBox").classList.add("hidden");
   $("labelsExport").classList.remove("hidden");
-  // Brush corrections and labels work on a single mask, so they are hidden for several structures
-  $("editBtn").classList.add("hidden");
-  $("saveLabelBtn").classList.add("hidden");
+  $("editBtn").classList.remove("hidden");
+  $("saveLabelBtn").classList.remove("hidden");
   histoFromStructures();
-  $("timing").textContent = "Each pixel goes to the structure it resembles most, if it clears that structure's threshold. Stack runs include every structure; labels and the learned model use the first.";
+  $("timing").textContent = S.method === "learned" ? "Each pixel takes the structure the learned model finds most likely." : "Each pixel goes to the structure it resembles most, if it clears that structure's threshold. Correct with the brush in each structure's colour (Tab switches) and save as a label to train a model of all structures.";
   updateHint();
 }
 

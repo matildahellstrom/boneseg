@@ -179,7 +179,7 @@ def test_two_structures(page, server):
     page.wait_for_function("S.result && S.result.multi && document.querySelector('#busy').classList.contains('hidden')", timeout=30000)
     cards = page.inner_text("#statCards")
     assert "Object" in cards and "Bone matrix" in cards
-    assert page.is_visible("#labelsExport") and not page.is_visible("#editBtn")
+    assert page.is_visible("#labelsExport") and page.is_visible("#editBtn")
     page.reload()
     page.wait_for_function("S.ds && S.base", timeout=20000)
     page.wait_for_timeout(500)
@@ -297,4 +297,45 @@ def test_batch_from_compare_dialog(page, server):
     import re
     m = re.search(r"(\d+) skipped", text)
     assert page.inner_text("#studyRows").count("no stack run") == (int(m.group(1)) if m else 0)
+    assert not page.errors, page.errors
+
+
+
+def test_teach_several_structures(page, server):
+    url, data = server
+    stack = open_demo(page, url, data)
+    page.on("dialog", lambda d: d.accept("Bone matrix"))
+    for i, z in enumerate((3, 8)):
+        page.evaluate(f"S.z = {z}; loadPlane()")
+        page.wait_for_timeout(500)
+        if i == 0:
+            click_cells(page, stack, z)
+            wait_result(page)
+            page.click(".struct.add")
+            page.wait_for_function("S.structures.length === 2", timeout=5000)
+        else:
+            page.evaluate("S.active = 0; renderStructures()")
+            click_cells(page, stack, z)
+            page.evaluate("S.active = 1; renderStructures()")
+        bone = ndi.gaussian_filter(stack[z, 0].astype(float), 3)
+        rng = np.random.default_rng(z)
+        hi = np.argwhere((bone > np.percentile(bone, 85)) & ~ndi.binary_dilation(stack[z, 2] > 0, iterations=10))
+        for y, x in hi[rng.choice(len(hi), 4, replace=False)]:
+            click_full(page, y, x)
+        page.wait_for_function("S.result && S.result.multi && document.querySelector('#busy').classList.contains('hidden')", timeout=30000)
+        # Correct with the brush in the active structure's colour, then save as a label
+        page.keyboard.press("e")
+        r = page.evaluate("canvas.getBoundingClientRect().toJSON()")
+        page.mouse.move(r["x"] + r["width"] / 2 - 30, r["y"] + r["height"] / 2)
+        page.mouse.down()
+        page.mouse.move(r["x"] + r["width"] / 2 + 30, r["y"] + r["height"] / 2, steps=4)
+        page.mouse.up()
+        page.click("#editSave")
+        page.wait_for_function(f"S.labels.some(l => l.z === {z})", timeout=10000)
+    page.click("#trainBtn")
+    page.wait_for_function("S.head && S.head.names && S.head.names.length === 2 && S.method === 'learned'", timeout=60000)
+    page.evaluate("S.z = 6; loadPlane()")
+    page.wait_for_function("S.result && S.result.multi && S.z === 6 && document.querySelector('#busy').classList.contains('hidden')", timeout=30000)
+    cards = page.inner_text("#statCards")
+    assert "Object" in cards and "Bone matrix" in cards
     assert not page.errors, page.errors
