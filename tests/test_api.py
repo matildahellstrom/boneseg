@@ -110,6 +110,8 @@ def test_profiles_and_stack_job(client):
         assert client.get(f"/api/jobs/{job['id']}/files/slices.csv").text.startswith("z,")
         assert job["result"]["summary"]["n_objects_3d"] >= 1
         assert client.get(f"/api/jobs/{job['id']}/files/objects_3d.csv").text.startswith("label,volume_um3")
+        labels = tifffile.imread(io.BytesIO(client.get(f"/api/jobs/{job['id']}/files/labels_3d.tif").content))
+        assert labels.shape == masks.shape and labels.max() == job["result"]["summary"]["n_objects_3d"]
     assert client.delete(f"/api/profiles/{pid}").json()["ok"]
 
 

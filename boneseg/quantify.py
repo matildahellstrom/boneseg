@@ -84,11 +84,16 @@ def summarize_stack(per_slice: pd.DataFrame, voxel_um=(1.0, 1.0, 1.0), slice_ste
     }
 
 
-def objects_3d(stack: np.ndarray, voxel_um=(1.0, 1.0, 1.0), z_values=None, min_voxels: int = 1) -> pd.DataFrame:
+def label_3d(stack: np.ndarray) -> np.ndarray:
+    """Connected objects in a (Z, Y, X) mask stack, numbered from 1, with 6-connectivity."""
+    return measure.label(stack.astype(bool), connectivity=1)
+
+
+def objects_3d(stack: np.ndarray, voxel_um=(1.0, 1.0, 1.0), z_values=None, min_voxels: int = 1, labels: np.ndarray | None = None) -> pd.DataFrame:
     """Connected objects in a (Z, Y, X) mask stack, so a cell spanning several slices counts once.
 
     voxel_um should already include any slice step (z spacing times step)."""
-    labels = measure.label(stack.astype(bool), connectivity=1)
+    labels = label_3d(stack) if labels is None else labels
     cols = ["label", "volume_um3", "n_slices", "z_first", "z_last", "centroid_z_um", "centroid_y_um", "centroid_x_um",
             "max_area_um2", "touches_stack_edge"]
     if labels.max() == 0:

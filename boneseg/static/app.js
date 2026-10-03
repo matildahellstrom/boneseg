@@ -1033,7 +1033,7 @@ async function pollJob(id) {
     + (s.mean_dice_vs_reference != null ? ` · mean Dice ${s.mean_dice_vs_reference.toFixed(3)}` : "");
   drawChart(job.result.slices || []);
   if (job.status === "done") { S.lastJob = { id, ds: job.meta.dataset_id, c: job.meta.channel }; if ($("showSide").checked) loadSide(); }
-  $("jobDownloads").innerHTML = ["masks.tif", "slices.csv", "objects_3d.csv", "summary.json"]
+  $("jobDownloads").innerHTML = ["masks.tif", "labels_3d.tif", "slices.csv", "objects_3d.csv", "summary.json"]
     .map((f) => `<a class="small" href="/api/jobs/${id}/files/${f}" download><button class="ghost">${f}</button></a>`).join("");
 }
 

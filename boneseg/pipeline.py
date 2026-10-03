@@ -82,8 +82,14 @@ def run_stack(req: StackRequest, pos: torch.Tensor, neg: torch.Tensor, settings:
     summary = quantify.summarize_stack(df, voxel_um, _step(zs)) if len(df) else {"n_slices": 0}
     if zs:
         # 3D objects: a cell that spans several slices is counted once
-        obj = quantify.objects_3d(np.stack([masks[z] for z in zs]), (voxel_um[0] * _step(zs), voxel_um[1], voxel_um[2]), zs)
+        mstack = np.stack([masks[z] for z in zs])
+        labels = quantify.label_3d(mstack)
+        obj = quantify.objects_3d(mstack, (voxel_um[0] * _step(zs), voxel_um[1], voxel_um[2]), zs, labels=labels)
         obj.to_csv(out_dir / "objects_3d.csv", index=False)
+        # Object IDs match the label column of objects_3d.csv, for Fiji, Imaris or napari
+        tifffile.imwrite(out_dir / "labels_3d.tif", labels.astype(np.uint16 if labels.max() < 65535 else np.uint32), imagej=True,
+                         compression="zlib", resolution=(1 / pixel_um[1], 1 / pixel_um[0]),
+                         metadata={"axes": "ZYX", "spacing": float(voxel_um[0] * _step(zs)), "unit": "um"})
         summary["n_objects_3d"] = int(len(obj))
         summary["n_objects_3d_inside"] = int((~obj["touches_stack_edge"]).sum()) if len(obj) else 0
         summary["median_object_volume_um3"] = float(obj["volume_um3"].median()) if len(obj) else 0.0
