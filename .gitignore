@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+
+# Data, caches and run outputs (microscopy files are large and stay out of git)
+*.ims
+*.h5
+data/
+cache/
+outputs/
+results/
+projects/
+*.pt
+*.pth
+!tests/fixtures/*.pt
+
+# Local backups and OS files
+*.backup.ipynb
+.DS_Store
+.ipynb_checkpoints/
