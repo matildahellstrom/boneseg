@@ -1,5 +1,6 @@
 # boneseg web app. Build: docker build -t boneseg .
-# Run:   docker run -p 8000:8000 -v "$PWD/projects:/data" boneseg
+# Run:   docker run -p 8000:8000 -v "$PWD/projects:/data" -e BONESEG_TOKEN=some-secret boneseg
+#        then open http://localhost:8000/?token=some-secret (leave out BONESEG_TOKEN to run without a token)
 # With an NVIDIA GPU, swap the CPU wheel index below for a CUDA one and add --gpus all to docker run.
 FROM python:3.12-slim
 
