@@ -14,7 +14,7 @@ from .. import metrics, quantify, render
 from ..head import segment_with_head
 from ..pipeline import StackRequest, run_stack
 from ..segment import SegmentationSettings, segment_with_prototypes, suggest_click, uncertainty_map
-from .context import AppContext
+from .context import AppContext, attachment
 from .models import MultiSegmentRequest, SegmentRequest, StackJobRequest
 
 
@@ -120,7 +120,7 @@ def router(ctx: AppContext) -> APIRouter:
         tifffile.imwrite(buf, res["labels"], imagej=True, resolution=(1 / px, 1 / py), metadata={"unit": "um", "Labels": res["names"]})
         legend = "_".join(f"{k + 1}-{n}" for k, n in enumerate(res["names"]))[:120].replace(" ", "")
         stem = f"{Path(ds.volume.name).stem}_c{c}_z{z}_labels_{legend}"
-        return Response(buf.getvalue(), media_type="image/tiff", headers={"Content-Disposition": f'attachment; filename="{stem}.tif"'})
+        return Response(buf.getvalue(), media_type="image/tiff", headers=attachment(f"{stem}.tif"))
 
     @r.get("/api/datasets/{ds_id}/export/mask")
     def export_mask(ds_id: str, c: int = 0, z: int = 0, fmt: str = "png"):
@@ -131,8 +131,8 @@ def router(ctx: AppContext) -> APIRouter:
             buf = io.BytesIO()
             py, px = ds.volume.pixel_um
             tifffile.imwrite(buf, res.mask.astype(np.uint8) * 255, imagej=True, resolution=(1 / px, 1 / py), metadata={"unit": "um"})
-            return Response(buf.getvalue(), media_type="image/tiff", headers={"Content-Disposition": f'attachment; filename="{stem}.tif"'})
-        return Response(render.mask_full_png(res.mask), media_type="image/png", headers={"Content-Disposition": f'attachment; filename="{stem}.png"'})
+            return Response(buf.getvalue(), media_type="image/tiff", headers=attachment(f"{stem}.tif"))
+        return Response(render.mask_full_png(res.mask), media_type="image/png", headers=attachment(f"{stem}.png"))
 
     @r.get("/api/datasets/{ds_id}/export/objects.csv")
     def export_objects(ds_id: str, c: int = 0, z: int = 0, all_channels: bool = True):
@@ -153,7 +153,7 @@ def router(ctx: AppContext) -> APIRouter:
                 chans[safe] = store.raw_plane(ds_id, i, z)
             table = table.merge(quantify.channel_intensities(res.mask, chans), on="label", how="left")
         stem = f"{Path(ds.volume.name).stem}_c{c}_z{z}_objects"
-        return Response(table.to_csv(index=False), media_type="text/csv", headers={"Content-Disposition": f'attachment; filename="{stem}.csv"'})
+        return Response(table.to_csv(index=False), media_type="text/csv", headers=attachment(f"{stem}.csv"))
 
     @r.post("/api/datasets/{ds_id}/stack")
     def stack_job(ds_id: str, req: StackJobRequest):

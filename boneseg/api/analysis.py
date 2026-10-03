@@ -10,7 +10,7 @@ from fastapi.responses import HTMLResponse, Response
 from .. import render
 from ..head import Head
 from ..segment import SegmentationSettings
-from .context import AppContext
+from .context import AppContext, attachment
 from .models import HistoRequest
 
 
@@ -42,7 +42,7 @@ def router(ctx: AppContext) -> APIRouter:
         page = rep_mod.build_report(ds.info(), c, z, png, x.get("stats"), x.get("evaluation"), settings,
                                     {"value": res.threshold, "source": res.threshold_source}, ds.results.get(("histo_summary", z)),
                                     job.result if job else None, methods)
-        headers = {"Content-Disposition": f'attachment; filename="{Path(ds.volume.name).stem}_c{c}_z{z}_report.html"'} if download else {}
+        headers = attachment(f"{Path(ds.volume.name).stem}_c{c}_z{z}_report.html") if download else {}
         return HTMLResponse(page, headers=headers)
 
     @r.post("/api/datasets/{ds_id}/histomorphometry")
@@ -72,6 +72,6 @@ def router(ctx: AppContext) -> APIRouter:
         if table is None:
             raise HTTPException(404, "Run histomorphometry on this slice first")
         stem = f"{Path(ds.volume.name).stem}_z{z}_histomorphometry_cells"
-        return Response(table.to_csv(index=False), media_type="text/csv", headers={"Content-Disposition": f'attachment; filename="{stem}.csv"'})
+        return Response(table.to_csv(index=False), media_type="text/csv", headers=attachment(f"{stem}.csv"))
 
     return r

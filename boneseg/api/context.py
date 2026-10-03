@@ -11,6 +11,17 @@ from ..store import Store
 from .models import MaskSpec
 
 
+def attachment(filename: str) -> dict:
+    """A Content-Disposition header with a file name reduced to safe characters, so names from files
+    cannot break the header with quotes, line breaks or non-ASCII text."""
+    import re
+
+    stem, dot, ext = filename.rpartition(".")
+    safe = re.sub(r"[^A-Za-z0-9._-]+", "_", stem or filename).strip("._") or "download"
+    suffix = "." + re.sub(r"[^A-Za-z0-9]+", "", ext) if stem else ""
+    return {"Content-Disposition": f'attachment; filename="{safe[:150]}{suffix}"'}
+
+
 class AppContext:
     def __init__(self, store: Store, allow_paths: bool):
         self.store = store

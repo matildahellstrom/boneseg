@@ -434,3 +434,11 @@ def test_histomorphometry_from_structures(client):
 def ndi_dilate(m):
     import scipy.ndimage as ndi
     return ndi.binary_dilation(m, iterations=6)
+
+
+def test_download_names_are_safe():
+    from boneseg.api.context import attachment
+
+    h = attachment('evil"\r\nX-Injected: 1 näme.csv')["Content-Disposition"]
+    assert "\n" not in h and "\r" not in h and h.count('"') == 2 and h.endswith('.csv"')
+    assert attachment(".csv")["Content-Disposition"] == 'attachment; filename="csv"'
