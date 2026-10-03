@@ -357,3 +357,36 @@ def test_profile_download_and_import(client, tmp_path):
     r = other.post("/api/profiles/import", files={"file": ("p.npz", blob, "application/octet-stream")})
     assert r.status_code == 200 and r.json()["name"] == "Shared"
     assert other.post("/api/profiles/import", files={"file": ("p.npz", b"not a profile", "application/octet-stream")}).status_code == 400
+
+
+def test_study_comparison_and_job_persistence(client):
+    ids = []
+    for i in range(4):
+        ds, gt, centers = upload_stack(client, n_z=2)
+        ids.append(ds["id"])
+        client.patch(f"/api/datasets/{ds['id']}", json={"group": "control" if i < 2 else "treated"})
+        body = {"channel": 0, "ref_z": 0, "pos": [list(c) for c in centers], "neg": bg_points(gt), "settings": SETTINGS}
+        job = client.post(f"/api/datasets/{ds['id']}/stack", json=body).json()
+        for _ in range(100):
+            if client.get(f"/api/jobs/{job['id']}").json()["status"] == "done":
+                break
+            time.sleep(0.05)
+    out = client.get("/api/study", params={"metric": "mean_area_fraction"}).json()
+    assert len(out["rows"]) == 4 and all(r["has_stack_run"] for r in out["rows"])
+    assert out["comparison"]["test"] == "Mann-Whitney U" and set(out["comparison"]["groups"]) == {"control", "treated"}
+    assert client.get("/api/study.csv").text.startswith("dataset_id,")
+    assert client.get("/api/study", params={"metric": "nope"}).status_code == 400
+    # Stack results survive a restart
+    c2 = TestClient(create_app(client.app.state.store.root))
+    assert all(r["has_stack_run"] for r in c2.get("/api/study").json()["rows"])
+
+
+def test_empty_mask_gives_null_not_error(client):
+    ds, gt, centers = upload_stack(client, n_z=1)
+    client.patch(f"/api/datasets/{ds['id']}", json={"reference_channel": 1})
+    # A manual threshold of 1.0 keeps only the single top pixel or nothing, so HD95 is undefined
+    body = {"channel": 0, "z": 0, "pos": [list(c) for c in centers], "neg": bg_points(gt),
+            "settings": {**SETTINGS, "threshold_mode": "manual", "manual_threshold": 1.01}}
+    r = client.post(f"/api/datasets/{ds['id']}/segment", json=body)
+    assert r.status_code == 200, r.text
+    assert r.json()["stats"]["n_objects"] == 0 and r.json()["evaluation"]["hd95_um"] is None

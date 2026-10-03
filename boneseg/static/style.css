@@ -138,3 +138,11 @@ dialog label { margin-top: 8px; }
 .more-menu input[type=range] { width: 100%; }
 .linkish { color: var(--accent); cursor: pointer; }
 .linkish:hover { text-decoration: underline; }
+dialog.wide { max-width: 860px; width: 92vw; }
+.study-grid { display: grid; grid-template-columns: 1.3fr 1fr; gap: 16px; margin-top: 12px; align-items: start; }
+.study-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.study-table th, .study-table td { text-align: left; padding: 4px 6px; border-bottom: 1px solid var(--line); }
+.study-table td.num { font-variant-numeric: tabular-nums; }
+.study-table input { padding: 3px 6px; }
+#studyPlot { height: 220px; }
+@media (max-width: 700px) { .study-grid { grid-template-columns: 1fr; } }

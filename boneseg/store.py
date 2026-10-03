@@ -134,6 +134,7 @@ class Store:
         # One model computation at a time: GPU backends such as Apple MPS crash when used from several threads at once
         self.compute_lock = threading.RLock()
         self._load_existing()
+        self._load_jobs()
 
     # Datasets ---------------------------------------------------------------------------------
     def _load_existing(self):
@@ -414,9 +415,30 @@ class Store:
             except Exception as e:
                 traceback.print_exc()
                 job.status, job.error = "failed", f"{type(e).__name__}: {e}"
+            self._save_job(job)
 
         threading.Thread(target=run, daemon=True).start()
         return job
+
+    def _save_job(self, job: Job):
+        """Finished jobs are written next to their outputs, so results survive a restart."""
+        try:
+            info = job.info()
+            (job.out_dir / "job.json").write_text(json.dumps(info))
+        except Exception:
+            traceback.print_exc()
+
+    def _load_jobs(self):
+        for f in (self.root / "jobs").glob("*/job.json"):
+            try:
+                d = json.loads(f.read_text())
+                job = Job(id=d["id"], kind=d["kind"], status=d["status"], progress=d["progress"], message=d.get("message", ""),
+                          result=d.get("result", {}), error=d.get("error", ""), created=d.get("created", 0), out_dir=f.parent,
+                          meta=d.get("meta", {}))
+                if job.meta.get("dataset_id") in self.datasets:
+                    self.jobs[job.id] = job
+            except Exception:
+                traceback.print_exc()
 
     def latest_job(self, ds_id: str, kind: str = "stack") -> Job | None:
         done = [j for j in self.jobs.values() if j.kind == kind and j.status == "done" and j.meta.get("dataset_id") == ds_id]

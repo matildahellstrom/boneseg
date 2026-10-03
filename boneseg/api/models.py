@@ -92,3 +92,4 @@ class MetaRequest(BaseModel):
     reference_channel: int | None = None
     notes: str | None = None
     voxel_um_override: tuple[float, float, float] | None = None  # (z, y, x) in micrometres
+    group: str | None = None  # Study group, such as "control" or "treated"

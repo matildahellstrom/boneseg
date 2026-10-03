@@ -262,3 +262,16 @@ def test_result_cache_is_bounded():
     assert list(c) == [(0, 2), (0, 3), (0, 4)]
     c[(0, 2)] = "again"
     assert list(c)[-1] == (0, 2)
+
+
+def test_compare_groups():
+    from boneseg.study import compare_groups
+
+    out = compare_groups({"control": [1, 2, 3, 4, 5], "treated": [6, 7, 8, 9, 10]})
+    assert out["test"] == "Mann-Whitney U" and out["p_value"] < 0.05 and out["groups"]["treated"]["median"] == 8
+    out = compare_groups({"a": [1, 2], "b": [3, 4], "c": [5, 6]})
+    assert out["test"] == "Kruskal-Wallis H" and "care" in out["note"]
+    small = compare_groups({"a": [1, 2], "b": [3, 4, 5]})
+    assert small["min_possible_p"] == pytest.approx(0.2) and "cannot show a difference" in small["note"]
+    assert compare_groups({"a": [1, 2, 3]})["test"] is None
+    assert compare_groups({"a": [1], "b": [2, 3]})["test"] is None

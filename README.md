@@ -38,6 +38,7 @@ The image runs on the CPU. For an NVIDIA GPU, change the PyTorch wheel index in 
    - Download the mask as PNG or TIFF, or the per-object measurements as CSV.
    - Run the whole stack, which writes a mask stack, per-slice measurements and a 3D object table. Turn on "Side view" to see a cut through all slices with the stack mask on top, which shows at a glance whether the segmentation stays consistent with depth.
    - Save the clicks as a profile to segment the next image of the same stain without clicking.
+   - Click "Compare samples" at the top to put samples into groups and compare their latest stack runs, with a dot plot and a Mann-Whitney U or Kruskal-Wallis test. The app says when the groups are too small for the test to show anything.
    - Open the report, a self-contained HTML page with the image, measurements, settings, the latest stack run and a draft methods paragraph.
 
 ### Keyboard shortcuts

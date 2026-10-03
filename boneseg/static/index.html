@@ -13,6 +13,7 @@
     <div class="dataset-title" id="datasetTitle">No image loaded</div>
     <div class="topbar-right">
       <span class="pill" id="devicePill" title="Where the model runs">…</span>
+      <button class="ghost" id="studyBtn" title="Compare stack results between groups of samples">Compare samples</button>
       <button class="ghost" id="helpBtn" title="Keyboard shortcuts and tips">?</button>
     </div>
   </header>
@@ -237,6 +238,18 @@
     <label>Name <input type="text" id="profileName" placeholder="e.g. TRAP+ osteoclasts"></label>
     <label>Description <input type="text" id="profileDesc" placeholder="Stain, channel, sample type"></label>
     <div class="row"><button class="primary" id="profileSaveConfirm">Save</button><button class="ghost" id="profileCancel">Cancel</button></div>
+  </dialog>
+
+  <dialog id="studyDialog" class="wide">
+    <h2>Compare samples</h2>
+    <p class="muted small">Each sample uses its latest whole-stack run. Type a group for each sample, such as control or treated, then pick a measurement.</p>
+    <div class="row"><label class="small">Measurement <select id="studyMetric"></select></label><a href="/api/study.csv" download><button class="ghost">Download table</button></a></div>
+    <div class="study-grid">
+      <table class="study-table"><thead><tr><th>Sample</th><th>Group</th><th id="studyValueHead">Value</th></tr></thead><tbody id="studyRows"></tbody></table>
+      <div><svg id="studyPlot" class="chart" viewBox="0 0 320 220" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Measurement per group"></svg><p class="small" id="studyTest"></p></div>
+    </div>
+    <datalist id="groupNames"></datalist>
+    <form method="dialog"><button class="primary">Close</button></form>
   </dialog>
 
   <div class="toast hidden" id="toast"></div>
