@@ -20,6 +20,20 @@ from .backbone import get_backbone
 from .segment import Embedding, Profile, SegmentationSettings, embed_image
 
 
+def _open_volume(path: Path) -> bio.Volume:
+    """Opens a file, turning low-level read errors from damaged or mislabelled files into a clear message."""
+    try:
+        return bio.load_volume(path)
+    except ValueError as e:
+        if str(e).startswith(("Unsupported file type", "Expected a")):  # boneseg's own messages are already clear
+            raise
+        raise ValueError(f"Could not read {path.name}. The file may be damaged or not what its extension says "
+                         f"({type(e).__name__}: {str(e)[:160]})") from None
+    except Exception as e:
+        raise ValueError(f"Could not read {path.name}. The file may be damaged or not what its extension says "
+                         f"({type(e).__name__}: {str(e)[:160]})") from None
+
+
 class LRU:
     """Least-recently-used cache, bounded by item count and optionally by total size in bytes."""
 
@@ -174,7 +188,7 @@ class Store:
         dest = d / Path(src_name).name
         try:
             write(dest)
-            vol = bio.load_volume(dest)
+            vol = _open_volume(dest)
         except Exception:
             shutil.rmtree(d, ignore_errors=True)
             raise
@@ -192,7 +206,7 @@ class Store:
         for ds in self.datasets.values():  # Opening the same file twice returns the existing dataset
             if ds.path.resolve() == path:
                 return ds
-        vol = bio.load_volume(path)
+        vol = _open_volume(path)
         ds_id = uuid.uuid4().hex[:10]
         (self.root / "datasets" / ds_id).mkdir(parents=True)
         ds = Dataset(id=ds_id, path=path, volume=vol, created=time.time(), meta=self._guess_reference(vol))
