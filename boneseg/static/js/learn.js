@@ -158,7 +158,8 @@ function showHeadInfo() {
   if (!h) { $("trainResult").textContent = ""; return; }
   const cv = h.cv[h.cv.chosen];
   $("trainResult").innerHTML = `Model trained on ${h.trained_on.length} slice${h.trained_on.length > 1 ? "s" : ""} (${h.kind === "mlp" ? "small neural network" : "linear"}${h.context > 1 ? ", with neighbourhood features" : ""}).`
-    + (cv ? ` Estimated Dice on unseen slices: <b>${cv.mean_dice.toFixed(3)}</b>.` : " Label a second slice to estimate how well it generalizes.");
+    + (cv ? ` Dice on held-out labelled slices: <b>${cv.mean_dice.toFixed(3)}</b>, measured against your labels.` : " Label a second slice to estimate how well it generalizes.")
+    + (h.reference_check ? ` Against the reference mask on ${h.reference_check.n_slices} unlabelled slices: <b>${h.reference_check.mean_dice.toFixed(3)}</b>.` : "");
 }
 
 async function trainHead() {

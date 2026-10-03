@@ -123,7 +123,7 @@ def test_correct_label_train_and_reload(page, server):
     assert len(page.evaluate("S.labels")) == 2
     page.click("#trainBtn")
     page.wait_for_function("S.head !== null && S.method === 'learned'", timeout=30000)
-    assert "Estimated Dice" in page.inner_text("#trainResult")
+    assert "held-out labelled slices" in page.inner_text("#trainResult")
     page.reload()
     page.wait_for_function("S.ds && S.base", timeout=20000)
     page.wait_for_timeout(500)

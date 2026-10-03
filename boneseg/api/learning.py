@@ -89,7 +89,28 @@ def router(ctx: AppContext) -> APIRouter:
                 samples = [(store.embedding(ds_id, req.channel, l["z"], settings), store.load_label(ds_id, req.channel, l["z"])) for l in labels]
                 head = train_head(samples, settings, [(req.channel, l["z"]) for l in labels], kind=req.kind, pixel_um=store.get(ds_id).volume.pixel_um)
         head.save(store.head_path(ds_id, req.channel))
-        return {**head.info(), "seconds": round(time.time() - t0, 2)}
+        out = {**head.info(), "seconds": round(time.time() - t0, 2)}
+        ds = store.get(ds_id)
+        if ds.meta.get("reference_channel") is not None and not head.names:
+            # An independent check: Dice against the expert reference on up to five slices that were not labelled.
+            # Cross-validation only measures agreement with the labels, which may themselves be imperfect.
+            from ..head import segment_with_head
+            from ..metrics import dice
+
+            labelled = {l["z"] for l in labels}
+            pool = [z for z in range(ds.volume.n_z) if z not in labelled]
+            picks = sorted({pool[int(i)] for i in np.linspace(0, len(pool) - 1, min(5, len(pool)))}) if pool else []
+            scores = []
+            with store.compute_lock:
+                for z in picks:
+                    ref = store.reference_mask(ds_id, z, req.channel)
+                    if ref is None or not ref.any():
+                        continue
+                    res = segment_with_head(head, store.embedding(ds_id, req.channel, z, settings), settings, ds.volume.pixel_um)
+                    scores.append(dice(res.mask, ref))
+            if scores:
+                out["reference_check"] = {"mean_dice": float(np.mean(scores)), "n_slices": len(scores)}
+        return out
 
     @r.post("/api/datasets/{ds_id}/head/export")
     def export_head(ds_id: str, req: ProfileFromHeadRequest):

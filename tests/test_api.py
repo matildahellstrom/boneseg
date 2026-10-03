@@ -293,6 +293,17 @@ def test_open_by_path_can_be_disabled(tmp_path):
     assert off.get("/api/health").json()["allow_paths"] is False
 
 
+def test_training_checks_against_the_reference(client):
+    ds, gt, centers = upload_stack(client, n_z=4)
+    did = ds["id"]
+    client.patch(f"/api/datasets/{did}", json={"reference_channel": 1})
+    body = {"channel": 0, "z": 0, "pos": [list(c) for c in centers], "neg": bg_points(gt), "settings": SETTINGS}
+    client.post(f"/api/datasets/{did}/segment", json=body)
+    client.post(f"/api/datasets/{did}/labels", json={"channel": 0, "z": 0})
+    out = client.post(f"/api/datasets/{did}/head", json={"channel": 0, "settings": SETTINGS}).json()
+    assert out["reference_check"]["n_slices"] == 3 and 0 <= out["reference_check"]["mean_dice"] <= 1
+
+
 def test_learned_model_as_profile(client, tmp_path):
     ds, gt, centers = upload_stack(client, n_z=3)
     did = ds["id"]
