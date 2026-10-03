@@ -97,7 +97,8 @@ async function saveLabel(fromEdit) {
     await loadLabelLayer();
     renderLabels();
     draw();
-    toast(`Saved label for slice ${S.z}. ${S.labels.filter((l) => l.channel === S.c).length} labelled on this channel.`);
+    toast(`Saved label for slice ${S.z}. ${S.labels.filter((l) => l.channel === S.c).length} labelled on this channel.`
+      + (fromEdit ? "" : " Labels teach best when corrected with the brush (E) first."));
   } catch (e) { toast(e.message, true); }
 }
 
@@ -116,6 +117,7 @@ async function refreshLabels() {
 
 function renderLabels() {
   const mine = S.labels.filter((l) => l.channel === S.c);
+  $("refLabelsBtn").classList.toggle("hidden", !(S.ds && S.ds.reference_channel != null && S.ds.reference_channel !== S.c));
   const box = $("labelList");
   box.innerHTML = mine.length ? "" : `<span class="muted small">No labels on this channel yet.</span>`;
   for (const l of mine) {

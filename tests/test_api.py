@@ -629,3 +629,15 @@ def test_settings_are_remembered(client):
     client.patch(f"/api/datasets/{ds['id']}", json={"settings": {"backbone": "classic", "neg_weight": 1.2}})
     c2 = TestClient(create_app(client.app.state.store.root))
     assert c2.get(f"/api/datasets/{ds['id']}").json()["settings"]["neg_weight"] == 1.2
+
+
+def test_labels_from_reference(client):
+    ds, gt, _ = upload_stack(client, n_z=4)
+    did = ds["id"]
+    assert client.post(f"/api/datasets/{did}/labels/from-reference", json={"channel": 0, "n": 2}).status_code == 400
+    client.patch(f"/api/datasets/{did}", json={"reference_channel": 1})
+    out = client.post(f"/api/datasets/{did}/labels/from-reference", json={"channel": 0, "n": 2}).json()
+    assert out["saved"] == [0, 3] and len(out["labels"]) == 2, out
+    assert client.post(f"/api/datasets/{did}/labels/from-reference", json={"channel": 1, "n": 2}).status_code == 400
+    info = client.post(f"/api/datasets/{did}/head", json={"channel": 0, "settings": SETTINGS}).json()
+    assert info["reference_check"]["mean_dice"] > 0.5

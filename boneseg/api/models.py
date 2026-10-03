@@ -80,6 +80,11 @@ class ProfileFromHeadRequest(BaseModel):
     description: str = ""
 
 
+class ReferenceLabelRequest(BaseModel):
+    channel: int
+    n: int = 5  # Evenly spaced slices whose expert mask becomes a label
+
+
 class HeadRequest(BaseModel):
     channel: int
     settings: dict = Field(default_factory=dict)

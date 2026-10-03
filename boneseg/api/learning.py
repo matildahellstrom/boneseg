@@ -12,7 +12,7 @@ from .. import render
 from ..head import Head, head_to_profile_dict, train_head
 from ..segment import Profile, SegmentationSettings
 from .context import AppContext
-from .models import AnnotationRequest, LabelRequest, ProfileFromHeadRequest, HeadRequest
+from .models import AnnotationRequest, HeadRequest, LabelRequest, ProfileFromHeadRequest, ReferenceLabelRequest
 
 
 def router(ctx: AppContext) -> APIRouter:
@@ -57,6 +57,35 @@ def router(ctx: AppContext) -> APIRouter:
         else:
             store.save_label(ds_id, req.channel, req.z, ctx.last_result(ds_id, req.channel, req.z).mask)
         return {"ok": True, "labels": store.list_labels(ds_id)}
+
+    @r.post("/api/datasets/{ds_id}/labels/from-reference")
+    def labels_from_reference(ds_id: str, req: ReferenceLabelRequest):
+        """Saves the expert reference mask of n evenly spaced slices as labels, for training a model that can then
+        segment files without expert masks."""
+        ds = store.get(ds_id)
+        ref = ds.meta.get("reference_channel")
+        if ref is None:
+            raise ValueError("Set a reference mask channel first")
+        if req.channel == ref:
+            raise ValueError("Pick the image channel, not the reference channel itself")
+        # Evenly spaced over the central 80% of the stack, where slices are usually best; a slice whose
+        # reference is empty is replaced by the nearest non-empty one around it. Reads only the slices it needs.
+        n_z = ds.volume.n_z
+        lo, hi = int(0.1 * (n_z - 1)), int(round(0.9 * (n_z - 1)))
+        targets = sorted({int(round(v)) for v in np.linspace(lo, hi, max(1, min(req.n, hi - lo + 1)))})
+        saved = []
+        for t in targets:
+            for z in sorted(range(n_z), key=lambda zz: abs(zz - t))[:max(3, n_z // 20)]:
+                if z in saved:
+                    continue
+                m = store.raw_plane(ds_id, int(ref), z) > 0
+                if m.any():
+                    store.save_label(ds_id, req.channel, z, m)
+                    saved.append(z)
+                    break
+        if not saved:
+            raise ValueError("The reference channel is empty on the slices tried")
+        return {"saved": saved, "labels": store.list_labels(ds_id)}
 
     @r.get("/api/datasets/{ds_id}/labels/png")
     def label_png(ds_id: str, c: int = 0, z: int = 0, max_side: int = 1600):

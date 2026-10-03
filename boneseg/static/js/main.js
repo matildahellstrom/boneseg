@@ -139,6 +139,15 @@ function bind() {
   $("editSave").onclick = () => saveLabel(true);
   $("editCancel").onclick = stopEditing;
   $("trainBtn").onclick = trainHead;
+  $("refLabelsBtn").onclick = async () => {
+    busy(true, "Saving labels from the reference…");
+    try {
+      const out = await api(`/api/datasets/${S.ds.id}/labels/from-reference`, { method: "POST", body: { channel: S.c, n: 5 } });
+      S.labels = out.labels;
+      renderLabels(); await loadLabelLayer(); draw();
+      toast(`Labelled slices ${out.saved.join(", ")} from the reference. Train the model next.`);
+    } catch (e) { toast(e.message, true); } finally { busy(false); }
+  };
   $("methodClicks").onclick = () => { setMethod("clicks"); if (pts().pos.length || $("profileSelect").value) scheduleSegment(0); };
   $("methodLearned").onclick = () => { setMethod("learned"); scheduleSegment(0); };
   $("showLabel").addEventListener("input", draw);

@@ -202,6 +202,7 @@
         <h2>6. Learn from corrections</h2>
         <p class="muted small">Correct a few masks with the brush and save them as labels. A small model then learns the structure from the backbone features and segments new slices without clicks.</p>
         <div class="labels" id="labelList"><span class="muted small">No labels yet.</span></div>
+        <button class="ghost hidden" id="refLabelsBtn" title="Use the expert mask of 5 evenly spaced slices as labels, then train a model that can segment files without expert masks">Label 5 slices from the reference</button>
         <button class="primary" id="trainBtn" disabled>Train model</button>
         <div class="small" id="trainResult"></div>
         <button class="ghost hidden" id="exportHeadBtn" title="Reuse this model on other images and in batch runs">Save model as profile…</button>
