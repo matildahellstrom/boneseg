@@ -207,6 +207,24 @@ class Store:
                 self.embeddings.put(key, emb)
         return emb
 
+    def roi_mask(self, ds_id: str) -> np.ndarray | None:
+        """The region of interest as a full-resolution mask, or None for the whole image."""
+        ds = self.get(ds_id)
+        poly = ds.meta.get("roi")
+        if not poly or len(poly) < 3:
+            return None
+        key = (ds_id, "roi", tuple(map(tuple, poly)))
+        m = self.planes.get(key)
+        if m is None:
+            from skimage.draw import polygon
+
+            m = np.zeros((ds.volume.height, ds.volume.width), bool)
+            pts = np.asarray(poly, float)
+            rr, cc = polygon(pts[:, 0], pts[:, 1], m.shape)
+            m[rr, cc] = True
+            self.planes.put(key, m)
+        return m
+
     def reference_mask(self, ds_id: str, z: int, c: int | None = None) -> np.ndarray | None:
         """The expert mask for slice z: the reference channel if one is set, otherwise a label the user
         saved for this slice and channel."""

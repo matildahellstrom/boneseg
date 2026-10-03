@@ -31,5 +31,7 @@ def hd95(pred: np.ndarray, gt: np.ndarray, spacing=(1.0, 1.0)) -> float:
     return float(np.percentile(np.concatenate([d_to_gt[bp], d_to_pred[bg]]), 95))
 
 
-def compare(pred: np.ndarray, gt: np.ndarray, spacing=(1.0, 1.0)) -> dict:
+def compare(pred: np.ndarray, gt: np.ndarray, spacing=(1.0, 1.0), roi: np.ndarray | None = None) -> dict:
+    if roi is not None:
+        pred, gt = pred & roi, gt & roi
     return {"dice": dice(pred, gt), "iou": iou(pred, gt), "hd95_um": hd95(pred, gt, spacing)}

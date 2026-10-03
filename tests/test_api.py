@@ -199,3 +199,31 @@ def test_histomorphometry_endpoint(client):
     assert client.post(f"/api/datasets/{did}/histomorphometry", json={"z": z, "bone": {"channel": 0}, "cells": {"channel": 1, "source": "reference"}, "settings": s}).status_code == 200
     r = client.post(f"/api/datasets/{did}/histomorphometry", json={"z": 2, "bone": {"channel": 0}, "cells": {"channel": 1}, "settings": s})
     assert r.status_code == 400 and "Segment channel" in r.json()["detail"]
+
+
+def test_region_of_interest(client):
+    ds, gt, centers = upload_stack(client, n_z=2)
+    did = ds["id"]
+    h, w = gt.shape
+    body = {"channel": 0, "z": 0, "pos": [list(c) for c in centers], "neg": bg_points(gt), "settings": SETTINGS}
+    full = client.post(f"/api/datasets/{did}/segment", json=body).json()["stats"]
+    # Left half only
+    r = client.put(f"/api/datasets/{did}/roi", json={"polygon": [[0, 0], [0, w // 2], [h, w // 2], [h, 0]]})
+    assert r.status_code == 200 and r.json()["area_um2"] == pytest.approx(ds["voxel_um"][1] * ds["voxel_um"][2] * h * (w // 2), rel=0.05)
+    half = client.post(f"/api/datasets/{did}/segment", json=body).json()["stats"]
+    assert half["image_area_um2"] < 0.55 * full["image_area_um2"] and half["area_um2"] <= full["area_um2"]
+    assert client.get("/api/datasets/" + did).json()["roi"] is not None
+    assert client.put(f"/api/datasets/{did}/roi", json={"polygon": [[0, 0], [5, 5]]}).status_code == 400
+    assert client.put(f"/api/datasets/{did}/roi", json={"polygon": None}).json()["roi"] is None
+
+
+def test_histomorphometry_roi_edge_is_not_surface():
+    from boneseg import histo
+
+    bone = np.zeros((100, 100), bool)
+    bone[:, :60] = True
+    roi = np.zeros_like(bone)
+    roi[:, 20:80] = True                       # Region cuts the bone at x = 20
+    s, _ = histo.histomorphometry(bone, np.zeros_like(bone), (1.0, 1.0), roi=roi)
+    assert 90 < s["B.Pm_mm"] * 1000 < 110      # Only the real edge at x = 59
+    assert s["B.Ar/T.Ar_%"] == pytest.approx(100 * 40 / 60)

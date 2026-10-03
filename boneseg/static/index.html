@@ -45,6 +45,9 @@
         <div class="row small"><button class="ghost" id="zPrev" title="Previous slice (,)">‹ Prev</button><button class="ghost" id="zNext" title="Next slice (.)">Next ›</button></div>
         <label>Contrast <span class="value" id="contrastValue">1–99.5%</span></label>
         <div class="row"><input type="range" id="lowSlider" min="0" max="20" step="0.5" value="1"><input type="range" id="highSlider" min="90" max="100" step="0.1" value="99.5"></div>
+        <label>Region of interest</label>
+        <div class="row"><button class="ghost" id="roiBtn" title="Click corners, double-click or Enter to finish (R)">Draw region</button><button class="ghost hidden" id="roiClear">Clear</button></div>
+        <p class="muted small" id="roiHint">Measurements cover the whole image.</p>
         <label>Reference mask channel
           <select id="refSelect"><option value="">None</option></select>
         </label>
@@ -85,8 +88,8 @@
           <button class="primary" id="editSave">Save as label</button>
           <button class="ghost" id="editCancel">Cancel</button>
         </span>
-        <button class="ghost" id="fitBtn" title="Fit to window (F)">Fit</button>
-        <span class="small muted" id="zoomLabel" title="Zoom relative to the full-resolution image">100%</span>
+        <span class="row"><button class="ghost" id="fitBtn" title="Fit to window (F)">Fit</button>
+        <span class="small muted" id="zoomLabel" title="Zoom relative to the full-resolution image">100%</span></span>
       </div>
       <div class="viewer" id="viewer">
         <canvas id="canvas"></canvas>
@@ -198,6 +201,7 @@
       <li><b>1</b> and <b>2</b> switch between object and background. <b>Ctrl+Z</b> undoes the last point.</li>
       <li><b>,</b> and <b>.</b> move through slices. <b>F</b> fits the image. Scroll to zoom and drag with the middle mouse button or Space held down to pan.</li>
       <li><b>M</b>, <b>H</b> and <b>U</b> toggle the mask, heatmap and uncertainty overlays.</li>
+      <li><b>R</b> draws a region of interest: click its corners, then double-click or press Enter. Masks, measurements and exports stay inside it.</li>
       <li><b>E</b> starts correcting the mask with a brush: drag to paint, Shift-drag to erase, <b>Esc</b> to cancel. Saved corrections become labels that a small model can learn from.</li>
       <li>The orange overlay shows where the mask is unstable. The dashed ring suggests where one more click helps most.</li>
       <li>Save good clicks as a <b>profile</b> to segment new images of the same stain without clicking.</li>

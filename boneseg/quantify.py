@@ -35,16 +35,18 @@ def object_table(mask: np.ndarray, image: np.ndarray | None, pixel_um=(1.0, 1.0)
     return out.sort_values("area_um2", ascending=False).reset_index(drop=True)
 
 
-def summarize_mask(mask: np.ndarray, image: np.ndarray | None = None, pixel_um=(1.0, 1.0)) -> dict:
-    """Headline numbers for one plane."""
+def summarize_mask(mask: np.ndarray, image: np.ndarray | None = None, pixel_um=(1.0, 1.0), roi: np.ndarray | None = None) -> dict:
+    """Headline numbers for one plane. With a region of interest, areas and fractions refer to the region."""
     mask = mask.astype(bool)
+    if roi is not None:
+        mask = mask & roi
     py, px = pixel_um
-    total_um2 = mask.size * py * px
+    total_um2 = (roi.sum() if roi is not None else mask.size) * py * px
     area_um2 = float(mask.sum() * py * px)
     objects = object_table(mask, image, pixel_um)
     out = {
         "area_um2": area_um2,
-        "area_fraction": float(mask.mean()),
+        "area_fraction": float(area_um2 / total_um2) if total_um2 else 0.0,
         "image_area_um2": float(total_um2),
         "n_objects": int(len(objects)),
         "objects_per_mm2": float(len(objects) / (total_um2 / 1e6)) if total_um2 > 0 else 0.0,
@@ -55,7 +57,7 @@ def summarize_mask(mask: np.ndarray, image: np.ndarray | None = None, pixel_um=(
     if image is not None:
         img = np.asarray(image, np.float32)
         inside = img[mask]
-        outside = img[~mask]
+        outside = img[~mask & roi] if roi is not None else img[~mask]
         out["mean_intensity_inside"] = float(inside.mean()) if inside.size else float("nan")
         out["mean_intensity_outside"] = float(outside.mean()) if outside.size else float("nan")
         # Signal-to-background ratio, a quick sanity check of the segmentation

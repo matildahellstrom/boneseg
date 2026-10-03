@@ -101,6 +101,10 @@ class PathRequest(BaseModel):
     path: str
 
 
+class RoiRequest(BaseModel):
+    polygon: list[tuple[float, float]] | None = None  # (y, x) vertices in full-resolution pixels
+
+
 class MetaRequest(BaseModel):
     reference_channel: int | None = None
     notes: str | None = None
@@ -181,6 +185,21 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
             raise HTTPException(400, "Reference channel out of range")
         return store.update_meta(ds_id, **updates, reference_guessed=False).info()
 
+    @app.put("/api/datasets/{ds_id}/roi")
+    def set_roi(ds_id: str, req: RoiRequest):
+        """Sets or clears the region of interest. It applies to every slice of the dataset."""
+        ds = store.get(ds_id)
+        if req.polygon is not None and len(req.polygon) < 3:
+            raise HTTPException(400, "A region needs at least three corners")
+        poly = [[float(y), float(x)] for y, x in req.polygon] if req.polygon else None
+        store.update_meta(ds_id, roi=poly)
+        for res in ds.results.values():  # Cached results were clipped to the old region
+            if hasattr(res, "extra"):
+                res.extra.pop("unclipped", None)
+        ds.results.clear()
+        roi = store.roi_mask(ds_id)
+        return {"roi": poly, "area_um2": float(roi.sum() * ds.volume.pixel_um[0] * ds.volume.pixel_um[1]) if roi is not None else None}
+
     @app.delete("/api/datasets/{ds_id}")
     def delete_dataset(ds_id: str):
         store.delete(ds_id)
@@ -253,6 +272,11 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
                 res = segment_with_prototypes(emb, pos, neg, settings, ds.volume.pixel_um, raw_threshold=prof_thr,
                                               pos_points=req.pos, neg_points=req.neg)
                 u = uncertainty_map(emb, pos, neg, settings, threshold=res.threshold) if req.uncertainty and pos.shape[0] > 0 else None
+        roi = store.roi_mask(ds_id)
+        if roi is not None:
+            # Keep the unclipped mask for histomorphometry, where the region's edge is not a bone surface
+            res.extra["unclipped"] = res.mask
+            res.mask = res.mask & roi
         ds.results[(req.channel, req.z)] = res
         img = store.plane(ds_id, req.channel, req.z, settings.clip_low, settings.clip_high)
         out = {
@@ -261,12 +285,12 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
             "threshold": res.threshold,
             "raw_threshold": res.raw_threshold,
             "threshold_source": res.threshold_source,
-            "stats": quantify.summarize_mask(res.mask, img, ds.volume.pixel_um),
+            "stats": quantify.summarize_mask(res.mask, img, ds.volume.pixel_um, roi),
             "timing": {"embed_s": round(t_embed, 3), "total_s": 0.0},
         }
         ref = store.reference_mask(ds_id, req.z, req.channel)
         if ref is not None:
-            out["evaluation"] = metrics.compare(res.mask, ref, ds.volume.pixel_um)
+            out["evaluation"] = metrics.compare(res.mask, ref, ds.volume.pixel_um, roi)
             out["evaluation"]["against"] = "reference channel" if ds.meta.get("reference_channel") is not None else "your saved label"
         if u is not None:
             res.uncertainty = u
@@ -333,7 +357,7 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
                 StackRequest(z_list=z_list, ref_z=ref_z), pos, neg, settings,
                 raw_threshold=raw_thr, head=head,
                 get_embedding=lambda z: store.embedding(ds_id, c, z, settings),
-                lock=store.compute_lock,
+                lock=store.compute_lock, roi=store.roi_mask(ds_id),
                 get_image=lambda z: store.plane(ds_id, c, z, settings.clip_low, settings.clip_high),
                 get_reference=lambda z: store.reference_mask(ds_id, z, c),
                 voxel_um=ds.volume.voxel_um, out_dir=job.out_dir,
@@ -432,7 +456,7 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
             res = ds.results.get((spec.channel, z))
             if res is None:
                 raise ValueError(f"Segment channel {spec.channel} on slice {z} first, or pick another source")
-            return res.mask
+            return res.extra.get("unclipped", res.mask)
         if spec.source == "label":
             m = store.load_label(ds_id, spec.channel, z)
             if m is None:
@@ -462,11 +486,12 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
         settings = SegmentationSettings.from_dict(req.settings)
         bone = _mask_from_spec(ds_id, req.z, req.bone, settings)
         cells = _mask_from_spec(ds_id, req.z, req.cells, settings)
-        summary, table = histo.histomorphometry(bone, cells, ds.volume.pixel_um, req.contact_um)
+        roi = store.roi_mask(ds_id)
+        summary, table = histo.histomorphometry(bone, cells, ds.volume.pixel_um, req.contact_um, roi)
         ds.results[("histo", req.z)] = table
         from PIL import Image
 
-        rgba = histo.overlay(bone, cells, ds.volume.pixel_um, req.contact_um)
+        rgba = histo.overlay(bone, cells, ds.volume.pixel_um, req.contact_um, roi)
         h, w = render.display_shape(*bone.shape, req.max_side)
         img = Image.fromarray(rgba, "RGBA").resize((w, h), Image.NEAREST)
         return {"summary": summary, "overlay_png": render.data_url(render.to_png_bytes(img)),

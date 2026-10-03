@@ -24,6 +24,7 @@ const S = {
   method: "clicks",    // "clicks" or "learned"
   labels: [],          // [{channel, z}] slices with a saved corrected mask
   head: null,          // Info about the learned model for the current channel
+  roiDraft: null,      // Corners of a region being drawn, in full-resolution pixels
   editing: false,
   edit: null,          // Offscreen canvas with the mask being corrected, at display resolution
 };
@@ -195,6 +196,7 @@ async function openDataset(id) {
   await refreshHead();
   fillHistoControls();
   histoDefaults();
+  cancelRoi();
   $("histoCards").classList.add("hidden");
   $("histoDownloads").classList.add("hidden");
   await loadPlane(true);
@@ -426,6 +428,36 @@ function draw() {
 
   const f = fullToDisp();
   const toScreen = ([y, x]) => [ox + x * f * scale, oy + y * f * scale];
+  const roi = S.ds?.roi;
+  if (roi && roi.length >= 3) {
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(ox, oy, w, h);
+    roi.forEach((p, i) => { const [sx, sy] = toScreen(p); i ? ctx.lineTo(sx, sy) : ctx.moveTo(sx, sy); });
+    ctx.closePath();
+    ctx.fillStyle = "rgba(5, 9, 16, 0.55)";
+    ctx.fill("evenodd");
+    ctx.setLineDash([6, 4]);
+    ctx.strokeStyle = "#e6edf7";
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    roi.forEach((p, i) => { const [sx, sy] = toScreen(p); i ? ctx.lineTo(sx, sy) : ctx.moveTo(sx, sy); });
+    ctx.closePath();
+    ctx.stroke();
+    ctx.restore();
+  }
+  if (S.roiDraft) {
+    ctx.save();
+    ctx.strokeStyle = "#ffd84a";
+    ctx.fillStyle = "#ffd84a";
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    S.roiDraft.forEach((p, i) => { const [sx, sy] = toScreen(p); i ? ctx.lineTo(sx, sy) : ctx.moveTo(sx, sy); });
+    if (S.roiCursor) ctx.lineTo(S.roiCursor[0], S.roiCursor[1]);
+    ctx.stroke();
+    for (const p of S.roiDraft) { const [sx, sy] = toScreen(p); ctx.fillRect(sx - 3, sy - 3, 6, 6); }
+    ctx.restore();
+  }
   if (S.editing && S.brushAt) {
     ctx.beginPath();
     ctx.arc(S.brushAt[0], S.brushAt[1], (+$("brush").value / 2) * scale, 0, Math.PI * 2);
@@ -485,6 +517,11 @@ window.addEventListener("mousemove", (ev) => {
       ? `x ${Math.round(x)} · y ${Math.round(y)}${S.ds.voxel_size_known ? ` · ${(x * S.ds.voxel_um[2]).toFixed(1)}, ${(y * S.ds.voxel_um[1]).toFixed(1)} µm` : ""}`
       : "";
   }
+  if (S.roiDraft && ev.target === canvas) {
+    const r = canvas.getBoundingClientRect();
+    S.roiCursor = [ev.clientX - r.left, ev.clientY - r.top];
+    if (!drag) draw();
+  }
   if (S.editing && ev.target === canvas) {
     const r = canvas.getBoundingClientRect();
     S.brushAt = [ev.clientX - r.left, ev.clientY - r.top];
@@ -512,12 +549,17 @@ window.addEventListener("mouseup", (ev) => {
   if (d.moved || d.pan || ev.target !== canvas) return;
   const p = screenToFull(ev);
   if (!inside(p)) return;
+  if (S.roiDraft) {
+    if (d.button === 0) { S.roiDraft.push([Math.round(p[0]), Math.round(p[1])]); draw(); }
+    return;
+  }
   if (d.button === 2) { removeNearest(...p); return; }
   if (d.button !== 0) return;
   const kind = ev.shiftKey ? (S.mode === "pos" ? "neg" : "pos") : S.mode;
   addPoint(kind, ...p);
 });
 canvas.addEventListener("contextmenu", (e) => e.preventDefault());
+canvas.addEventListener("dblclick", () => { if (S.roiDraft) finishRoi(); });
 canvas.addEventListener("wheel", (ev) => {
   if (!S.base) return;
   ev.preventDefault();
@@ -668,6 +710,50 @@ function setMethod(m) {
   S.method = m;
   $("methodClicks").classList.toggle("active", m === "clicks");
   $("methodLearned").classList.toggle("active", m === "learned");
+}
+
+// ---------------------------------------------------------------------------------------------
+// Region of interest
+function startRoi() {
+  if (!S.base) return;
+  stopEditing();
+  S.roiDraft = [];
+  $("roiBtn").textContent = "Finish region";
+  $("roiHint").textContent = "Click the corners. Double-click or press Enter to finish, Esc to cancel.";
+  draw();
+}
+
+function cancelRoi() {
+  S.roiDraft = null;
+  S.roiCursor = null;
+  $("roiBtn").textContent = "Draw region";
+  updateRoiHint();
+  draw();
+}
+
+async function finishRoi() {
+  // A double-click also adds two corners at the same spot, so drop near-duplicates
+  const pts = S.roiDraft.filter((p, i, a) => i === 0 || Math.hypot(p[0] - a[i - 1][0], p[1] - a[i - 1][1]) > 2);
+  if (pts.length < 3) { toast("A region needs at least three corners"); return; }
+  await saveRoi(pts);
+  cancelRoi();
+}
+
+async function saveRoi(polygon) {
+  try {
+    const out = await api(`/api/datasets/${S.ds.id}/roi`, { method: "PUT", body: { polygon } });
+    S.ds.roi = out.roi;
+    S.roiArea = out.area_um2;
+    updateRoiHint();
+    draw();
+    if (S.method === "learned" || pts().pos.length || $("profileSelect").value) scheduleSegment(0);
+  } catch (e) { toast(e.message, true); }
+}
+
+function updateRoiHint() {
+  const has = S.ds?.roi && S.ds.roi.length >= 3;
+  $("roiClear").classList.toggle("hidden", !has);
+  $("roiHint").textContent = has ? `Measurements, masks and exports are limited to the region${S.roiArea ? ` (${fmt(S.roiArea / 1e6, 3)} mm²)` : ""}.` : "Measurements cover the whole image.";
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -924,6 +1010,8 @@ function bind() {
   $("showLabel").addEventListener("input", draw);
   $("showHisto").addEventListener("input", draw);
   $("histoBtn").onclick = runHisto;
+  $("roiBtn").onclick = () => (S.roiDraft ? finishRoi() : startRoi());
+  $("roiClear").onclick = () => saveRoi(null);
   $("hContact").oninput = () => { $("hContactValue").textContent = `${$("hContact").value} µm`; };
   $("histoCsv").onclick = () => { window.location = `/api/datasets/${S.ds.id}/histomorphometry/cells.csv?z=${S.histoZ ?? S.z}`; };
   $("cancelBtn").onclick = () => S.job && api(`/api/jobs/${S.job}/cancel`, { method: "POST" });
@@ -945,6 +1033,9 @@ function bind() {
     else if (k === "?") $("helpDialog").showModal();
     else if (k === "e") (S.editing ? stopEditing() : startEditing());
     else if (k === "escape" && S.editing) stopEditing();
+    else if (k === "escape" && S.roiDraft) cancelRoi();
+    else if (k === "enter" && S.roiDraft) finishRoi();
+    else if (k === "r") (S.roiDraft ? finishRoi() : startRoi());
   });
   window.addEventListener("keyup", (e) => { if (e.key === " ") S.space = false; });
 }

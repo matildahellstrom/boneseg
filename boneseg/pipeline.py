@@ -44,7 +44,7 @@ def run_stack(req: StackRequest, pos: torch.Tensor, neg: torch.Tensor, settings:
               get_embedding: Callable[[int], Embedding], get_image: Callable[[int], np.ndarray],
               get_reference: Callable[[int], np.ndarray | None], voxel_um, out_dir: Path,
               progress: Callable[[float, str], None] = lambda p, m: None, cancelled: Callable[[], bool] = lambda: False,
-              lock=None, head=None) -> dict:
+              lock=None, head=None, roi: np.ndarray | None = None) -> dict:
     """Segments every slice in req.z_list. Writes a mask stack, per-slice stats and a summary to out_dir."""
     out_dir = Path(out_dir)
     pixel_um = (voxel_um[1], voxel_um[2])
@@ -64,12 +64,12 @@ def run_stack(req: StackRequest, pos: torch.Tensor, neg: torch.Tensor, settings:
                 res = segment_with_head(head, emb, settings, pixel_um)
             else:
                 res = segment_with_prototypes(emb, pos, neg, settings, pixel_um, raw_threshold=raw_threshold)
-            masks[z] = res.mask
+            masks[z] = res.mask & roi if roi is not None else res.mask
         img = get_image(z)
-        row = {"z": z, "z_um": z * voxel_um[0], "threshold": res.threshold, **quantify.summarize_mask(res.mask, img, pixel_um)}
+        row = {"z": z, "z_um": z * voxel_um[0], "threshold": res.threshold, **quantify.summarize_mask(masks[z], img, pixel_um, roi)}
         ref = get_reference(z)
         if ref is not None:
-            row.update(metrics.compare(res.mask, ref, pixel_um))
+            row.update(metrics.compare(masks[z], ref, pixel_um, roi))
         rows.append(row)
     df = pd.DataFrame(rows).sort_values("z").reset_index(drop=True) if rows else pd.DataFrame()
     zs = sorted(masks)

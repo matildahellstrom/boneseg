@@ -19,7 +19,8 @@ def bone_boundary(bone: np.ndarray) -> np.ndarray:
     return edge
 
 
-def histomorphometry(bone: np.ndarray, cells: np.ndarray, pixel_um=(1.0, 1.0), contact_um: float = 3.0) -> tuple[dict, pd.DataFrame]:
+def histomorphometry(bone: np.ndarray, cells: np.ndarray, pixel_um=(1.0, 1.0), contact_um: float = 3.0,
+                     roi: np.ndarray | None = None) -> tuple[dict, pd.DataFrame]:
     """Standard 2D measurements and a per-cell table.
 
     A bone surface pixel counts as covered when an osteoclast pixel lies within contact_um of it,
@@ -27,13 +28,21 @@ def histomorphometry(bone: np.ndarray, cells: np.ndarray, pixel_um=(1.0, 1.0), c
     bone, cells = bone.astype(bool), cells.astype(bool)
     py, px = pixel_um
     iso = float(np.sqrt(py * px))
-    t_ar = bone.size * py * px
-    b_ar = float(bone.sum() * py * px)
-    boundary = bone_boundary(bone)
+    # Surfaces come from the full masks, so bone cut by the region's edge does not count as surface
+    boundary_full = bone_boundary(bone)
+    if roi is not None:
+        roi = roi.astype(bool)
+        cells = cells & roi
+    region = roi if roi is not None else np.ones_like(bone)
+    boundary = boundary_full & region
+    t_ar = region.sum() * py * px
+    b_ar = float((bone & region).sum() * py * px)
     # Perimeter length from scikit-image, which handles diagonals, in micrometres
     # The cut through the image border is not a bone surface, so its length is subtracted
     border_px = int(bone[0, :].sum() + bone[-1, :].sum() + bone[1:-1, 0].sum() + bone[1:-1, -1].sum())
     b_pm = float(max(0.0, measure.perimeter(bone) - border_px) * iso) if bone.any() else 0.0
+    if roi is not None and boundary_full.any():
+        b_pm *= boundary.sum() / boundary_full.sum()  # The share of the surface inside the region
     dist_to_cells = ndi.distance_transform_edt(~cells, sampling=pixel_um) if cells.any() else np.full(bone.shape, np.inf)
     covered = boundary & (dist_to_cells <= contact_um)
     covered_share = float(covered.sum() / boundary.sum()) if boundary.any() else 0.0
@@ -69,9 +78,12 @@ def histomorphometry(bone: np.ndarray, cells: np.ndarray, pixel_um=(1.0, 1.0), c
     return summary, table
 
 
-def overlay(bone: np.ndarray, cells: np.ndarray, pixel_um=(1.0, 1.0), contact_um: float = 3.0) -> np.ndarray:
+def overlay(bone: np.ndarray, cells: np.ndarray, pixel_um=(1.0, 1.0), contact_um: float = 3.0, roi: np.ndarray | None = None) -> np.ndarray:
     """RGBA overlay: bone surface in white, covered surface in magenta, cells in cyan."""
-    boundary = bone_boundary(bone)
+    if roi is not None:
+        cells = cells & roi
+    boundary = bone_boundary(bone) & (roi if roi is not None else True)
+    bone = bone & roi if roi is not None else bone
     covered = boundary & (ndi.distance_transform_edt(~cells, sampling=pixel_um) <= contact_um) if cells.any() else np.zeros_like(boundary)
     cell_edge = cells & ~ndi.binary_erosion(cells)
     rgba = np.zeros(bone.shape + (4,), np.uint8)

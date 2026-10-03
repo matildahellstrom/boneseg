@@ -20,7 +20,7 @@ The app runs on an NVIDIA GPU, an Apple Silicon GPU or the CPU, whichever it fin
 ## How to use it
 
 1. **Load an image.** Drop a file on the left panel. For multi-gigabyte Imaris files, use "Open a large file from disk instead" and paste the path, which opens the file in place without copying it.
-2. **Pick the channel** that shows the structure. If the file has an expert segmentation channel, choose it as the reference mask. Every result is then scored with Dice, IoU and HD95 against it. Channels named "segmentation", "mask" or "surface" are picked up automatically.
+2. **Pick the channel** that shows the structure. Optionally draw a region of interest, for example trabecular bone without the cortex. Masks, measurements, scores and exports then stay inside it. If the file has an expert segmentation channel, choose it as the reference mask. Every result is then scored with Dice, IoU and HD95 against it. Channels named "segmentation", "mask" or "surface" are picked up automatically.
 3. **Click.** Click a few examples of the structure, then shift-click a few background spots. The mask updates after every click.
 4. **Refine.** The orange overlay shows where the mask depends on single clicks, and a dashed ring suggests the most useful next click.
 5. **Correct and teach.** Press E to fix the mask with a brush, then save it as a label. After one or more labels, "Train model" fits a small classifier on the backbone features in a few seconds and reports its leave-one-slice-out Dice. Switch the method to "Learned model" to segment new slices without clicks.
@@ -42,6 +42,7 @@ The app runs on an NVIDIA GPU, an Apple Silicon GPU or the CPU, whichever it fin
 | F | Fit the image to the window |
 | M, H, U | Toggle the mask, heatmap and uncertainty overlays |
 | E, Esc | Start and cancel correcting the mask with a brush |
+| R, Enter | Draw a region of interest and finish it |
 | Scroll, drag | Zoom, pan |
 
 ## Batch processing
