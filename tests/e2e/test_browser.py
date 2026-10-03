@@ -1,0 +1,162 @@
+"""Browser tests of the main user flows, on the demo stack with the fast classic backbone.
+
+Run with: pip install playwright && python -m playwright install chromium && pytest tests/e2e
+Skipped automatically when Playwright or its browser is missing.
+"""
+from __future__ import annotations
+
+import glob
+import socket
+import threading
+import time
+
+import numpy as np
+import pytest
+import scipy.ndimage as ndi
+import tifffile
+
+playwright = pytest.importorskip("playwright.sync_api")
+
+
+def _free_port() -> int:
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
+
+
+@pytest.fixture(scope="module")
+def server(tmp_path_factory):
+    import uvicorn
+
+    from boneseg.api import create_app
+
+    data = tmp_path_factory.mktemp("data")
+    port = _free_port()
+    srv = uvicorn.Server(uvicorn.Config(create_app(data), host="127.0.0.1", port=port, log_level="warning"))
+    t = threading.Thread(target=srv.run, daemon=True)
+    t.start()
+    for _ in range(100):
+        if srv.started:
+            break
+        time.sleep(0.05)
+    yield f"http://127.0.0.1:{port}", data
+    srv.should_exit = True
+    t.join(timeout=5)
+
+
+@pytest.fixture
+def page(server):
+    try:
+        pw = playwright.sync_playwright().start()
+        browser = pw.chromium.launch()
+    except Exception as e:  # Browser not installed
+        pytest.skip(f"Chromium for Playwright is not available: {e}")
+    pg = browser.new_page(viewport={"width": 1440, "height": 900})
+    errors = []
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    pg.on("console", lambda m: errors.append(m.text) if m.type == "error" else None)
+    pg.errors = errors
+    yield pg
+    browser.close()
+    pw.stop()
+
+
+def click_full(pg, y, x, shift=False):
+    pos = pg.evaluate(f"(() => {{ const r = canvas.getBoundingClientRect(); const f = fullToDisp(); "
+                      f"return [r.left + S.view.ox + {x} * f * S.view.scale, r.top + S.view.oy + {y} * f * S.view.scale]; }})()")
+    if shift:
+        pg.keyboard.down("Shift")
+    pg.mouse.click(*pos)
+    if shift:
+        pg.keyboard.up("Shift")
+
+
+def wait_result(pg):
+    pg.wait_for_function("S.result && document.querySelector('#busy').classList.contains('hidden')", timeout=30000)
+    pg.wait_for_timeout(300)
+
+
+def open_demo(pg, url, data):
+    pg.goto(url)
+    pg.wait_for_function("S.health !== null", timeout=10000)
+    pg.evaluate("api('/api/datasets/demo', {method: 'POST'}).then(d => refreshDatasets(d.id))")
+    pg.wait_for_function("S.ds && S.base && S.ds.name === 'demo_bone_stack.tif'", timeout=20000)
+    pg.select_option("#backboneSelect", "classic")
+    ds_id = pg.evaluate("S.ds.id")
+    stack = tifffile.imread(glob.glob(str(data / "datasets" / ds_id / "*.tif"))[0])
+    return stack
+
+
+def click_cells(pg, stack, z=6, n=3):
+    gt = stack[z, 2] > 0
+    lab, k = ndi.label(gt)
+    for cy, cx in ndi.center_of_mass(gt, lab, range(1, k + 1))[:n]:
+        click_full(pg, cy, cx)
+    for y, x in [(20, 20), (360, 40), (30, 480), (200, 15)]:
+        click_full(pg, y, x, shift=True)
+
+
+def test_click_segment_and_stack(page, server):
+    url, data = server
+    stack = open_demo(page, url, data)
+    click_cells(page, stack)
+    wait_result(page)
+    assert page.inner_text("#nPos") == "3" and page.inner_text("#nNeg") == "4"
+    assert "Dice" in page.inner_text("#evalBox")
+    page.click("#stackBtn")
+    page.wait_for_function("document.querySelector('#jobText').textContent.startsWith('Done')", timeout=60000)
+    assert "12 slices" in page.inner_text("#jobText")
+    assert not page.errors, page.errors
+
+
+def test_correct_label_train_and_reload(page, server):
+    url, data = server
+    stack = open_demo(page, url, data)
+    for z in (3, 8):
+        page.evaluate(f"S.z = {z}; loadPlane()")
+        page.wait_for_timeout(500)
+        click_cells(page, stack, z)
+        wait_result(page)
+        page.keyboard.press("e")
+        page.click("#editSave")
+        page.wait_for_timeout(500)
+    assert len(page.evaluate("S.labels")) == 2
+    page.click("#trainBtn")
+    page.wait_for_function("S.head !== null && S.method === 'learned'", timeout=30000)
+    assert "Estimated Dice" in page.inner_text("#trainResult")
+    page.reload()
+    page.wait_for_function("S.ds && S.base", timeout=20000)
+    page.wait_for_timeout(500)
+    assert page.evaluate("Object.keys(S.points).length") >= 2  # Clicks survived the reload
+    assert not page.errors, page.errors
+
+
+def test_region_and_histomorphometry(page, server):
+    url, data = server
+    stack = open_demo(page, url, data)
+    # Bone on channel 0
+    page.select_option("#channelSelect", "0")
+    page.wait_for_timeout(700)
+    m = ndi.gaussian_filter(stack[6, 0].astype(float), 3)
+    rng = np.random.default_rng(0)
+    hi, lo = np.argwhere(m > np.percentile(m, 85)), np.argwhere(m < np.percentile(m, 15))
+    for y, x in hi[rng.choice(len(hi), 4, replace=False)]:
+        click_full(page, y, x)
+    for y, x in lo[rng.choice(len(lo), 4, replace=False)]:
+        click_full(page, y, x, shift=True)
+    wait_result(page)
+    # Cells on channel 1
+    page.select_option("#channelSelect", "1")
+    page.wait_for_timeout(700)
+    click_cells(page, stack)
+    wait_result(page)
+    page.keyboard.press("r")
+    for y, x in [(30, 30), (30, 480), (350, 480), (350, 30)]:
+        click_full(page, y, x)
+    page.keyboard.press("Enter")
+    page.wait_for_function("S.ds.roi && S.ds.roi.length === 4", timeout=10000)
+    wait_result(page)
+    page.click("#histoBtn")
+    page.wait_for_function("!document.querySelector('#histoCards').classList.contains('hidden')", timeout=30000)
+    assert "B.Ar/T.Ar" in page.inner_text("#histoCards")
+    assert not page.errors, page.errors

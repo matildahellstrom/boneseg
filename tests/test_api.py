@@ -214,6 +214,9 @@ def test_region_of_interest(client):
     half = client.post(f"/api/datasets/{did}/segment", json=body).json()["stats"]
     assert half["image_area_um2"] < 0.55 * full["image_area_um2"] and half["area_um2"] <= full["area_um2"]
     assert client.get("/api/datasets/" + did).json()["roi"] is not None
+    # Results made before the region was drawn stay available, clipped to it
+    r = client.get(f"/api/datasets/{did}/export/mask", params={"c": 0, "z": 0, "fmt": "tif"})
+    assert r.status_code == 200 and not tifffile.imread(io.BytesIO(r.content))[:, w // 2 + 2:].any()
     assert client.put(f"/api/datasets/{did}/roi", json={"polygon": [[0, 0], [5, 5]]}).status_code == 400
     assert client.put(f"/api/datasets/{did}/roi", json={"polygon": None}).json()["roi"] is None
 

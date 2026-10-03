@@ -230,11 +230,17 @@ def create_app(data_dir: str | Path | None = None, allow_paths: bool = True) -> 
             raise HTTPException(400, "A region needs at least three corners")
         poly = [[float(y), float(x)] for y, x in req.polygon] if req.polygon else None
         store.update_meta(ds_id, roi=poly)
-        for res in ds.results.values():  # Cached results were clipped to the old region
-            if hasattr(res, "extra"):
-                res.extra.pop("unclipped", None)
-        ds.results.clear()
         roi = store.roi_mask(ds_id)
+        # Re-clip cached results to the new region, so masks on other channels stay usable
+        for key, res in list(ds.results.items()):
+            if not hasattr(res, "mask"):
+                continue
+            full = res.extra.get("unclipped", res.mask)
+            res.mask = full & roi if roi is not None else full
+            if roi is not None:
+                res.extra["unclipped"] = full
+            else:
+                res.extra.pop("unclipped", None)
         return {"roi": poly, "area_um2": float(roi.sum() * ds.volume.pixel_um[0] * ds.volume.pixel_um[1]) if roi is not None else None}
 
     @app.delete("/api/datasets/{ds_id}")

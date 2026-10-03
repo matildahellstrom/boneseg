@@ -131,4 +131,11 @@ pip install -r requirements-dev.txt
 pytest
 ```
 
+The browser tests in `tests/e2e` drive the real interface on the demo stack. They need Playwright and are skipped without it:
+
+```bash
+pip install playwright && python -m playwright install chromium
+pytest tests/e2e
+```
+
 Uploaded files, profiles and job outputs go to `projects/`, or to the folder set with `--data-dir` or the `BONESEG_DATA_DIR` environment variable. Microscopy files and outputs are kept out of git.
