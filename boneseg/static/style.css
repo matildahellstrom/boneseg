@@ -14,6 +14,18 @@
   --font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 }
 
+:root[data-theme="light"] {
+  --bg: #eef2f7;
+  --panel: #ffffff;
+  --panel-2: #f6f8fb;
+  --line: #d5dce7;
+  --text: #16202e;
+  --muted: #5a6577;
+  --accent: #0a8fb0;
+  --accent-ink: #ffffff;
+}
+:root[data-theme="light"] .viewer { background: #1a2130; }
+
 * { box-sizing: border-box; }
 html, body { height: 100%; margin: 0; }
 body { background: var(--bg); color: var(--text); font: 14px/1.45 var(--font); display: flex; flex-direction: column; overflow: hidden; }
@@ -146,3 +158,5 @@ dialog.wide { max-width: 860px; width: 92vw; }
 .study-table input { padding: 3px 6px; }
 #studyPlot { height: 220px; }
 @media (max-width: 700px) { .study-grid { grid-template-columns: 1fr; } }
+.hint { margin: 0; padding: 6px 8px; border-left: 3px solid var(--accent); background: var(--bg); border-radius: 4px; }
+.hint:empty { display: none; }

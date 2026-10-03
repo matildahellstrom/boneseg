@@ -146,4 +146,5 @@ function setMethod(m) {
   S.method = m;
   $("methodClicks").classList.toggle("active", m === "clicks");
   $("methodLearned").classList.toggle("active", m === "learned");
+  updateHint();
 }

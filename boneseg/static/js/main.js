@@ -138,6 +138,11 @@ function bind() {
   $("roiClear").onclick = () => saveRoi(null);
   $("voxelSave").onclick = saveVoxel;
   $("studyBtn").onclick = openStudy;
+  $("themeBtn").onclick = () => {
+    const light = document.documentElement.dataset.theme !== "light";
+    document.documentElement.dataset.theme = light ? "light" : "dark";
+    try { localStorage.setItem("boneseg-theme", light ? "light" : "dark"); } catch (_) { /* storage unavailable */ }
+  };
   $("studyMetric").onchange = loadStudy;
   $("reportBtn").onclick = () => window.open(`/api/datasets/${S.ds.id}/report?c=${S.c}&z=${S.z}`, "_blank");
   $("hContact").oninput = () => { $("hContactValue").textContent = `${$("hContact").value} µm`; };
@@ -181,6 +186,7 @@ function stepZ(d) {
 }
 
 async function init() {
+  try { if (localStorage.getItem("boneseg-theme") === "light") document.documentElement.dataset.theme = "light"; } catch (_) { /* storage unavailable */ }
   bind();
   showEmpty(true);
   try {

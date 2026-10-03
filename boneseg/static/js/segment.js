@@ -73,6 +73,7 @@ function showResults(out) {
     }
   }
   const src = { clicks: "from your clicks", "carried over": "from the profile", "learned (probability 0.5)": "learned model, probability 0.5", top_percent: "fixed share", manual: "manual", otsu: "Otsu" }[out.threshold_source] || out.threshold_source;
+  updateHint();
   $("timing").textContent = `Threshold ${out.threshold.toFixed(3)} (${src}) · features ${out.timing.embed_s.toFixed(2)} s · total ${out.timing.total_s.toFixed(2)} s`;
 }
 
@@ -117,6 +118,22 @@ function updateCounts() {
   const p = pts();
   $("nPos").textContent = p.pos.length;
   $("nNeg").textContent = p.neg.length;
+  updateHint();
+}
+
+// One short suggestion for what to do next, based on where the user is
+function updateHint() {
+  const p = pts();
+  const profile = $("profileSelect").value;
+  let hint = "";
+  if (!S.ds) hint = "";
+  else if (S.method === "learned") hint = "The learned model segments every slice you open. Correct and save more labels to improve it.";
+  else if (!p.pos.length && !profile) hint = "Click two or three examples of the structure you want to segment.";
+  else if (!p.neg.length && !profile) hint = "Now Shift-click a few background spots. The threshold is placed between your object and background clicks.";
+  else if (S.result && S.result.uncertain_fraction > 0.05) hint = "Orange areas depend on single clicks. Click inside the dashed ring to settle the most uncertain one.";
+  else if (S.result && !S.result.evaluation) hint = "Looks stable. Run the whole stack, save the clicks as a profile, or press E to correct the mask.";
+  else if (S.result) hint = "Turn on Errors to see where the mask disagrees with the reference.";
+  $("nextHint").textContent = hint;
 }
 
 function autoBackground() {
