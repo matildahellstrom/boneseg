@@ -412,3 +412,25 @@ def test_multi_structure_endpoint(client):
     # Clicks for extra structures are saved with the slice
     client.put(f"/api/datasets/{did}/annotations", json={"channel": 0, "z": 0, "pos": [[1, 2]], "neg": [], "extra": [{"name": "s2", "color": "#fff", "pos": [[3, 4]]}]})
     assert client.get(f"/api/datasets/{did}/annotations").json()["0:0"]["extra"][0]["pos"] == [[3, 4]]
+
+
+def test_histomorphometry_from_structures(client):
+    ds, gt, centers = upload_stack(client, n_z=1, with_reference=False)
+    did = ds["id"]
+    ys, xs = np.nonzero(~ndi_dilate(gt))
+    bone_like = [[int(ys[i]), int(xs[i])] for i in np.linspace(0, len(ys) - 1, 4).astype(int)]
+    body = {"channel": 0, "z": 0, "neg": bg_points(gt)[:3], "settings": SETTINGS,
+            "structures": [{"name": "cells", "pos": [list(c) for c in centers[:3]]}, {"name": "bone", "pos": bone_like}]}
+    assert client.post(f"/api/datasets/{did}/segment_multi", json=body).status_code == 200
+    r = client.post(f"/api/datasets/{did}/histomorphometry", json={"z": 0, "bone": {"channel": 0, "source": "structure:1"},
+                                                                  "cells": {"channel": 0, "source": "structure:0"}, "settings": SETTINGS})
+    assert r.status_code == 200, r.text
+    assert r.json()["summary"]["B.Pm_mm"] >= 0 and r.json()["summary"]["cells_total"] >= 1
+    r = client.post(f"/api/datasets/{did}/histomorphometry", json={"z": 0, "bone": {"channel": 0, "source": "structure:5"},
+                                                                  "cells": {"channel": 0, "source": "structure:0"}, "settings": SETTINGS})
+    assert r.status_code == 400
+
+
+def ndi_dilate(m):
+    import scipy.ndimage as ndi
+    return ndi.binary_dilation(m, iterations=6)

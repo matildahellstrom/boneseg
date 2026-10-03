@@ -170,7 +170,8 @@ function fillHistoControls() {
     $(id).innerHTML = chans;
     if (cur !== "" && +cur < S.ds.n_channels) $(id).value = cur;
   }
-  const sources = `<option value="current">Current result</option><option value="learned">Learned model</option><option value="label">Saved label</option>`
+  const structs = S.structures.length > 1 ? S.structures.map((st, k) => `<option value="structure:${k}">Structure: ${st.name}</option>`).join("") : "";
+  const sources = `<option value="current">Current result</option>${structs}<option value="learned">Learned model</option><option value="label">Saved label</option>`
     + (S.ds.reference_channel != null ? `<option value="reference">Reference channel</option>` : "")
     + S.profiles.map((p) => `<option value="profile:${p.id}">Profile: ${p.name}</option>`).join("");
   for (const id of ["hBoneSrc", "hCellSrc"]) { const cur = $(id).value; $(id).innerHTML = sources; if ([...$(id).options].some((o) => o.value === cur)) $(id).value = cur; }
@@ -183,6 +184,17 @@ function histoDefaults() {
   const cell = names.findIndex((n) => /trap|osteoclast|ctsk|cell/.test(n));
   $("hBoneC").value = bone >= 0 ? bone : 0;
   $("hCellC").value = cell >= 0 ? cell : S.c;
+}
+
+function histoFromStructures() {
+  // With several structures on this channel, use the one named like bone for bone and the first other one for cells
+  if (S.structures.length < 2) return;
+  fillHistoControls();
+  const k = S.structures.findIndex((st) => /bone|matrix/i.test(st.name));
+  const boneK = k >= 0 ? k : 1;
+  const cellK = boneK === 0 ? 1 : 0;
+  $("hBoneC").value = S.c; $("hCellC").value = S.c;
+  $("hBoneSrc").value = `structure:${boneK}`; $("hCellSrc").value = `structure:${cellK}`;
 }
 
 async function runHisto() {

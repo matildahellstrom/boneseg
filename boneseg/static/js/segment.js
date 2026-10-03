@@ -115,6 +115,7 @@ function showMultiResults(out) {
   // Brush corrections and labels work on a single mask, so they are hidden for several structures
   $("editBtn").classList.add("hidden");
   $("saveLabelBtn").classList.add("hidden");
+  histoFromStructures();
   $("timing").textContent = "Each pixel goes to the structure it resembles most, if it clears that structure's threshold. Stack runs, labels and histomorphometry use the first structure.";
   updateHint();
 }
@@ -217,7 +218,7 @@ function renderStructures() {
     if (!name) return;
     S.structures.push({ name: name.trim().slice(0, 40), color: STRUCT_COLORS[S.structures.length % STRUCT_COLORS.length] });
     S.active = S.structures.length - 1;
-    renderStructures(); updateCounts();
+    renderStructures(); updateCounts(); fillHistoControls();
   };
   box.appendChild(add);
   $("modePos").lastChild.textContent = isMulti() ? S.structures[S.active].name : "Object";

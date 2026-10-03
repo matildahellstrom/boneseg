@@ -77,6 +77,15 @@ class AppContext:
             if res is None:
                 raise ValueError(f"Segment channel {spec.channel} on slice {z} first, or pick another source")
             return res.extra.get("unclipped", res.mask)
+        if spec.source.startswith("structure:"):
+            # One structure from the last multi-structure result on this channel and slice
+            res = ds.results.get(("multi", spec.channel, z))
+            if res is None:
+                raise ValueError(f"Segment several structures on channel {spec.channel}, slice {z} first")
+            k = int(spec.source.split(":", 1)[1])
+            if not 0 <= k < len(res["names"]):
+                raise ValueError("That structure is not in the last result")
+            return res["labels"] == k + 1
         if spec.source == "label":
             m = self.store.load_label(ds_id, spec.channel, z)
             if m is None:
