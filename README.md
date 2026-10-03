@@ -36,7 +36,7 @@ The image runs on the CPU. For an NVIDIA GPU, change the PyTorch wheel index in 
 6. **Measure bone.** "Bone histomorphometry" combines a bone mask and an osteoclast mask on the slice. It reports B.Ar/T.Ar, B.Pm, Oc.Pm/B.Pm, N.Oc/B.Pm and each cell's distance to bone, following the ASBMR nomenclature for 2D sections. Either mask can come from the current result, a profile, the learned model, a saved label or the reference channel.
 7. **Export or scale up.**
    - Download the mask as PNG or TIFF, or the per-object measurements as CSV.
-   - Run the whole stack, which writes a mask stack, per-slice measurements and a 3D object table.
+   - Run the whole stack, which writes a mask stack, per-slice measurements and a 3D object table. Turn on "Side view" to see a cut through all slices with the stack mask on top, which shows at a glance whether the segmentation stays consistent with depth.
    - Save the clicks as a profile to segment the next image of the same stain without clicking.
    - Open the report, a self-contained HTML page with the image, measurements, settings, the latest stack run and a draft methods paragraph.
 
@@ -53,6 +53,7 @@ The image runs on the CPU. For an NVIDIA GPU, change the PyTorch wheel index in 
 | M, H, U | Toggle the mask, heatmap and uncertainty overlays |
 | E, Esc | Start and cancel correcting the mask with a brush |
 | R, Enter | Draw a region of interest and finish it |
+| Alt-click | Move the side-view cut to this row |
 | Scroll, drag | Zoom, pan |
 
 ## Batch processing

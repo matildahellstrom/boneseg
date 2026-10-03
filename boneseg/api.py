@@ -18,6 +18,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from . import __version__, metrics, quantify, render
+from .io import normalize_plane as bio_normalize
 from .backbone import BACKBONE_LABELS, dino_weights_cached, pick_device
 from .head import Head, head_from_profile, head_to_profile_dict, segment_with_head, train_head
 from .pipeline import StackRequest, run_stack
@@ -225,6 +226,38 @@ def create_app(data_dir: str | Path | None = None, allow_paths: bool = True) -> 
     def plane(ds_id: str, c: int = 0, z: int = 0, low: float = 1.0, high: float = 99.5, max_side: int = 1600, gamma: float = 1.0):
         p = store.plane(ds_id, c, z, low, high)
         return Response(render.gray_png(p, max_side, gamma), media_type="image/png", headers={"Cache-Control": "max-age=3600"})
+
+    @app.get("/api/datasets/{ds_id}/xz")
+    def side_view(ds_id: str, c: int = 0, y: int = 0, job_id: str | None = None, low: float = 1.0, high: float = 99.5, max_width: int = 1600):
+        """A side view through every slice at row y, stretched so z spacing and pixel size match,
+        with the mask from a finished stack run on top."""
+        from PIL import Image
+
+        ds = store.get(ds_id)
+        vol = ds.volume
+        xz = bio_normalize(vol.get_xz(c, y), low, high)
+        stretch = max(1.0, vol.voxel_um[0] / max(vol.voxel_um[2], 1e-9))
+        w = min(vol.width, max_width)
+        h = max(1, int(round(vol.n_z * stretch * w / vol.width)))
+        rgb = np.repeat((xz * 255).astype(np.uint8)[..., None], 3, -1)
+        if job_id:
+            job = store.get_job(job_id)
+            mpath = job.out_dir / "masks.tif"
+            zs = job.result.get("summary", {}).get("z_processed", [])
+            if mpath.exists() and zs:
+                with tifffile.TiffFile(mpath) as tf:
+                    rows = np.stack([tf.pages[i].asarray()[y] for i in range(len(zs))]) > 0
+                full = np.zeros((vol.n_z, vol.width), bool)
+                zs_arr = np.asarray(zs)
+                step = int(np.median(np.diff(zs_arr))) if len(zs_arr) > 1 else 1
+                for z in range(vol.n_z):
+                    # Slices between processed ones show the nearest processed slice, within half a step
+                    i = int(np.argmin(np.abs(zs_arr - z)))
+                    if abs(int(zs_arr[i]) - z) <= step / 2:
+                        full[z] = rows[i]
+                rgb[full] = (rgb[full] * 0.5 + np.array([0, 220, 255]) * 0.5).astype(np.uint8)
+        img = Image.fromarray(rgb).resize((w, h), Image.NEAREST if stretch > 1 else Image.BILINEAR)
+        return Response(render.to_png_bytes(img), media_type="image/png", headers={"X-Stretch": f"{stretch:.3f}"})
 
     @app.get("/api/datasets/{ds_id}/reference")
     def reference(ds_id: str, z: int = 0, max_side: int = 1600):

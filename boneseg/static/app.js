@@ -25,6 +25,7 @@ const S = {
   labels: [],          // [{channel, z}] slices with a saved corrected mask
   head: null,          // Info about the learned model for the current channel
   roiDraft: null,      // Corners of a region being drawn, in full-resolution pixels
+  sideY: null,         // Row of the side view, in full-resolution pixels
   editing: false,
   edit: null,          // Offscreen canvas with the mask being corrected, at display resolution
 };
@@ -198,6 +199,9 @@ async function openDataset(id) {
   histoDefaults();
   cancelRoi();
   showVoxel();
+  S.sideY = null;
+  S.lastJob = null;
+  if ($("showSide").checked) loadSide();
   $("histoCards").classList.add("hidden");
   $("histoDownloads").classList.add("hidden");
   await loadPlane(true);
@@ -224,6 +228,7 @@ async function loadPlane(fit = false) {
   renderLabels();
   draw();
   if (S.method === "learned" || pts().pos.length || $("profileSelect").value) scheduleSegment(0);
+  placeSideZ();
 }
 
 async function loadReference() {
@@ -481,6 +486,15 @@ function draw() {
       }
     }
   }
+  if ($("showSide").checked && S.sideY != null) {
+    const [, sy] = toScreen([S.sideY, 0]);
+    ctx.save();
+    ctx.setLineDash([8, 6]);
+    ctx.strokeStyle = "#ffa53a";
+    ctx.lineWidth = 1.2;
+    ctx.beginPath(); ctx.moveTo(ox, sy); ctx.lineTo(ox + w, sy); ctx.stroke();
+    ctx.restore();
+  }
   const sug = S.result?.suggestion;
   if (sug && $("uncToggle").checked) {
     const [sx, sy] = toScreen(sug);
@@ -550,6 +564,7 @@ window.addEventListener("mouseup", (ev) => {
   if (d.moved || d.pan || ev.target !== canvas) return;
   const p = screenToFull(ev);
   if (!inside(p)) return;
+  if (ev.altKey && d.button === 0) { S.sideY = Math.round(p[0]); $("showSide").checked = true; loadSide(); draw(); return; }
   if (S.roiDraft) {
     if (d.button === 0) { S.roiDraft.push([Math.round(p[0]), Math.round(p[1])]); draw(); }
     return;
@@ -574,7 +589,7 @@ canvas.addEventListener("wheel", (ev) => {
   S.view.scale = ns;
   draw();
 }, { passive: false });
-window.addEventListener("resize", () => draw());
+window.addEventListener("resize", () => { draw(); placeSideZ(); });
 
 // ---------------------------------------------------------------------------------------------
 // Correcting masks with a brush, labels and the learned model
@@ -712,6 +727,32 @@ function setMethod(m) {
   S.method = m;
   $("methodClicks").classList.toggle("active", m === "clicks");
   $("methodLearned").classList.toggle("active", m === "learned");
+}
+
+// ---------------------------------------------------------------------------------------------
+// Side view
+let sideSeq = 0;
+async function loadSide() {
+  const on = $("showSide").checked && S.ds && S.ds.n_z > 1;
+  $("sidePanel").classList.toggle("hidden", !on);
+  if (!on) { draw(); return; }
+  if (S.sideY == null) S.sideY = Math.round(S.ds.height / 2);
+  const seq = ++sideSeq;
+  const job = S.lastJob && S.lastJob.ds === S.ds.id && S.lastJob.c === S.c ? `&job_id=${S.lastJob.id}` : "";
+  try {
+    const img = await loadImage(`/api/datasets/${S.ds.id}/xz?c=${S.c}&y=${S.sideY}&low=${S.low}&high=${S.high}${job}`);
+    if (seq !== sideSeq) return;
+    $("sideImg").src = img.src;
+    $("sideLabel").textContent = `Side view at row ${S.sideY}${job ? " · cyan: latest stack run" : " · run the stack to see its mask here"}`;
+    placeSideZ();
+  } catch (e) { toast(e.message, true); }
+  draw();
+}
+
+function placeSideZ() {
+  const img = $("sideImg");
+  if (!img.complete || !S.ds) return;
+  $("sideZ").style.top = `${((S.z + 0.5) / S.ds.n_z) * img.clientHeight - 1}px`;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -903,6 +944,7 @@ async function pollJob(id) {
     + (s.n_objects_3d != null ? ` · ${s.n_objects_3d} objects in 3D (${s.n_objects_3d_inside} not cut by the stack ends), median ${fmt(s.median_object_volume_um3)} µm³` : "")
     + (s.mean_dice_vs_reference != null ? ` · mean Dice ${s.mean_dice_vs_reference.toFixed(3)}` : "");
   drawChart(job.result.slices || []);
+  if (job.status === "done") { S.lastJob = { id, ds: job.meta.dataset_id, c: job.meta.channel }; if ($("showSide").checked) loadSide(); }
   $("jobDownloads").innerHTML = ["masks.tif", "slices.csv", "objects_3d.csv", "summary.json"]
     .map((f) => `<a class="small" href="/api/jobs/${id}/files/${f}" download><button class="ghost">${f}</button></a>`).join("");
 }
@@ -965,7 +1007,7 @@ function bind() {
     catch (e) { toast(e.message, true); } finally { busy(false); }
   };
 
-  $("channelSelect").onchange = async (e) => { S.c = +e.target.value; stopEditing(); renderLabels(); await refreshHead(); loadPlane(); };
+  $("channelSelect").onchange = async (e) => { S.c = +e.target.value; stopEditing(); renderLabels(); await refreshHead(); loadPlane(); if ($("showSide").checked) loadSide(); };
   $("zSlider").oninput = (e) => { S.z = +e.target.value; $("zValue").textContent = S.z; };
   $("zSlider").onchange = () => loadPlane();
   $("zPrev").onclick = () => stepZ(-1);
@@ -1044,6 +1086,14 @@ function bind() {
   $("methodLearned").onclick = () => { setMethod("learned"); scheduleSegment(0); };
   $("showLabel").addEventListener("input", draw);
   $("showHisto").addEventListener("input", draw);
+  $("showSide").addEventListener("input", loadSide);
+  $("sideImg").onload = placeSideZ;
+  $("sideImg").parentElement.onclick = (ev) => {
+    const r = $("sideImg").getBoundingClientRect();
+    const z = Math.floor(((ev.clientY - r.top) / r.height) * S.ds.n_z);
+    S.z = Math.max(0, Math.min(S.ds.n_z - 1, z));
+    loadPlane();
+  };
   $("histoBtn").onclick = runHisto;
   $("roiBtn").onclick = () => (S.roiDraft ? finishRoi() : startRoi());
   $("roiClear").onclick = () => saveRoi(null);

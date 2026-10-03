@@ -123,3 +123,9 @@ dialog label { margin-top: 8px; }
 .chip { font-size: 12px; border: 1px solid rgba(255, 210, 0, .5); color: #ffd84a; border-radius: 999px; padding: 1px 8px; cursor: pointer; background: transparent; }
 .chip.active { background: rgba(255, 210, 0, .15); }
 .chip .x { margin-left: 4px; color: var(--muted); }
+
+.side { border-top: 1px solid var(--line); background: #050910; padding: 6px 12px; max-height: 34vh; overflow: auto; }
+.side-head { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 4px; }
+.side-img { position: relative; cursor: pointer; }
+.side-img img { display: block; width: 100%; image-rendering: pixelated; }
+.side-z { position: absolute; left: 0; right: 0; height: 2px; background: #ffa53a; pointer-events: none; }

@@ -90,6 +90,7 @@
         <label class="small toggle" title="Overlay opacity">Opacity <input type="range" id="opacity" min="0" max="1" step="0.05" value="0.6"></label>
         <label class="toggle"><input type="checkbox" id="showLabel" checked> Label</label>
         <label class="toggle"><input type="checkbox" id="showHisto" checked> Histo</label>
+        <label class="toggle" title="A cut through all slices along one row. Alt-click the image to pick the row"><input type="checkbox" id="showSide"> Side view</label>
         <span class="spacer"></span>
         <span class="editbar hidden" id="editBar">
           <b>Correcting</b> · drag to paint, Shift-drag to erase ·
@@ -113,6 +114,10 @@
         </div>
         <div class="busy hidden" id="busy"><div class="spinner"></div><span id="busyText">Working…</span></div>
         <div class="cursor-info small" id="cursorInfo"></div>
+      </div>
+      <div class="side hidden" id="sidePanel">
+        <div class="side-head small"><span id="sideLabel">Side view</span><span class="muted">Alt-click the image to move the cut · click here to jump to a slice</span></div>
+        <div class="side-img"><img id="sideImg" alt="Side view through all slices"><div class="side-z" id="sideZ"></div></div>
       </div>
       <div class="statusbar small" id="statusbar">Ready</div>
     </section>

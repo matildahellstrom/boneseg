@@ -308,3 +308,20 @@ def test_learned_model_as_profile(client, tmp_path):
     import pandas as pd
     out = pd.read_csv(tmp_path / "o" / "summary.csv")
     assert out["status"].iloc[0] == "ok" and out["mean_dice_vs_reference"].iloc[0] > 0.5
+
+
+def test_side_view(client):
+    ds, gt, centers = upload_stack(client, n_z=4)
+    did = ds["id"]
+    r = client.get(f"/api/datasets/{did}/xz", params={"c": 0, "y": 50})
+    assert r.status_code == 200 and r.headers["content-type"] == "image/png"
+    assert float(r.headers["x-stretch"]) == pytest.approx(4.0)  # 2 um slices, 0.5 um pixels
+    body = {"channel": 0, "ref_z": 0, "pos": [list(c) for c in centers], "neg": bg_points(gt), "settings": SETTINGS}
+    job = client.post(f"/api/datasets/{did}/stack", json=body).json()
+    for _ in range(100):
+        job = client.get(f"/api/jobs/{job['id']}").json()
+        if job["status"] == "done":
+            break
+        time.sleep(0.05)
+    assert client.get(f"/api/datasets/{did}/xz", params={"c": 0, "y": int(centers[0][0]), "job_id": job["id"]}).status_code == 200
+    assert client.get(f"/api/datasets/{did}/xz", params={"c": 0, "y": 9999}).status_code == 400

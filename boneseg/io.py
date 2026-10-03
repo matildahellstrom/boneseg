@@ -28,6 +28,7 @@ class Volume:
     dtype: str = "float32"
     voxel_size_known: bool = False
     _reader: object = None
+    _xz_reader: object = None  # Optional fast reader for one row across all slices
 
     def get_plane(self, channel: int, z: int) -> np.ndarray:
         # Plain ints: the Imaris reader treats NumPy integers as slices and fails
@@ -37,6 +38,15 @@ class Volume:
         if not 0 <= z < self.n_z:
             raise IndexError(f"Slice {z} is out of range, the file has {self.n_z}")
         return np.asarray(self._reader(channel, z))
+
+    def get_xz(self, channel: int, y: int) -> np.ndarray:
+        """One image row through every slice, as a (z, x) array: a side view of the stack."""
+        channel, y = int(channel), int(y)
+        if not 0 <= y < self.height:
+            raise IndexError(f"Row {y} is out of range, the image has {self.height}")
+        if self._xz_reader is not None:
+            return np.asarray(self._xz_reader(channel, y))
+        return np.stack([self.get_plane(channel, z)[y] for z in range(self.n_z)])
 
     @property
     def pixel_um(self) -> tuple[float, float]:
@@ -76,7 +86,7 @@ def _from_array(name: str, arr: np.ndarray, voxel_um=(1.0, 1.0, 1.0), names=None
     return Volume(
         name=name, n_channels=c, n_z=z, height=y, width=x, voxel_um=tuple(float(v) for v in voxel_um),
         channel_names=list(names) if names else _default_names(c), dtype=str(arr.dtype),
-        voxel_size_known=known, _reader=lambda ch, zz: arr[ch, zz],
+        voxel_size_known=known, _reader=lambda ch, zz: arr[ch, zz], _xz_reader=lambda ch, yy: arr[ch, :, yy, :],
     )
 
 
@@ -108,6 +118,7 @@ def load_ims(path: Path) -> Volume:
         voxel_um=voxel if known else (1.0, 1.0, 1.0), voxel_size_known=known,
         channel_names=_ims_channel_names(path, c), dtype=str(f.dtype),
         _reader=lambda ch, zz: f[0, ch, zz],
+        _xz_reader=(lambda ch, yy: f[0, ch, :, yy, :]) if z > 1 else None,
     )
 
 
