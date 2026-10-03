@@ -138,6 +138,7 @@ function bind() {
   $("roiClear").onclick = () => saveRoi(null);
   $("voxelSave").onclick = saveVoxel;
   $("studyBtn").onclick = openStudy;
+  $("projectBtn").onclick = () => { window.location = `/api/datasets/${S.ds.id}/export/project.zip`; };
   $("labelsExport").onclick = () => { window.location = `/api/datasets/${S.ds.id}/export/labels?c=${S.c}&z=${S.z}`; };
   $("themeBtn").onclick = () => {
     const light = document.documentElement.dataset.theme !== "light";

@@ -465,3 +465,26 @@ def test_stack_with_two_structures(client):
     assert labels.shape == (3, *gt.shape) and set(np.unique(labels)) <= {0, 1, 2}
     assert client.get(f"/api/jobs/{job['id']}/files/objects_3d.csv").text.startswith("structure,label")
     assert client.get(f"/api/datasets/{did}/xz", params={"c": 0, "y": 40, "job_id": job["id"]}).status_code == 200
+
+
+def test_project_export(client):
+    import zipfile
+
+    ds, gt, centers = upload_stack(client, n_z=2)
+    did = ds["id"]
+    body = {"channel": 0, "z": 0, "pos": [list(c) for c in centers], "neg": bg_points(gt), "settings": SETTINGS}
+    client.put(f"/api/datasets/{did}/annotations", json={"channel": 0, "z": 0, "pos": body["pos"], "neg": body["neg"]})
+    client.post(f"/api/datasets/{did}/segment", json=body)
+    client.post(f"/api/datasets/{did}/labels", json={"channel": 0, "z": 0})
+    job = client.post(f"/api/datasets/{did}/stack", json={**body, "ref_z": 0}).json()
+    for _ in range(100):
+        if client.get(f"/api/jobs/{job['id']}").json()["status"] == "done":
+            break
+        time.sleep(0.05)
+    r = client.get(f"/api/datasets/{did}/export/project.zip")
+    assert r.status_code == 200 and r.headers["content-type"] == "application/zip"
+    names = zipfile.ZipFile(io.BytesIO(r.content)).namelist()
+    assert {"dataset.json", "annotations.json", "README.txt", "labels/c0_z0.png"} <= set(names)
+    assert any(n.endswith("/slices.csv") for n in names) and not any(n.endswith(".tif") for n in names)
+    with_masks = zipfile.ZipFile(io.BytesIO(client.get(f"/api/datasets/{did}/export/project.zip", params={"include_masks": True}).content)).namelist()
+    assert any(n.endswith("masks.tif") for n in with_masks)

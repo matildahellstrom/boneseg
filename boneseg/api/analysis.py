@@ -1,6 +1,7 @@
 """Reports and bone histomorphometry."""
 from __future__ import annotations
 
+import io
 import json
 from pathlib import Path
 
@@ -74,4 +75,47 @@ def router(ctx: AppContext) -> APIRouter:
         stem = f"{Path(ds.volume.name).stem}_z{z}_histomorphometry_cells"
         return Response(table.to_csv(index=False), media_type="text/csv", headers=attachment(f"{stem}.csv"))
 
+    @r.get("/api/datasets/{ds_id}/export/project.zip")
+    def export_project(ds_id: str, include_masks: bool = False):
+        """Everything done on a dataset except the image itself: settings, clicks, labels, learned models,
+        profiles and stack results, with a README. For archiving an analysis or handing it to someone."""
+        import datetime as dt
+        import json as _json
+        import zipfile
+
+        from .. import __version__
+
+        ds = store.get(ds_id)
+        d = store.ds_dir(ds_id)
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+            z.writestr("dataset.json", _json.dumps({"file": ds.volume.name, "path": str(ds.path), **ds.info()}, indent=1, default=str))
+            for name in ("annotations.json",):
+                if (d / name).exists():
+                    z.write(d / name, name)
+            for sub in ("labels", "heads"):
+                for f in sorted((d / sub).glob("*")) if (d / sub).exists() else []:
+                    z.write(f, f"{sub}/{f.name}")
+            for f in sorted((store.root / "profiles").glob("*.npz")):
+                z.write(f, f"profiles/{f.name}")
+            jobs = [j for j in store.jobs.values() if j.meta.get("dataset_id") == ds_id and j.status == "done"]
+            for j in jobs:
+                for f in sorted(j.out_dir.glob("*")):
+                    if f.suffix == ".tif" and not include_masks:
+                        continue
+                    z.write(f, f"stack_runs/{j.id}/{f.name}")
+            z.writestr("README.txt", (
+                f"boneseg {__version__} project export, {dt.datetime.now():%Y-%m-%d %H:%M}\n"
+                f"Image: {ds.volume.name} ({ds.volume.width} x {ds.volume.height} px, {ds.volume.n_z} slices, "
+                f"{ds.volume.n_channels} channels, {ds.volume.voxel_um[2]:.3f} um/px). The image itself is not included.\n\n"
+                "dataset.json      settings for this image: reference channel, region of interest, pixel size, groups\n"
+                "annotations.json  clicks per slice, keyed 'channel:slice', as (y, x) pixel positions\n"
+                "labels/           corrected masks saved as labels, cC_zZ.png\n"
+                "heads/            learned models per channel (PyTorch)\n"
+                "profiles/         all saved profiles; import them in boneseg with 'Import a shared profile'\n"
+                f"stack_runs/       {len(jobs)} finished stack run(s): per-slice measurements, 3D objects and summaries"
+                + (" with mask stacks" if include_masks else " (mask stacks left out; add ?include_masks=true)") + "\n"))
+        return Response(buf.getvalue(), media_type="application/zip", headers=attachment(f"{Path(ds.volume.name).stem}_boneseg_project.zip"))
+
     return r
+
