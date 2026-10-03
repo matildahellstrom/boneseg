@@ -304,6 +304,10 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
             sug = suggest_click(u, list(req.pos) + list(req.neg))
             out["suggestion"] = list(sug) if sug else None
         out["timing"]["total_s"] = round(time.time() - t0, 3)
+        # Remembered for the report
+        res.extra.update({"settings": settings.to_dict(), "method": req.method, "profile_id": req.profile_id, "n_pos": len(req.pos),
+                          "n_neg": len(req.neg), "stats": out["stats"], "evaluation": out.get("evaluation"),
+                          "points": {"pos": [list(p) for p in req.pos], "neg": [list(p) for p in req.neg]}})
         return out
 
     def _last_result(ds_id, c, z):
@@ -370,8 +374,7 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
                 cancelled=job.cancel.is_set,
             )
 
-        job = store.start_job("stack", work)
-        job.result = {"dataset_id": ds_id, "n_slices": len(z_list)}
+        job = store.start_job("stack", work, meta={"dataset_id": ds_id, "n_slices": len(z_list), "channel": c, "method": req.method})
         return job.info()
 
     @app.get("/api/jobs/{job_id}")
@@ -454,6 +457,34 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
         path = store.head_path(ds_id, c)
         return Head.load(path).info() if path.exists() else None
 
+    # Report -------------------------------------------------------------------------------------
+    @app.get("/api/datasets/{ds_id}/report", response_class=HTMLResponse)
+    def report(ds_id: str, c: int = 0, z: int = 0, download: bool = False):
+        from . import report as rep_mod
+
+        ds = store.get(ds_id)
+        res = _last_result(ds_id, c, z)
+        x = res.extra
+        settings = x.get("settings", SegmentationSettings().to_dict())
+        plane = store.plane(ds_id, c, z, settings["clip_low"], settings["clip_high"])
+        ref = store.reference_mask(ds_id, z, c)
+        png = rep_mod.composite(plane, res.mask, ref, x.get("points"), ds.meta.get("roi"))
+        profile = None
+        if x.get("profile_id"):
+            try:
+                profile = store.load_profile(x["profile_id"]).name
+            except KeyError:
+                profile = x["profile_id"]
+        head = Head.load(store.head_path(ds_id, c)).info() if x.get("method") == "learned" and store.head_path(ds_id, c).exists() else None
+        job = store.latest_job(ds_id)
+        methods = rep_mod.methods_text(ds.info(), settings, x.get("method", "clicks"), x.get("n_pos", 0), x.get("n_neg", 0), profile, head,
+                                       stack=job is not None)
+        page = rep_mod.build_report(ds.info(), c, z, png, x.get("stats"), x.get("evaluation"), settings,
+                                    {"value": res.threshold, "source": res.threshold_source}, ds.results.get(("histo_summary", z)),
+                                    job.result if job else None, methods)
+        headers = {"Content-Disposition": f'attachment; filename="{Path(ds.volume.name).stem}_c{c}_z{z}_report.html"'} if download else {}
+        return HTMLResponse(page, headers=headers)
+
     # Histomorphometry ---------------------------------------------------------------------------
     def _mask_from_spec(ds_id: str, z: int, spec: MaskSpec, settings: SegmentationSettings) -> np.ndarray:
         ds = store.get(ds_id)
@@ -494,6 +525,7 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
         roi = store.roi_mask(ds_id)
         summary, table = histo.histomorphometry(bone, cells, ds.volume.pixel_um, req.contact_um, roi)
         ds.results[("histo", req.z)] = table
+        ds.results[("histo_summary", req.z)] = summary
         from PIL import Image
 
         rgba = histo.overlay(bone, cells, ds.volume.pixel_um, req.contact_um, roi)

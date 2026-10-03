@@ -77,10 +77,11 @@ class Job:
     created: float = field(default_factory=time.time)
     cancel: threading.Event = field(default_factory=threading.Event)
     out_dir: Path | None = None
+    meta: dict = field(default_factory=dict)  # Set when the job starts, never overwritten by the result
 
     def info(self) -> dict:
         return {"id": self.id, "kind": self.kind, "status": self.status, "progress": round(self.progress, 4),
-                "message": self.message, "result": self.result, "error": self.error, "created": self.created}
+                "message": self.message, "result": self.result, "error": self.error, "created": self.created, "meta": self.meta}
 
 
 class Store:
@@ -331,8 +332,8 @@ class Store:
         self.profile_path(pid).unlink(missing_ok=True)
 
     # Jobs -------------------------------------------------------------------------------------
-    def start_job(self, kind: str, fn: Callable[[Job], dict]) -> Job:
-        job = Job(id=uuid.uuid4().hex[:10], kind=kind)
+    def start_job(self, kind: str, fn: Callable[[Job], dict], meta: dict | None = None) -> Job:
+        job = Job(id=uuid.uuid4().hex[:10], kind=kind, meta=meta or {})
         job.out_dir = self.root / "jobs" / job.id
         job.out_dir.mkdir(parents=True, exist_ok=True)
         self.jobs[job.id] = job
@@ -349,6 +350,10 @@ class Store:
 
         threading.Thread(target=run, daemon=True).start()
         return job
+
+    def latest_job(self, ds_id: str, kind: str = "stack") -> Job | None:
+        done = [j for j in self.jobs.values() if j.kind == kind and j.status == "done" and j.meta.get("dataset_id") == ds_id]
+        return max(done, key=lambda j: j.created) if done else None
 
     def get_job(self, job_id: str) -> Job:
         if job_id not in self.jobs:

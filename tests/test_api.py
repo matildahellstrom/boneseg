@@ -247,3 +247,26 @@ def test_pixel_size_override(client, tmp_path):
     # The override survives a restart
     c2 = TestClient(create_app(client.app.state.store.root))
     assert c2.get(f"/api/datasets/{ds['id']}").json()["voxel_um"] == [1.0, 0.5, 0.5]
+
+
+def test_report(client):
+    ds, gt, centers = upload_stack(client, n_z=3)
+    did = ds["id"]
+    client.patch(f"/api/datasets/{did}", json={"reference_channel": 1})
+    assert client.get(f"/api/datasets/{did}/report", params={"c": 0, "z": 1}).status_code == 404
+    body = {"channel": 0, "z": 1, "pos": [list(c) for c in centers], "neg": bg_points(gt), "settings": SETTINGS}
+    client.post(f"/api/datasets/{did}/segment", json=body)
+    job = client.post(f"/api/datasets/{did}/stack", json={**body, "ref_z": 1}).json()
+    for _ in range(100):
+        job = client.get(f"/api/jobs/{job['id']}").json()
+        if job["status"] == "done":
+            break
+        time.sleep(0.05)
+    assert job["meta"]["dataset_id"] == did
+    r = client.get(f"/api/datasets/{did}/report", params={"c": 0, "z": 1})
+    assert r.status_code == 200
+    page = r.text
+    for text in ("Segmentation", "Dice", "Latest stack run", "Methods", "data:image/png;base64", "6 background clicks"):
+        assert text in page, text
+    r = client.get(f"/api/datasets/{did}/report", params={"c": 0, "z": 1, "download": True})
+    assert "attachment" in r.headers["content-disposition"]

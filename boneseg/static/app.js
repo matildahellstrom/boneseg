@@ -1037,6 +1037,7 @@ function bind() {
   $("roiBtn").onclick = () => (S.roiDraft ? finishRoi() : startRoi());
   $("roiClear").onclick = () => saveRoi(null);
   $("voxelSave").onclick = saveVoxel;
+  $("reportBtn").onclick = () => window.open(`/api/datasets/${S.ds.id}/report?c=${S.c}&z=${S.z}`, "_blank");
   $("hContact").oninput = () => { $("hContactValue").textContent = `${$("hContact").value} µm`; };
   $("histoCsv").onclick = () => { window.location = `/api/datasets/${S.ds.id}/histomorphometry/cells.csv?z=${S.histoZ ?? S.z}`; };
   $("cancelBtn").onclick = () => S.job && api(`/api/jobs/${S.job}/cancel`, { method: "POST" });

@@ -38,6 +38,7 @@ The image runs on the CPU. For an NVIDIA GPU, change the PyTorch wheel index in 
    - Download the mask as PNG or TIFF, or the per-object measurements as CSV.
    - Run the whole stack, which writes a mask stack, per-slice measurements and a 3D object table.
    - Save the clicks as a profile to segment the next image of the same stain without clicking.
+   - Open the report, a self-contained HTML page with the image, measurements, settings, the latest stack run and a draft methods paragraph.
 
 ### Keyboard shortcuts
 
