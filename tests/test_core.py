@@ -2,6 +2,7 @@ import numpy as np
 import scipy.ndimage as ndi
 import pytest
 import tifffile
+from pathlib import Path
 
 from boneseg import io, metrics, quantify, segment
 from boneseg.backbone import get_backbone
@@ -412,3 +413,28 @@ def test_nearest_neighbour_distances():
     o = quantify.objects_3d(stack, (2.0, 0.5, 0.5))
     assert o["nearest_neighbour_um"].round(3).tolist() == [20.0, 20.0]
     assert np.isnan(quantify.nearest_neighbour_um(np.zeros((1, 2)))[0])
+
+
+def test_batch_per_file_channels(tmp_path):
+    import pandas as pd
+
+    from boneseg.__main__ import main
+    from boneseg.batch import split_channel
+
+    assert split_channel("a.ims:3", None) == (Path("a.ims"), 3)
+    assert split_channel("a.ims", 2) == (Path("a.ims"), 2)
+    img, gt, centers = make_blobs(seed=0)
+    # Two files with the signal at different channels
+    tifffile.imwrite(tmp_path / "x.tif", np.stack([np.stack([img, gt.astype(np.float32)])] * 2).astype(np.float32), imagej=True, metadata={"axes": "ZCYX"})
+    tifffile.imwrite(tmp_path / "y.tif", np.stack([np.stack([gt.astype(np.float32), img])] * 2).astype(np.float32), imagej=True, metadata={"axes": "ZCYX"})
+    s = classic_settings(threshold_mode="clicks")
+    emb = segment.embed_image(get_backbone("classic"), img, s)
+    negs = background_points(gt)
+    res = segment.segment(emb, centers, negs, s)
+    Profile(name="c", backbone="classic", layer_from_end=1, pos=segment.prototypes(emb, centers).numpy(),
+            neg=segment.prototypes(emb, negs).numpy(), settings=s.to_dict(), raw_threshold=res.raw_threshold).save(tmp_path / "c.npz")
+    main(["batch", f"{tmp_path / 'x.tif'}:0", f"{tmp_path / 'y.tif'}:1", str(tmp_path / "x.tif"), "--profile", str(tmp_path / "c.npz"),
+          "--out", str(tmp_path / "o")])
+    out = pd.read_csv(tmp_path / "o" / "summary.csv")
+    assert out["status"].tolist()[:2] == ["ok", "ok"] and out["channel"].tolist()[:2] == [0, 1]
+    assert out["status"].iloc[2].startswith("failed") and "no channel" in out["status"].iloc[2]

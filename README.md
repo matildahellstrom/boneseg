@@ -94,6 +94,7 @@ From the app, "Compare samples" can run a saved profile on every open sample. Fr
 ```bash
 python -m boneseg profiles                       # List saved profiles and their ids
 python -m boneseg batch data/*.ims --profile trap-cells-1a2b3c --channel 3 --z-step 5 --out results
+python -m boneseg batch "data/A.ims:3" "data/E.ims:4" --profile bone-from-a-1a2b3c --out results   # Each file its own channel
 ```
 
 Each file gets its own folder with a mask or label stack, per-slice measurements and a 3D object table. A combined `summary.csv` covers all files, and a file that fails is reported without stopping the rest. Add `--reference 4` to score every slice against an expert mask channel. On Liu file A, a profile made from one slice segmented 15 slices in 11 seconds on a MacBook, with a mean Dice of 0.61 against the expert mask.

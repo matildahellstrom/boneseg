@@ -19,9 +19,9 @@ def main(argv=None):
     serve.add_argument("--allow-paths", action="store_true",
                        help="Allow opening files by path even when listening on the network (on by default for 127.0.0.1)")
     batch = sub.add_parser("batch", help="Segment many files with a saved profile")
-    batch.add_argument("files", nargs="+", help="Microscopy files")
+    batch.add_argument("files", nargs="+", help="Microscopy files; 'file.ims:3' gives a file its own channel")
     batch.add_argument("--profile", required=True, help="Profile id from the app, or a path to its .npz file")
-    batch.add_argument("--channel", type=int, required=True)
+    batch.add_argument("--channel", type=int, default=None, help="Channel for files without their own ':channel'")
     batch.add_argument("--out", default="results", help="Output folder")
     batch.add_argument("--z-start", type=int, default=0)
     batch.add_argument("--z-end", type=int, default=None)
@@ -36,7 +36,7 @@ def main(argv=None):
         from .batch import resolve_profile, run_batch
 
         prof = resolve_profile(args.profile, args.data_dir)
-        print(f"Profile '{prof.name}' ({prof.backbone}), {len(args.files)} file(s), channel {args.channel}")
+        print(f"Profile '{prof.name}' ({prof.backbone}), {len(args.files)} file(s)")
         df = run_batch(args.files, prof, args.channel, args.out, args.z_start, args.z_end, args.z_step, args.reference)
         print(f"Wrote {args.out}/summary.csv ({(df['status'] == 'ok').sum()} of {len(df)} files ok)")
         return

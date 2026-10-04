@@ -27,7 +27,16 @@ def resolve_profile(spec: str, data_dir: str | Path) -> Profile:
     raise FileNotFoundError(f"No profile '{spec}'. Give a path to a .npz file or an id from the app")
 
 
-def run_batch(files: list[str | Path], profile: Profile, channel: int, out_dir: str | Path, z_start: int = 0,
+def split_channel(spec: str | Path, default: int | None) -> tuple[Path, int | None]:
+    """'file.ims:3' gives the file and its own channel; a plain path uses the default channel."""
+    s = str(spec)
+    head, sep, tail = s.rpartition(":")
+    if sep and tail.isdigit() and head and not Path(s).exists():
+        return Path(head), int(tail)
+    return Path(s), default
+
+
+def run_batch(files: list[str | Path], profile: Profile, channel: int | None, out_dir: str | Path, z_start: int = 0,
               z_end: int | None = None, z_step: int = 1, reference: int | None = None, log=print) -> pd.DataFrame:
     """Segments every file with the profile. Writes one folder per file and a combined summary.csv."""
     out_dir = Path(out_dir)
@@ -51,13 +60,16 @@ def run_batch(files: list[str | Path], profile: Profile, channel: int, out_dir: 
 
         multi, labeler_names = SimpleNamespace(names=list(head.names)), head
     rows = []
-    for f in files:
-        f = Path(f)
+    for spec in files:
+        f, ch = split_channel(spec, channel)
         t0 = time.time()
         try:
+            if ch is None:
+                raise ValueError("no channel given; use --channel or file:channel")
+            channel_f = ch
             vol = bio.load_volume(f)
-            if channel >= vol.n_channels:
-                raise ValueError(f"channel {channel} does not exist, the file has {vol.n_channels}")
+            if channel_f >= vol.n_channels:
+                raise ValueError(f"channel {channel_f} does not exist, the file has {vol.n_channels}")
             last = vol.n_z - 1 if z_end is None else min(z_end, vol.n_z - 1)
             zs = list(range(max(0, z_start), last + 1, max(1, z_step)))
             target = out_dir / f.stem
@@ -67,7 +79,7 @@ def run_batch(files: list[str | Path], profile: Profile, channel: int, out_dir: 
             def image(z):
                 if z not in planes:
                     planes.clear()  # Keep memory flat on large stacks
-                    planes[z] = bio.normalize_plane(vol.get_plane(channel, z), settings.clip_low, settings.clip_high)
+                    planes[z] = bio.normalize_plane(vol.get_plane(channel_f, z), settings.clip_low, settings.clip_high)
                 return planes[z]
 
             if multi is not None:
@@ -77,7 +89,7 @@ def run_batch(files: list[str | Path], profile: Profile, channel: int, out_dir: 
                                       get_image=image, voxel_um=vol.voxel_um, out_dir=target,
                                       labeler=(lambda e: labels_with_head(labeler_names, e, settings, vol.pixel_um)) if labeler_names else None)
                 s = out["summary"]
-                row = {"file": f.name, "status": "ok", "seconds": round(time.time() - t0, 1), "n_slices": s["n_slices"]}
+                row = {"file": f.name, "channel": channel_f, "status": "ok", "seconds": round(time.time() - t0, 1), "n_slices": s["n_slices"]}
                 for name, st in s["structures"].items():
                     row.update({f"{name}_volume_um3": st.get("volume_um3"), f"{name}_n_objects_3d": st.get("n_objects_3d"),
                                 f"{name}_mean_area_fraction": st.get("mean_area_fraction")})
@@ -91,7 +103,7 @@ def run_batch(files: list[str | Path], profile: Profile, channel: int, out_dir: 
                             voxel_um=vol.voxel_um, out_dir=target,
                             progress=lambda p, m: None, head=head)
             summary = out["summary"]
-            row = {"file": f.name, "status": "ok", "seconds": round(time.time() - t0, 1), **{k: v for k, v in summary.items() if k != "z_processed"}}
+            row = {"file": f.name, "channel": channel_f, "status": "ok", "seconds": round(time.time() - t0, 1), **{k: v for k, v in summary.items() if k != "z_processed"}}
             log(f"{f.name}: {summary.get('n_slices', 0)} slices, volume {summary.get('volume_um3', 0):.0f} um3, "
                 f"{summary.get('n_objects_3d', 0)} objects in 3D ({row['seconds']} s)")
         except Exception as e:  # One bad file should not stop the batch
