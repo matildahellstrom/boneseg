@@ -80,7 +80,7 @@ def router(ctx: AppContext) -> APIRouter:
         # Neighbouring slices next, so stepping through the stack stays fast
         store.prefetch(ds_id, req.channel, [req.z + 1, req.z - 1, req.z + 2, req.z - 2], settings)
         # Remembered for the report
-        res.extra.update({"settings": settings.to_dict(), "method": req.method, "profile_id": req.profile_id, "n_pos": len(req.pos),
+        res.extra.update({"time": time.time(), "settings": settings.to_dict(), "method": req.method, "profile_id": req.profile_id, "n_pos": len(req.pos),
                           "n_neg": len(req.neg), "stats": out["stats"], "evaluation": out.get("evaluation"),
                           "points": {"pos": [list(p) for p in req.pos], "neg": [list(p) for p in req.neg]}})
         return out
@@ -123,7 +123,11 @@ def router(ctx: AppContext) -> APIRouter:
                   for c in req.structures if c.pos]
         stats = [{"name": n, "color": req.structures[[st.name for st in req.structures].index(n)].color,
                   **quantify.summarize_mask(labels == k + 1, img, ds.volume.pixel_um, roi)} for k, n in enumerate(res.names)]
-        ds.results[("multi", req.channel, req.z)] = {"labels": labels, "names": res.names}
+        ds.results[("multi", req.channel, req.z)] = {"labels": labels, "names": res.names, "time": time.time(), "stats": stats,
+                                                     "colors": [st["color"] for st in stats], "settings": settings.to_dict(),
+                                                     "method": req.method if req.method == "learned" else ("profile" if req.profile_id else "clicks"),
+                                                     "neg": [list(p) for p in req.neg],
+                                                     "pos": {st.name: [list(p) for p in st.pos] for st in req.structures}}
         return {"labels_png": render.data_url(render.labels_png(labels, colors, req.max_side)), "structures": stats,
                 "thresholds": res.thresholds, "timing": {"total_s": round(time.time() - t0, 3)}}
 

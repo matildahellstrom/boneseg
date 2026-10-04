@@ -38,6 +38,21 @@ def composite(plane01: np.ndarray, mask: np.ndarray | None, reference: np.ndarra
     return render.to_png_bytes(img)
 
 
+def composite_labels(plane01: np.ndarray, labels: np.ndarray, colors: list[str], max_side: int = 1200) -> bytes:
+    """Grey image with each structure filled and outlined in its colour."""
+    h, w = render.display_shape(*plane01.shape, max_side)
+    base = Image.fromarray((np.clip(plane01, 0, 1) * 255).astype(np.uint8)).resize((w, h), Image.BILINEAR).convert("RGB")
+    rgb = np.asarray(base).astype(np.float32)
+    lab = np.asarray(Image.fromarray(labels.astype(np.uint8)).resize((w, h), Image.NEAREST))
+    for k, hexc in enumerate(colors, start=1):
+        c = hexc.lstrip("#")
+        color = np.array([int(c[i:i + 2], 16) for i in (0, 2, 4)] if len(c) == 6 else [0, 200, 240], np.float32)
+        m = lab == k
+        rgb[m] = rgb[m] * 0.55 + color * 0.45
+        rgb[m & ~ndi.binary_erosion(m)] = color
+    return render.to_png_bytes(Image.fromarray(rgb.astype(np.uint8)))
+
+
 def _table(rows: list[tuple[str, str]]) -> str:
     return "<table>" + "".join(f"<tr><th>{html.escape(k)}</th><td>{html.escape(v)}</td></tr>" for k, v in rows) + "</table>"
 
@@ -73,7 +88,16 @@ def _chart(slices: list[dict]) -> str:
 def methods_text(info: dict, settings: dict, source: str, n_pos: int, n_neg: int, profile: str | None, head: dict | None,
                  stack: bool = False) -> str:
     bb = BACKBONE_LABELS.get(settings["backbone"], settings["backbone"])
-    if source == "learned" and head:
+    if source == "structures":
+        how = (f"Several structures were segmented together from {n_pos} clicks on the structures and {n_neg} shared background "
+               f"clicks{' with the saved profile ' + repr(profile) if profile else ''}. Each structure was scored against the background "
+               f"and the other structures' clicks, with its own threshold halfway between the scores at its clicks and the others, "
+               f"and each pixel was assigned to the most similar structure whose threshold it cleared")
+    elif source == "learned structures" and head:
+        how = (f"A {'linear' if head['kind'] == 'linear' else 'two-layer'} classifier over background and {len(head.get('names', []))} "
+               f"structures was trained on the frozen patch features of {len(head['trained_on'])} labelled slices, and each pixel took "
+               f"the most probable class")
+    elif source == "learned" and head:
         how = (f"A {'linear' if head['kind'] == 'linear' else 'two-layer'} classifier was trained on the frozen patch features "
                f"of {len(head['trained_on'])} manually corrected slices and thresholded at a probability of 0.5")
     else:
@@ -103,7 +127,7 @@ def methods_text(info: dict, settings: dict, source: str, n_pos: int, n_neg: int
 
 
 def build_report(info: dict, c: int, z: int, image_png: bytes, stats: dict | None, evaluation: dict | None, settings: dict,
-                 threshold: dict | None, histo: dict | None, stack: dict | None, methods: str) -> str:
+                 threshold: dict | None, histo: dict | None, stack: dict | None, methods: str, structures: list | None = None) -> str:
     now = dt.datetime.now().strftime("%Y-%m-%d %H:%M")
     ch = info["channel_names"][c] if c < len(info["channel_names"]) else f"Channel {c}"
     parts = [f"<h1>{html.escape(info['name'])}</h1>",
@@ -124,6 +148,12 @@ def build_report(info: dict, c: int, z: int, image_png: bytes, stats: dict | Non
         if threshold:
             rows.append(("Threshold", f"{threshold['value']:.3f} on the rescaled score ({threshold['source']})"))
         parts += ["<h2>Segmentation</h2>", _table(rows)]
+    if structures:
+        head = "<tr><th>Structure</th><td><b>Area fraction</b></td><td><b>Area</b></td><td><b>Objects</b></td><td><b>Objects per mm²</b></td></tr>"
+        body = "".join(f"<tr><th><span style='color:{html.escape(st.get('color', ''))}'>●</span> {html.escape(st['name'])}</th>"
+                       f"<td>{100 * st['area_fraction']:.2f}%</td><td>{_fmt(st['area_um2'], 1)} µm²</td><td>{st['n_objects']}</td>"
+                       f"<td>{_fmt(st['objects_per_mm2'], 1)}</td></tr>" for st in structures)
+        parts += ["<h2>Structures</h2>", f"<table>{head}{body}</table>"]
     if evaluation:
         parts += [f"<h2>Against {html.escape(evaluation.get('against', 'the reference mask'))}</h2>",
                   _table([("Dice", f"{evaluation['dice']:.3f}"), ("IoU", f"{evaluation['iou']:.3f}"), ("HD95", f"{_fmt(evaluation['hd95_um'], 1)} µm")])]
@@ -139,7 +169,16 @@ def build_report(info: dict, c: int, z: int, image_png: bytes, stats: dict | Non
             label, unit, digits = labels.get(k, (k, "", 2))
             rows.append((label, f"{_fmt(float(v), digits) if digits else int(v)} {unit}".strip()))
         parts += ["<h2>Bone histomorphometry</h2>", _table(rows)]
-    if stack:
+    if stack and (stack.get("summary") or {}).get("structures"):
+        s = stack["summary"]
+        rows = [(name, f"volume {_fmt(st.get('volume_um3'), 0)} µm³ · mean area {100 * (st.get('mean_area_fraction') or 0):.2f}% · "
+                       f"{st.get('n_objects_3d', '–')} objects in 3D") for name, st in s["structures"].items()]
+        hm = s.get("histomorphometry")
+        if hm:
+            rows.append(("Histomorphometry", f"B.Ar/T.Ar {_fmt(hm.get('B.Ar/T.Ar_%'))}% · Oc.Pm/B.Pm {_fmt(hm.get('Oc.Pm/B.Pm_%'))}% · "
+                                             f"N.Oc/B.Pm {_fmt(hm.get('N.Oc/B.Pm_per_mm'))} /mm"))
+        parts += [f"<h2>Latest stack run ({s.get('n_slices')} slices)</h2>", _table(rows)]
+    elif stack:
         s = stack["summary"]
         rows = [("Slices", str(s.get("n_slices"))), ("Volume", f"{_fmt(s.get('volume_um3'), 0)} µm³"),
                 ("Mean area fraction", f"{100 * s.get('mean_area_fraction', 0):.2f}%"),

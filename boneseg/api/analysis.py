@@ -24,6 +24,10 @@ def router(ctx: AppContext) -> APIRouter:
         from .. import report as rep_mod
 
         ds = store.get(ds_id)
+        multi = ds.results.get(("multi", c, z))
+        single = ds.results.get((c, z))
+        if multi is not None and (single is None or multi.get("time", 0) >= single.extra.get("time", 0)):
+            return _multi_report(ds, c, z, multi, download)
         res = ctx.last_result(ds_id, c, z)
         x = res.extra
         settings = x.get("settings", SegmentationSettings().to_dict())
@@ -43,6 +47,22 @@ def router(ctx: AppContext) -> APIRouter:
         page = rep_mod.build_report(ds.info(), c, z, png, x.get("stats"), x.get("evaluation"), settings,
                                     {"value": res.threshold, "source": res.threshold_source}, ds.results.get(("histo_summary", z)),
                                     job.result if job else None, methods)
+        headers = attachment(f"{Path(ds.volume.name).stem}_c{c}_z{z}_report.html") if download else {}
+        return HTMLResponse(page, headers=headers)
+
+    def _multi_report(ds, c, z, m, download):
+        from .. import report as rep_mod
+
+        settings = m.get("settings", SegmentationSettings().to_dict())
+        plane = store.plane(ds.id, c, z, settings["clip_low"], settings["clip_high"])
+        png = rep_mod.composite_labels(plane, m["labels"], m.get("colors", []))
+        head = Head.load(store.head_path(ds.id, c)).info() if m.get("method") == "learned" and store.head_path(ds.id, c).exists() else None
+        n_pos = sum(len(v) for v in (m.get("pos") or {}).values())
+        job = store.latest_job(ds.id)
+        source = "learned structures" if m.get("method") == "learned" else "structures"
+        methods = rep_mod.methods_text(ds.info(), settings, source, n_pos, len(m.get("neg", [])), None, head, stack=job is not None)
+        page = rep_mod.build_report(ds.info(), c, z, png, None, None, settings, None, ds.results.get(("histo_summary", z)),
+                                    job.result if job else None, methods, structures=m.get("stats"))
         headers = attachment(f"{Path(ds.volume.name).stem}_c{c}_z{z}_report.html") if download else {}
         return HTMLResponse(page, headers=headers)
 

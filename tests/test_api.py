@@ -697,3 +697,24 @@ def test_access_token(tmp_path):
     c.cookies.set("boneseg_token", "s3cret")
     assert c.get("/api/datasets").status_code == 200
     assert TestClient(create_app(tmp_path / "e")).get("/api/health").status_code == 200   # No token, open as before
+
+
+def test_report_for_several_structures(client):
+    ds, gt, centers = upload_stack(client, n_z=2, with_reference=False)
+    did = ds["id"]
+    ys, xs = np.nonzero(~ndi_dilate(gt))
+    other = [[int(ys[i]), int(xs[i])] for i in np.linspace(0, len(ys) - 1, 4).astype(int)]
+    body = {"channel": 0, "z": 0, "neg": bg_points(gt)[:3], "settings": SETTINGS,
+            "structures": [{"name": "cells", "color": "#ff8800", "pos": [list(c) for c in centers[:3]]}, {"name": "bone matrix", "color": "#00ff88", "pos": other}]}
+    client.post(f"/api/datasets/{did}/segment_multi", json=body)
+    job = client.post(f"/api/datasets/{did}/stack", json={**body, "ref_z": 0}).json()
+    for _ in range(200):
+        if client.get(f"/api/jobs/{job['id']}").json()["status"] in ("done", "failed"):
+            break
+        time.sleep(0.05)
+    page = client.get(f"/api/datasets/{did}/report", params={"c": 0, "z": 0}).text
+    for text in ("<h2>Structures</h2>", "bone matrix", "Several structures were segmented together", "Latest stack run (2 slices)", "Histomorphometry"):
+        assert text in page, text
+    # A single-structure segmentation afterwards makes the report about that one again
+    client.post(f"/api/datasets/{did}/segment", json={"channel": 0, "z": 0, "pos": [list(c) for c in centers], "neg": bg_points(gt), "settings": SETTINGS})
+    assert "<h2>Structures</h2>" not in client.get(f"/api/datasets/{did}/report", params={"c": 0, "z": 0}).text
