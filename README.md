@@ -153,6 +153,7 @@ Each of these was measured and did not hold up, so the defaults stay simpler:
 - Flip-averaged features and features from two layers did not help (0.64 against 0.65).
 - Earlier transformer blocks did worse for Small and Base (Small: 0.60 for the second-last and 0.56 for the fourth-last block, against 0.65 for the last, with 25 + 25 clicks). On the notebook's Kaggle run, tuning picked the fourth-last block for Giant, which has 40 blocks, so the best depth depends on the backbone; the "Transformer block" setting is under "Clean-up and advanced".
 - Neighbourhood features for click-based segmentation gained about 0.015 on Liu file A but lost 0.07 on the demo's small cells.
+- For learned models carried between files A, E and F (mean other-file Dice 0.68 with Small): centering each image's features lowered it to 0.61; training on gamma- and blur-varied copies of the expert slices gave 0.68; DINOv2 Base gave 0.65 and Large 0.69, the latter at about three times the cost of Small.
 
 On Liu file A a smaller backbone input of 644 px did slightly better than the default 980 px (0.66 against 0.65 with 25 + 25 clicks), and Base was close to Small. Try the "Detail" setting under "Clean-up and advanced" if a mask looks too fragmented.
 
