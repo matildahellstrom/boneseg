@@ -139,6 +139,7 @@ Each of these was measured and did not hold up, so the defaults stay simpler:
 - Tuning the input size and λ on one labelled slice made other slices worse (0.61 against 0.64).
 - Half-patch-shifted passes to double the feature resolution scored 0.61 against 0.65. A stricter threshold helped with 25 clicks but hurt with 3.
 - Flip-averaged features and features from two layers did not help (0.64 against 0.65).
+- Earlier transformer blocks did worse for Small and Base (Small: 0.60 for the second-last and 0.56 for the fourth-last block, against 0.65 for the last, with 25 + 25 clicks). On the notebook's Kaggle run, tuning picked the fourth-last block for Giant, which has 40 blocks, so the best depth depends on the backbone; the "Transformer block" setting is under "Clean-up and advanced".
 - Neighbourhood features for click-based segmentation gained about 0.015 on Liu file A but lost 0.07 on the demo's small cells.
 
 On Liu file A a smaller backbone input of 644 px did slightly better than the default 980 px (0.66 against 0.65 with 25 + 25 clicks), and Base was close to Small. Try the "Detail" setting under "Clean-up and advanced" if a mask looks too fragmented.
