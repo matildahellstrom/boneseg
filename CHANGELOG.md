@@ -56,3 +56,8 @@ How boneseg grew from the research notebook, grouped by theme. Hashes point to t
 
 - `8aae1fa` Reports cover multi-structure results.
 - `3754f0f` The notebook's Kaggle run of 3 October ran out of GPU memory at the first U-Net and lost its tables. Fixed: Giant is freed first, U-Nets train in mixed precision, and every experiment saves its tables as soon as it finishes.
+- `10dc675` The Docker image was built and tested: token, disabled path opening, persistent `/data` volume, both backbones on the CPU.
+- `c512ed7` A cross-file benchmark on Liu files A, E and F. Five expert slices of a file beat clicking every slice (0.72, 0.83, 0.78 against 0.63, 0.77, 0.62); a model from another file roughly matches clicking without clicks.
+- `63ef068` Measured and left out for carrying models between files: per-image feature centering, brightness and blur copies, DINOv2 Base and Large.
+- `2ae92b0`, `b8d701c` Each dataset remembers its channel, and batch runs (in the app and on the command line) can use each file's own channel, because the autofluorescence is channel 3 in A but 4 in E and F. On the real files, a model trained on five expert slices of A scored 0.67 on A, 0.75 on E and 0.57 on F over whole stacks.
+
