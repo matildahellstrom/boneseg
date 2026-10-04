@@ -55,7 +55,16 @@ python paper/analyze.py           # results/summary.md, results/*.csv, figures/*
 
 ### nnU-Net
 
-nnU-Net needs a CUDA GPU and several hours per fold, so it runs separately, for example on Kaggle:
+nnU-Net needs a CUDA GPU and several hours per fold, so it runs separately. `paper/kaggle_nnunet/` is a ready Kaggle kernel that trains the three folds with nnU-Net's 250-epoch trainer and predicts the test slices:
+
+```bash
+python paper/nnunet_export.py --out nnUNet_raw
+# upload nnUNet_raw/Dataset501_LiuBone as a private Kaggle dataset called liubone-nnunet, then
+kaggle kernels push -p paper/kaggle_nnunet
+kaggle kernels output matildahellstrom/boneseg-nnunet-baseline -p nnunet_out   # predictions.zip
+```
+
+The same steps by hand:
 
 ```bash
 python paper/nnunet_export.py --out nnUNet_raw        # writes the same slices and leave-one-sample-out folds
