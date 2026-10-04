@@ -39,7 +39,7 @@ docker build -t boneseg .
 docker run -p 8000:8000 -v "$PWD/projects:/data" boneseg
 ```
 
-The image runs on the CPU. For an NVIDIA GPU, change the PyTorch wheel index in the Dockerfile to a CUDA one and add `--gpus all` to `docker run`. The Dockerfile has not been built yet, because the development machine was short on disk space.
+Add `-e BONESEG_TOKEN=some-secret` to require an access token, then open http://localhost:8000/?token=some-secret. The image is about 1.8 GB and runs on the CPU; DINOv2 weights download into the `/data` volume on first use. For an NVIDIA GPU, change the PyTorch wheel index in the Dockerfile to a CUDA one and add `--gpus all` to `docker run`.
 
 ## How to use it
 
