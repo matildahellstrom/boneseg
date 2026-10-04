@@ -259,7 +259,8 @@
       <summary>Run a profile on every sample first</summary>
       <div class="row" style="margin-top:6px">
         <label class="small">Profile <select id="batchProfile"></select></label>
-        <label class="small">Channel <input type="number" id="batchChannel" min="0" value="0"></label>
+        <label class="small">Channel <select id="batchChannelMode"><option value="own">Each sample's own (last chosen)</option><option value="fixed">The same number for all</option></select></label>
+        <label class="small hidden" id="batchChannelRow">Number <input type="number" id="batchChannel" min="0" value="0"></label>
         <label class="small">Every n-th slice <input type="number" id="batchStep" min="1" value="1"></label>
         <button class="primary" id="batchRun">Run on all samples</button>
       </div>

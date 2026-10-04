@@ -80,6 +80,8 @@ def router(ctx: AppContext) -> APIRouter:
         updates = req.model_dump(exclude_unset=True)
         if updates.get("reference_channel") is not None and not 0 <= updates["reference_channel"] < ds.volume.n_channels:
             raise HTTPException(400, "Reference channel out of range")
+        if updates.get("default_channel") is not None and not 0 <= updates["default_channel"] < ds.volume.n_channels:
+            raise HTTPException(400, "Channel out of range")
         if updates.get("voxel_um_override") is not None and min(updates["voxel_um_override"]) <= 0:
             raise HTTPException(400, "Pixel and slice sizes must be positive")
         if "reference_channel" in updates:

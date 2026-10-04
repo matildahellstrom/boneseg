@@ -47,7 +47,8 @@ async function runBatch() {
   if (!pid) { toast("Save a profile first"); return; }
   $("batchRun").disabled = true;
   try {
-    const job = await api("/api/batch", { method: "POST", body: { profile_id: pid, channel: +$("batchChannel").value, z_step: +$("batchStep").value, settings: settings() } });
+    const channel = $("batchChannelMode").value === "own" ? null : +$("batchChannel").value;
+    const job = await api("/api/batch", { method: "POST", body: { profile_id: pid, channel, z_step: +$("batchStep").value, settings: settings() } });
     const poll = async () => {
       const j = await api(`/api/jobs/${job.id}`);
       $("batchBar").style.width = `${100 * j.progress}%`;
@@ -59,7 +60,7 @@ async function runBatch() {
       const failed = samples.filter((s) => s.status === "failed");
       const skipped = samples.filter((s) => s.status === "skipped");
       $("batchText").textContent = `Done: ${samples.filter((s) => s.status === "done").length} samples`
-        + (skipped.length ? `, ${skipped.length} skipped without that channel` : "")
+        + (skipped.length ? `, ${skipped.length} skipped (${skipped.map((s) => s.error).filter((v, i, a) => a.indexOf(v) === i).join(", ")})` : "")
         + (failed.length ? `, ${failed.length} failed (${failed.map((f) => f.name).join(", ")})` : "");
       loadStudy();
     };

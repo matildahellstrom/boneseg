@@ -31,7 +31,9 @@ function bind() {
     catch (e) { toast(e.message, true); } finally { busy(false); }
   };
 
-  $("channelSelect").onchange = async (e) => { S.c = +e.target.value; stopEditing(); renderLabels(); await refreshHead(); loadPlane(); if ($("showSide").checked) loadSide(); };
+  $("channelSelect").onchange = async (e) => {
+    S.c = +e.target.value;
+    if (S.ds) api(`/api/datasets/${S.ds.id}`, { method: "PATCH", body: { default_channel: S.c } }).then((d) => { S.ds.default_channel = d.default_channel; }).catch(() => {}); stopEditing(); renderLabels(); await refreshHead(); loadPlane(); if ($("showSide").checked) loadSide(); };
   $("zSlider").oninput = (e) => { S.z = +e.target.value; $("zValue").textContent = S.z; };
   $("zSlider").onchange = () => loadPlane();
   $("zPrev").onclick = () => stepZ(-1);
@@ -193,6 +195,7 @@ function bind() {
   };
   $("studyMetric").onchange = loadStudy;
   $("batchRun").onclick = runBatch;
+  $("batchChannelMode").onchange = () => $("batchChannelRow").classList.toggle("hidden", $("batchChannelMode").value === "own");
   $("reportBtn").onclick = () => window.open(`/api/datasets/${S.ds.id}/report?c=${S.c}&z=${S.z}`, "_blank");
   $("hContact").oninput = () => { $("hContactValue").textContent = `${$("hContact").value} µm`; };
   $("histoCsv").onclick = () => { window.location = `/api/datasets/${S.ds.id}/histomorphometry/cells.csv?z=${S.histoZ ?? S.z}`; };

@@ -57,7 +57,7 @@ Add `-e BONESEG_TOKEN=some-secret` to require an access token, then open http://
 **Some files have expert masks, others do not** (as in the Liu data, where the last channel is the expert segmentation).
 1. Open a file with expert masks and pick its image channel. The reference channel is picked up from its name.
 2. Click "Label 5 slices from the reference", then "Train model". The summary shows the model's Dice against the expert mask on slices it was not trained on.
-3. "Save model as profile". Open the other files, then in "Compare samples" run the profile on every sample, assign groups and compare.
+3. "Save model as profile". Open the other files and pick each one's image channel; the app remembers it, since the same stain can sit at a different channel number in different files. In "Compare samples", run the profile on every sample with "Each sample's own" channel, assign groups and compare.
 
 **No expert masks.**
 1. Click a few examples and background spots on one slice, and check the mask.

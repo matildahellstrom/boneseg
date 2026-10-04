@@ -718,3 +718,23 @@ def test_report_for_several_structures(client):
     # A single-structure segmentation afterwards makes the report about that one again
     client.post(f"/api/datasets/{did}/segment", json={"channel": 0, "z": 0, "pos": [list(c) for c in centers], "neg": bg_points(gt), "settings": SETTINGS})
     assert "<h2>Structures</h2>" not in client.get(f"/api/datasets/{did}/report", params={"c": 0, "z": 0}).text
+
+
+def test_batch_uses_each_samples_own_channel(client):
+    a, gt, centers = upload_stack(client, n_z=1)
+    b, _, _ = upload_stack(client, n_z=1)
+    c, _, _ = upload_stack(client, n_z=1)
+    client.patch(f"/api/datasets/{a['id']}", json={"default_channel": 0})
+    client.patch(f"/api/datasets/{b['id']}", json={"default_channel": 1})
+    assert client.patch(f"/api/datasets/{c['id']}", json={"default_channel": 9}).status_code == 400
+    prof = client.post("/api/profiles", json={"name": "p", "dataset_id": a["id"], "channel": 0, "z": 0, "pos": [list(x) for x in centers],
+                                              "neg": bg_points(gt), "settings": SETTINGS}).json()
+    job = client.post("/api/batch", json={"profile_id": prof["id"], "channel": None, "dataset_ids": [a["id"], b["id"], c["id"]], "settings": SETTINGS}).json()
+    for _ in range(200):
+        job = client.get(f"/api/jobs/{job['id']}").json()
+        if job["status"] in ("done", "failed"):
+            break
+        time.sleep(0.05)
+    assert job["meta"]["channels"] == {a["id"]: 0, b["id"]: 1}
+    status = {s["dataset_id"]: s["status"] for s in job["result"]["samples"]}
+    assert status == {a["id"]: "done", b["id"]: "done", c["id"]: "skipped"}

@@ -12,7 +12,7 @@ from .context import AppContext
 
 class BatchRequest(BaseModel):
     profile_id: str
-    channel: int = 0
+    channel: int | None = 0  # None uses each sample's own channel, the one last chosen for it in the app
     dataset_ids: list[str] = Field(default_factory=list)  # Empty means every dataset
     z_start: int = 0
     z_end: int | None = None
@@ -35,11 +35,16 @@ def router(ctx: AppContext) -> APIRouter:
         settings = SegmentationSettings.from_dict(base)
         ids = req.dataset_ids or sorted(store.datasets, key=lambda i: store.datasets[i].volume.name)
         everything = [store.get(i) for i in ids]
-        # Samples without the channel are skipped and reported, instead of failing the whole batch
-        targets = [ds for ds in everything if req.channel < ds.volume.n_channels]
-        skipped = [ds for ds in everything if req.channel >= ds.volume.n_channels]
+
+        def channel_of(ds):
+            c = req.channel if req.channel is not None else ds.meta.get("default_channel")
+            return c if c is not None and 0 <= c < ds.volume.n_channels else None
+
+        # Samples without the channel (or without a chosen channel) are skipped and reported, not fatal
+        targets = [ds for ds in everything if channel_of(ds) is not None]
+        skipped = [ds for ds in everything if channel_of(ds) is None]
         if not targets:
-            raise ValueError(f"No sample has channel {req.channel}")
+            raise ValueError("No sample has that channel" if req.channel is not None else "No sample has a chosen channel yet; open each sample and pick its channel")
         head = head_from_profile(prof) if prof.head else None
         multi = prof.multi_model() if prof.structures else None
         pos, neg = prof.tensors()
@@ -52,7 +57,7 @@ def router(ctx: AppContext) -> APIRouter:
                 job.message = f"{ds.volume.name} ({i + 1}/{len(targets)})"
                 last = ds.volume.n_z - 1 if req.z_end is None else min(req.z_end, ds.volume.n_z - 1)
                 zs = list(range(max(0, req.z_start), last + 1, max(1, req.z_step)))
-                c, did = req.channel, ds.id
+                c, did = channel_of(ds), ds.id
                 emb = lambda z, did=did, c=c: store.embedding(did, c, z, settings)  # noqa: E731
                 img = lambda z, did=did, c=c: store.plane(did, c, z, settings.clip_low, settings.clip_high)  # noqa: E731
                 frac0, span = i / len(targets), 1 / len(targets)
@@ -81,10 +86,11 @@ def router(ctx: AppContext) -> APIRouter:
                                                    "batch": job.id, "n_slices": len(zs)}, run)
                 rows.append({"dataset_id": did, "name": ds.volume.name, "job_id": child.id, "status": child.status, "error": child.error})
             rows += [{"dataset_id": ds.id, "name": ds.volume.name, "job_id": None, "status": "skipped",
-                      "error": f"no channel {req.channel}"} for ds in skipped]
+                      "error": f"no channel {req.channel}" if req.channel is not None else "no channel chosen"} for ds in skipped]
             return {"samples": rows, "profile": prof.name}
 
         job = store.start_job("batch", work, meta={"profile": prof.name, "n_datasets": len(targets), "channel": req.channel})
+        job.meta["channels"] = {ds.id: channel_of(ds) for ds in targets}
         return job.info()
 
     return r
