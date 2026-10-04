@@ -41,6 +41,31 @@ Label-based methods are trained on 5 labelled development slices either of the h
 
 **Statistics.** Click seeds are averaged per slice. Dice is reported per sample and as the mean of per-sample means, with a hierarchical bootstrap 95% CI: samples are resampled, then slices within them. Paired differences against boneseg use the same slices and clicks. With few samples, these intervals describe these samples, not the population of samples.
 
+## Results so far
+
+From `results/summary.md`: three samples (A, E, F), 10 test slices each, nested leave-one-sample-out, method `method-v1`. With three samples, these are preliminary.
+
+| Mean Dice (95% CI over samples and slices) | 3 + 6 clicks | 25 + 25 clicks |
+|---|---|---|
+| boneseg, clicks, clean | 0.66 (0.60–0.74) | 0.70 (0.64–0.79) |
+| SAM ViT-B, clean | 0.58 (0.50–0.70) | 0.72 (0.64–0.81) |
+| micro-SAM ViT-B LM, clean | 0.48 (0.32–0.62) | 0.58 (0.40–0.72) |
+| Random forest (ilastik-style), clean | 0.45 (0.33–0.59) | 0.57 (0.46–0.70) |
+| boneseg, clicks, noisy | 0.60 (0.55–0.64) | 0.71 (0.64–0.79) |
+| SAM ViT-B, noisy | 0.53 (0.44–0.65) | 0.67 (0.59–0.78) |
+| Otsu, no input | 0.35 (0.18–0.49) | |
+
+| Mean Dice, 5 labelled slices | Same sample | Other samples |
+|---|---|---|
+| boneseg learned model | 0.77 (0.72–0.82) | 0.70 (0.62–0.77) |
+| Random forest | 0.65 (0.59–0.72) | 0.48 (0.30–0.61) |
+
+What this supports, and what not yet:
+- **Few or imperfect clicks.** boneseg beats SAM with few clicks (+0.08, CI +0.03 to +0.13) and with noisy clicks (+0.04, +0.01 to +0.10), and it barely degrades with noise. With 25 clean clicks, SAM and boneseg are level (SAM +0.01, CI −0.01 to +0.03).
+- **Other baselines.** It clearly beats the ilastik-style random forest and micro-SAM in every condition, and the learned model beats the random forest trained on the same labels by 0.12 (same sample) and 0.22 (other samples).
+- **Bias in bone measures.** boneseg overestimates bone area: B.Ar/T.Ar is +6.4 percentage points from clicks (expert mean 13.1%), and +3.7 from the learned model. Tb.Th is +20 to +26 µm too thick. The masks spill over the expert boundary. Because the bias is consistent (narrow limits of agreement, ICC 0.64 to 0.81, r 0.93 to 0.95), group comparisons are less affected than absolute values, but the paper should say so, or correct it.
+- **Not yet shown.** Generalization beyond these three samples, agreement with a second human, and nnU-Net as the supervised reference.
+
 ## Running it
 
 ```bash
