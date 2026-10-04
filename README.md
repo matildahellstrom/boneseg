@@ -128,6 +128,18 @@ Several choices differ from the notebook. Each was measured with the benchmark s
 | Learned from 1 labelled slice | 0.67 |
 | Learned from 4 labelled slices | 0.69 |
 
+Across files, measured on Liu files A, E and F, whose last channel is the expert segmentation of the autofluorescence channel (`scripts/benchmark_transfer.py`, eight test slices per file that were never used for training):
+
+| Mean Dice on the test slices | A | E | F |
+|---|---|---|---|
+| Clicking 25 + 25 on every slice | 0.63 | 0.77 | 0.62 |
+| Learned model from 5 expert slices of the same file | 0.72 | 0.83 | 0.78 |
+| Learned model from 5 expert slices of another file | 0.61 to 0.63 | 0.74 to 0.75 | 0.62 to 0.73 |
+| Learned model from the expert slices of both other files | 0.61 | 0.75 | 0.70 |
+| Click profile from one slice of another file | 0.54 to 0.56 | 0.51 to 0.54 | 0.34 to 0.50 |
+
+A few expert slices of the same file beat clicking every slice on all three files. A model from other files is about as good as clicking without any clicks, and far better than a carried-over click profile. Pooling files did not beat the best single file, but it removes the need to pick one.
+
 On real data most of the error is the mask spilling over the expert's boundary, which "Errors" makes visible. The learned model is the most effective way to reduce it.
 
 ### Tried and left out
@@ -150,6 +162,7 @@ Run the benchmarks yourself:
 python scripts/benchmark_demo.py --ref top --depth-degradation 1.0
 python scripts/benchmark_file.py "data/liudata/10-26-40_6_Blaze_crop2 quantified.ims" --channel 3 --reference 4
 python scripts/benchmark_head.py "data/liudata/10-26-40_6_Blaze_crop2 quantified.ims" --channel 3 --reference 4
+python scripts/benchmark_transfer.py "A=data/liudata/10-26-40_6_Blaze_crop2 quantified.ims:3" "E=data/liudata/11-26-23_1TRAP_SOST_NCAM_Blaze crop3 segmentation quantified.ims:4" "F=data/liudata/11-30-50_5TRAP_SOST_NCAM_Blazecrop1 segmentation quantified.ims:4"
 ```
 
 ## Using it from Python
