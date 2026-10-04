@@ -15,6 +15,16 @@ kaggle kernels status matildahellstrom/dino-segmentation-unet
 kaggle kernels output matildahellstrom/dino-segmentation-unet -p results
 ```
 
+## The run of 3 October 2026
+
+It completed tuning, the four backbones and the transfer experiments, then ran out of GPU memory at the first U-Net
+training ("CUDA out of memory" on a 15 GB T4). Kaggle keeps no notebook from a failed run, so the tables were lost; the
+log shows that tuning chose block 4 from the end, lambda 1.2 and the fixed 10% threshold for DINOv2 Giant.
+
+Fixed since: the Giant backbone is freed before the U-Nets, the U-Nets train in mixed precision on the GPU, the
+allocator reuses fragmented memory, and every experiment writes its tables to `results/` and prints them as soon as it
+finishes, so a later failure no longer loses them.
+
 ## Changes since the run started on 3 October 2026
 
 The Kaggle run started that morning uses the reviewed notebook from commit `8dd4b1b`. Later commits added three things, which only take effect after pushing again:
