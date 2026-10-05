@@ -156,7 +156,8 @@ def train_refiner(examples, steps: int = 1500, batch: int = 8, crop: int = 256, 
         raise ValueError("No training examples for the refiner")
     net = RefinerNet(width).to(device)
     opt = torch.optim.AdamW(net.parameters(), lr=lr, weight_decay=1e-4)
-    sched = torch.optim.lr_scheduler.OneCycleLR(opt, max_lr=lr, total_steps=steps, pct_start=0.1)
+    steps = max(4, int(steps))
+    sched = torch.optim.lr_scheduler.OneCycleLR(opt, max_lr=lr, total_steps=steps, pct_start=min(0.5, max(0.1, 2.5 / steps)))
     t0 = time.time()
     net.train()
     for step in range(steps):
@@ -176,3 +177,62 @@ def train_refiner(examples, steps: int = 1500, batch: int = 8, crop: int = 256, 
     net.eval()
     return Refiner(state={k: v.detach().cpu() for k, v in net.state_dict().items()}, width=width,
                    info={"examples": n_examples, "crops": len(items), "steps": steps, "crop": crop})
+
+
+def simulate_clicks(gt: np.ndarray, n_pos: int, n_neg: int, rng, noisy: bool = False):
+    """Object clicks inside a mask and background clicks outside it, at least 10 px from the boundary
+    (noisy: anywhere, with 10% on the wrong side), as (y, x) lists."""
+    import scipy.ndimage as ndi
+    inner = gt if noisy else ndi.binary_erosion(gt, iterations=10)
+    outer = ~gt if noisy else ~ndi.binary_dilation(gt, iterations=10)
+    inner, outer = (inner if inner.any() else gt), (outer if outer.any() else ~gt)
+
+    def pick(region, k):
+        ys, xs = np.nonzero(region)
+        i = rng.choice(len(ys), k, replace=len(ys) < k)
+        return [(int(ys[j]), int(xs[j])) for j in i]
+
+    pos, neg = pick(inner, n_pos), pick(outer, n_neg)
+    if noisy:
+        wp, wn = (max(1, round(0.1 * n_pos)) if n_pos >= 5 else 0), (max(1, round(0.1 * n_neg)) if n_neg >= 5 else 0)
+        pos, neg = pos[wp:] + pick(~gt, wp), neg[wn:] + pick(gt, wn)
+    return pos, neg
+
+
+def train_refiner_from_files(specs: list[str], settings, n_slices: int = 10, draws: int = 6, steps: int = 1500,
+                             seed: int = 0, log=print) -> Refiner:
+    """Trains a refiner from microscopy files that contain an expert mask channel.
+
+    Each spec is 'file:image_channel:mask_channel' (the mask channel defaults to the last one). n_slices slices
+    with a non-empty mask are taken evenly from each file, and each gets several simulated click draws
+    (3+6, 10+10 and 25+25 clicks, alternately clean and noisy), segmented with the given settings."""
+    from . import io as bio
+    from .backbone import get_backbone
+    from .segment import embed_image
+
+    rng = np.random.default_rng(seed)
+    bb = get_backbone(settings.backbone)
+    budgets = [(3, 6), (10, 10), (25, 25)]
+
+    def examples():
+        for spec in specs:
+            parts = spec.rsplit(":", 2)
+            path, ch = parts[0], int(parts[1])
+            vol = bio.load_volume(path)
+            mask_ch = int(parts[2]) if len(parts) == 3 else vol.n_channels - 1
+            zs = [z for z in np.linspace(0, vol.n_z - 1, n_slices * 3).round().astype(int)]
+            picked = [z for z in dict.fromkeys(zs) if (vol.get_plane(mask_ch, int(z)) > 0).mean() > 0.005]
+            picked = [picked[i] for i in sorted(set(np.linspace(0, len(picked) - 1, min(n_slices, len(picked))).round().astype(int)))] if picked else []
+            log(f"{Path(path).name}: {len(picked)} slices with a mask")
+            for z in picked:
+                img = bio.normalize_plane(vol.get_plane(ch, int(z)), settings.clip_low, settings.clip_high)
+                gt = vol.get_plane(mask_ch, int(z)) > 0
+                emb = embed_image(bb, img, settings)
+                for d in range(draws):
+                    pos, neg = simulate_clicks(gt, *budgets[d % len(budgets)], rng, noisy=d % 2 == 1)
+                    raw, thr = click_example(emb, pos, neg, settings)
+                    yield img, raw, thr, gt
+
+    ref = train_refiner(examples(), steps=steps, seed=seed, log=log)
+    ref.info.update({"files": [Path(s.rsplit(":", 2)[0]).name for s in specs], "settings": {k: v for k, v in settings.to_dict().items() if k != "refiner"}})
+    return ref

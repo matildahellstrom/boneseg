@@ -483,3 +483,17 @@ def test_untrained_refiner_reproduces_threshold_and_loads(tmp_path, blobs):
     assert (res.mask != plain.mask).mean() < 0.002
     with pytest.raises(ValueError):
         segment.get_refiner(str(tmp_path / "missing.pt"))
+
+
+def test_train_refiner_cli(tmp_path):
+    from boneseg.__main__ import main
+    from boneseg.refine import Refiner
+
+    img, gt, _ = make_blobs(seed=0)
+    tifffile.imwrite(tmp_path / "s.tif", np.stack([np.stack([img, gt.astype(np.float32)])] * 3).astype(np.float32),
+                     imagej=True, metadata={"axes": "ZCYX"})
+    out = tmp_path / "r.pt"
+    main(["train-refiner", f"{tmp_path / 's.tif'}:0", "--out", str(out), "--slices", "2", "--steps", "10",
+          "--settings", '{"backbone": "classic", "vit_size": 252}'])
+    ref = Refiner.load(out)
+    assert ref.info["files"] == ["s.tif"] and ref.info["examples"] == 12 and ref.info["settings"]["backbone"] == "classic"

@@ -30,7 +30,25 @@ def main(argv=None):
     batch.add_argument("--data-dir", default=os.environ.get("BONESEG_DATA_DIR", "projects"))
     profiles = sub.add_parser("profiles", help="List saved profiles")
     profiles.add_argument("--data-dir", default=os.environ.get("BONESEG_DATA_DIR", "projects"))
+    tr = sub.add_parser("train-refiner", help="Train a learned refiner from files with an expert mask channel")
+    tr.add_argument("files", nargs="+", help="'file:image_channel' or 'file:image_channel:mask_channel' (mask defaults to the last channel)")
+    tr.add_argument("--out", default="refiner.pt")
+    tr.add_argument("--slices", type=int, default=10, help="Labelled slices per file")
+    tr.add_argument("--steps", type=int, default=1500)
+    tr.add_argument("--settings", default="{}", help='Segmentation settings as JSON, e.g. \'{"shift_passes": 2}\'')
     args = parser.parse_args(argv)
+
+    if args.cmd == "train-refiner":
+        import json
+
+        from .refine import train_refiner_from_files
+        from .segment import SegmentationSettings
+
+        st = SegmentationSettings.from_dict({**json.loads(args.settings), "refiner": ""})
+        ref = train_refiner_from_files(args.files, st, n_slices=args.slices, steps=args.steps)
+        ref.save(args.out)
+        print(f"Wrote {args.out}. Use it with the 'refiner' setting set to this path, with the same other settings.")
+        return
 
     if args.cmd == "batch":
         from .batch import resolve_profile, run_batch
