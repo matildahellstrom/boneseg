@@ -17,8 +17,9 @@ from analyze import hier_boot, icc_a1
 RES = Path(__file__).resolve().parent / "results"
 LABELS = {"otsu": "Otsu threshold", "rf_clicks": "Random forest, clicks (ilastik-style)", "sam": "SAM ViT-B, point prompts",
           "microsam": "micro-SAM ViT-B LM, point prompts", "dino_clicks": "boneseg, clicks",
-          "rf_labels": "Random forest, 5 labelled patches", "dino_labels": "boneseg learned model, 5 labelled patches"}
-ORDER = ["dino_clicks", "sam", "microsam", "rf_clicks", "otsu", "dino_labels", "rf_labels"]
+          "rf_labels": "Random forest, 5 labelled patches", "dino_labels": "boneseg learned model, 5 labelled patches",
+          "noise_yolo": "NOISe detector (YOLOv8-L), trained on 6000 patches of the other batches"}
+ORDER = ["dino_clicks", "sam", "microsam", "rf_clicks", "otsu", "dino_labels", "rf_labels", "noise_yolo"]
 
 
 def detection(g: pd.DataFrame) -> dict:
@@ -64,9 +65,12 @@ def main():
     pd.DataFrame(rows).to_csv(RES / "noise_summary.csv", index=False)
     lines += ["\n## Paired differences in Dice against boneseg, same patches and clicks\n", "| Compared with | Condition | Difference (95% CI) | Wins |", "|---|---|---|---|"]
     ref = df[df["method"] == "dino_clicks"].set_index(["sample", "patch", "condition"])["dice"]
-    for m in ("sam", "microsam", "rf_clicks"):
+    for m in ("sam", "microsam", "rf_clicks", "noise_yolo"):
         for cond in sorted(df.loc[df["method"] == m, "condition"].unique()):
             o = df[(df["method"] == m) & (df["condition"] == cond)].set_index(["sample", "patch", "condition"])["dice"]
+            if m == "noise_yolo":   # Compare the detector with boneseg's 10 + 20 clicks on the same patches
+                o = o.reset_index().assign(condition="10+20 clicks").set_index(["sample", "patch", "condition"])["dice"]
+                cond = "10+20 clicks (detector trained on other batches)"
             d = (ref - o).dropna().reset_index().rename(columns={"dice": "diff"})
             if not d.empty:
                 est, lo, hi = hier_boot(d, "diff")
