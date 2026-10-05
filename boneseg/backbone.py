@@ -65,7 +65,8 @@ class DinoBackbone(Backbone):
 
     @torch.no_grad()
     def embed(self, img, in_h, in_w, layer_from_end=1):
-        x = img[None, None].to(self.device).repeat(1, 3, 1, 1)
+        # A grey image is repeated into three channels; an [H, W, 3] colour image (e.g. brightfield) is used as is
+        x = img.permute(2, 0, 1)[None].to(self.device) if img.ndim == 3 else img[None, None].to(self.device).repeat(1, 3, 1, 1)
         x = F.interpolate(x, (in_h, in_w), mode="bilinear", align_corners=False)
         x = (x - _IMAGENET_MEAN.to(self.device)) / _IMAGENET_STD.to(self.device)
         # n=k returns the last k blocks, so index 0 is the k-th block from the end

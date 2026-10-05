@@ -192,6 +192,7 @@ figcaption .dv { font: 600 15px/1 var(--mono); color: var(--accent) }
     <div id="unetChart"></div>
     <div class="two">
       <p class="note">A U-Net on the image alone learns little from so few labels. Given DINOv2's score map, it only has to sharpen the edges and does well. The app's learned refiner is a light version of the image-plus-score-map U-Net. It helps with few or careless clicks and costs a little with many, so it is off by default.</p>
+      <p class="note">The patch classifier involves no U-Net. DINOv2 Small stays frozen and describes every 14-pixel patch with 384 numbers. A small classifier learns from labelled slices which descriptions mean bone. It is either one linear layer, like logistic regression, or a two-layer network with 64 hidden units, optionally also given the average description of the 5 × 5 neighbouring patches. Cross-validation picks the variant. Its patch-level output is upsampled to full resolution and thresholded at 0.5. The app's learned model is the same idea.</p>
       <p class="note">This run evaluated DINOv2 Small with settings tuned for DINOv2 Giant, which understates Small. A corrected run with per-backbone tuning is ready to push to Kaggle.</p>
     </div>
   </div>
@@ -206,6 +207,7 @@ figcaption .dv { font: 600 15px/1 var(--mono); color: var(--accent) }
 
 <script>
 const DATA = __DATA__;
+const IMAGES = __IMAGES__;
 const SAMPLES = ["A", "C", "E", "F"];
 const M = {
   otsu: ["Otsu threshold", "--stone"], rf_clicks: ["Random forest (ilastik-style)", "--earth"], sam: ["SAM ViT-B", "--amber"],
@@ -317,7 +319,7 @@ function drawFt() {
 
 function drawUnet() {
   const rows = [["DINOv2 Small clicks (baseline)", 0.578, "--stone"], ["U-Net on the image", 0.544, "--earth"], ["U-Net on the score map", 0.653, "--accent-soft"],
-    ["U-Net on image + score map", 0.695, "--accent"], ["U-Net on image + score map + mask", 0.664, "--accent-soft"], ["Trained layer on DINOv2, no U-Net", 0.706, "--violet"]];
+    ["U-Net on image + score map", 0.695, "--accent"], ["U-Net on image + score map + mask", 0.664, "--accent-soft"], ["Patch classifier on frozen DINOv2", 0.706, "--violet"]];
   intervalChart(document.getElementById("unetChart"), rows.map(([l, v, c]) => ({ label: l, v, color: c, strong: l.includes("image + score map") && !l.includes("mask") })),
     { x0: 0, x1: 0.8, ticks: [0, 0.2, 0.4, 0.6, 0.8], labelW: 250, rowH: 32 });
 }
@@ -377,7 +379,7 @@ function drawSample() {
     t += `<tr><td>${esc(lab)}, 5 labels</td><td colspan="2" class="num">same sample ${a ? a.dice.toFixed(3) : "–"}</td><td colspan="2" class="num">other samples ${b ? b.dice.toFixed(3) : "–"}</td><td class="num">${a ? a.bar.toFixed(1) + "% (" + sgn(a.bar - a.gbar, 1) + ")" : "–"}</td></tr>`;
   });
   document.getElementById("sampleTable").innerHTML = t + "</tbody>";
-  document.getElementById("cases").innerHTML = cs.map((c) => `<figure><img src="examples/${c.file}" alt="Sample ${c.sample}, slice ${c.z}: the image and the boneseg mask compared with the expert's" loading="lazy" width="1100"><figcaption><b>${c.kind}</b><span class="dv">Dice ${c.dice.toFixed(3)}</span><span>slice ${c.z}</span><span>bone area ${c.bar_pred.toFixed(1)}% against the expert's ${c.bar_gt.toFixed(1)}%</span></figcaption></figure>`).join("");
+  document.getElementById("cases").innerHTML = cs.map((c) => `<figure><img src="${IMAGES[c.file]}" alt="Sample ${c.sample}, slice ${c.z}: the image and the boneseg mask compared with the expert's" loading="lazy" width="1100"><figcaption><b>${c.kind}</b><span class="dv">Dice ${c.dice.toFixed(3)}</span><span>slice ${c.z}</span><span>bone area ${c.bar_pred.toFixed(1)}% against the expert's ${c.bar_gt.toFixed(1)}%</span></figcaption></figure>`).join("");
   document.getElementById("caseNote").textContent = NOTES[k];
 }
 
