@@ -1,0 +1,41 @@
+held_out,method,budget,setting,f1
+m1,dino_clicks,3+6,"neg_weight=0.8, edge=guided, position=-1, min_px=1000",0.574792243767313
+m1,sam,3+6,min_px=1000,
+m1,microsam,3+6,min_px=1000,
+m1,rf_clicks,3+6,min_px=2500,
+m1,dino_clicks,10+20,"neg_weight=0.8, edge=guided, position=0.7, min_px=1000",0.6800276434001382
+m1,sam,10+20,min_px=2500,
+m1,microsam,10+20,min_px=1000,
+m1,rf_clicks,10+20,min_px=2500,
+m2,dino_clicks,3+6,"neg_weight=0.8, edge=guided, position=-1, min_px=1000",0.5726744186046512
+m2,sam,3+6,min_px=1000,
+m2,microsam,3+6,min_px=1000,
+m2,rf_clicks,3+6,min_px=2500,
+m2,dino_clicks,10+20,"neg_weight=0.8, edge=guided, position=0.7, min_px=1000",0.6734104046242775
+m2,sam,10+20,min_px=2500,
+m2,microsam,10+20,min_px=1000,
+m2,rf_clicks,10+20,min_px=2500,
+m3,dino_clicks,3+6,"neg_weight=0.8, edge=guided, position=-1, min_px=1000",0.5712300208478109
+m3,sam,3+6,min_px=1000,
+m3,microsam,3+6,min_px=2500,
+m3,rf_clicks,3+6,min_px=2500,
+m3,dino_clicks,10+20,"neg_weight=0.8, edge=guided, position=0.7, min_px=1000",0.6740638002773925
+m3,sam,10+20,min_px=2500,
+m3,microsam,10+20,min_px=1000,
+m3,rf_clicks,10+20,min_px=2500,
+m4,dino_clicks,3+6,"neg_weight=0.8, edge=guided, position=-1, min_px=1000",0.595166163141994
+m4,sam,3+6,min_px=1000,
+m4,microsam,3+6,min_px=1000,
+m4,rf_clicks,3+6,min_px=2500,
+m4,dino_clicks,10+20,"neg_weight=0.8, edge=guided, position=0.7, min_px=1000",0.6885007278020379
+m4,sam,10+20,min_px=2500,
+m4,microsam,10+20,min_px=2500,
+m4,rf_clicks,10+20,min_px=2500,
+m5,dino_clicks,3+6,"neg_weight=0.8, edge=guided, position=-1, min_px=1000",0.6628940986257074
+m5,sam,3+6,min_px=1000,
+m5,microsam,3+6,min_px=1000,
+m5,rf_clicks,3+6,min_px=2500,
+m5,dino_clicks,10+20,"neg_weight=0.8, edge=guided, position=-1, min_px=1000",0.7472324723247232
+m5,sam,10+20,min_px=2500,
+m5,microsam,10+20,min_px=1000,
+m5,rf_clicks,10+20,min_px=2500,

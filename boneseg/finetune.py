@@ -52,26 +52,32 @@ class SegNet(nn.Module):
         return self.head(F.normalize(t, dim=1) * 10.0)   # Normalized like the app's features, scaled for a sane logit range
 
 
+def _to3(x: torch.Tensor) -> torch.Tensor:
+    """[B, H, W] grey or [B, H, W, 3] colour as [B, 3, H, W]."""
+    return x.permute(0, 3, 1, 2) if x.ndim == 4 else x[:, None].repeat(1, 3, 1, 1)
+
+
 def to_input(img: np.ndarray, device) -> torch.Tensor:
-    """A [0, 1] grey image (already at backbone resolution) as a normalized 3-channel batch of one."""
-    x = torch.from_numpy(np.ascontiguousarray(img, np.float32))[None, None].repeat(1, 3, 1, 1)
+    """A [0, 1] grey or colour image (already at backbone resolution) as a normalized 3-channel batch of one."""
+    x = _to3(torch.from_numpy(np.ascontiguousarray(img, np.float32))[None])
     return ((x - _IMAGENET_MEAN) / _IMAGENET_STD).to(device)
 
 
 @dataclass
 class Prepared:
     """A slice resized to the backbone input size, with its mask at the same size and at full size."""
-    img: np.ndarray       # [in_h, in_w]
+    img: np.ndarray       # [in_h, in_w] or [in_h, in_w, 3]
     gt_small: np.ndarray  # [in_h, in_w] float in [0, 1]
     gt: np.ndarray        # Full-resolution boolean mask
     shape: tuple
 
 
 def prepare(img: np.ndarray, gt: np.ndarray, vit_size: int, patch: int = 14) -> Prepared:
-    h, w = img.shape
+    h, w = img.shape[:2]
     in_h, in_w = vit_input_size(h, w, vit_size, patch)
-    t = torch.from_numpy(np.ascontiguousarray(img, np.float32))[None, None]
-    small = F.interpolate(t, (in_h, in_w), mode="bilinear", align_corners=False)[0, 0].numpy()
+    t = _to3(torch.from_numpy(np.ascontiguousarray(img, np.float32))[None]) if img.ndim == 3 else torch.from_numpy(np.ascontiguousarray(img, np.float32))[None, None]
+    small = F.interpolate(t, (in_h, in_w), mode="bilinear", align_corners=False)[0]
+    small = small.permute(1, 2, 0).numpy() if img.ndim == 3 else small[0].numpy()
     g = torch.from_numpy(gt.astype(np.float32))[None, None]
     gs = F.interpolate(g, (in_h, in_w), mode="area")[0, 0].numpy()
     return Prepared(small, gs, gt.astype(bool), (h, w))
@@ -81,7 +87,7 @@ def _batch(items: list[Prepared], size: int, n: int, rng):
     xs, ys = [], []
     for _ in range(n):
         it = items[rng.integers(len(items))]
-        h, w = it.img.shape
+        h, w = it.img.shape[:2]
         s_h, s_w = min(size, h // 14 * 14), min(size, w // 14 * 14)
         # Half the crops are centred on bone, which is a small share of most slices
         if rng.random() < 0.5 and it.gt_small.max() > 0.5:
@@ -102,7 +108,7 @@ def _batch(items: list[Prepared], size: int, n: int, rng):
         ys.append(np.ascontiguousarray(y))
     # Crops of one batch share a size only if every slice was large enough; pad the rest
     H, W = max(a.shape[0] for a in xs), max(a.shape[1] for a in xs)
-    X = np.zeros((n, H, W), np.float32)
+    X = np.zeros((n, H, W) + xs[0].shape[2:], np.float32)
     Y = np.zeros((n, H, W), np.float32)
     M = np.zeros((n, H, W), np.float32)
     for i, (a, b) in enumerate(zip(xs, ys)):
@@ -188,8 +194,7 @@ def finetune(train: list[tuple[np.ndarray, np.ndarray]], val: list[tuple[np.ndar
         net.train()
         net.dino.eval() if train_blocks == 0 else None   # Frozen backbone: no dropout or other train-time behaviour
         X, Y, M = _batch(tr, crop, batch, rng)
-        x = torch.from_numpy(X)[:, None].repeat(1, 3, 1, 1)
-        x = ((x - _IMAGENET_MEAN) / _IMAGENET_STD).to(device)
+        x = ((_to3(torch.from_numpy(X)) - _IMAGENET_MEAN) / _IMAGENET_STD).to(device)
         y, m = torch.from_numpy(Y)[:, None].to(device), torch.from_numpy(M)[:, None].to(device)
         logits = F.interpolate(net(x), size=x.shape[-2:], mode="bilinear", align_corners=False)
         p = torch.sigmoid(logits) * m
