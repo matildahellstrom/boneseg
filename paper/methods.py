@@ -128,7 +128,7 @@ _SAM_IMAGE: dict = {}
 def sam_points(kind: str, key, img, pos, neg) -> np.ndarray:
     pred = _sam_predictor(kind)
     if _SAM_IMAGE.get(kind) != key:
-        rgb = (np.repeat(np.clip(img, 0, 1)[..., None], 3, -1) * 255).astype(np.uint8)
+        rgb = (np.clip(img, 0, 1) * 255).astype(np.uint8) if img.ndim == 3 else (np.repeat(np.clip(img, 0, 1)[..., None], 3, -1) * 255).astype(np.uint8)
         pred.set_image(rgb)
         _SAM_IMAGE[kind] = key
     pts = np.array([(x, y) for y, x in list(pos) + list(neg)], np.float32)

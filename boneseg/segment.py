@@ -71,7 +71,7 @@ def _shifted(img: np.ndarray, dy: float, dx: float) -> np.ndarray:
     """The image moved by (-dy, -dx) pixels, so that pixel (y + dy, x + dx) lands at (y, x)."""
     if dy == 0 and dx == 0:
         return img
-    return ndi.shift(img, (-dy, -dx), order=1, mode="reflect")
+    return ndi.shift(img, (-dy, -dx) + ((0,) if img.ndim == 3 else ()), order=1, mode="reflect")
 
 
 def embed_grid(backbone: Backbone, img: np.ndarray, in_h: int, in_w: int, layer_from_end: int, passes: int = 1) -> torch.Tensor:
@@ -82,7 +82,7 @@ def embed_grid(backbone: Backbone, img: np.ndarray, in_h: int, in_w: int, layer_
     t = lambda a: torch.from_numpy(np.ascontiguousarray(a, dtype=np.float32))  # noqa: E731
     if passes <= 1:
         return backbone.embed(t(img), in_h, in_w, layer_from_end)
-    h, w = img.shape
+    h, w = img.shape[:2]
     step_y, step_x = backbone.patch_size * h / in_h, backbone.patch_size * w / in_w   # One patch in image pixels
     fine = None
     for a in range(passes):
@@ -96,8 +96,10 @@ def embed_grid(backbone: Backbone, img: np.ndarray, in_h: int, in_w: int, layer_
 
 
 def embed_image(backbone: Backbone, img: np.ndarray, settings: SegmentationSettings) -> Embedding:
-    """Embeds a normalized [0, 1] image."""
-    h, w = img.shape
+    """Embeds a normalized [0, 1] image, grey [H, W] or colour [H, W, 3] (DINOv2 backbones only)."""
+    if img.ndim == 3 and backbone.name == "classic":
+        raise ValueError("The classic backbone needs a single-channel image")
+    h, w = img.shape[:2]
     in_h, in_w = vit_input_size(h, w, settings.vit_size, backbone.patch_size)
     try:
         grid = embed_grid(backbone, img, in_h, in_w, settings.layer_from_end, max(1, int(settings.shift_passes)))
@@ -148,7 +150,8 @@ def refine_scores(raw: np.ndarray, emb: Embedding, settings: SegmentationSetting
     if settings.edge_refine == "guided":
         # Radius of one feature cell, the scale at which the score map is blurred
         cell = max(emb.height / emb.grid.shape[0], emb.width / emb.grid.shape[1])
-        return guided_filter(emb.image, raw, max(1, int(round(cell))), settings.guided_eps)
+        guide = emb.image.mean(-1) if emb.image.ndim == 3 else emb.image
+        return guided_filter(guide, raw, max(1, int(round(cell))), settings.guided_eps)
     raise ValueError(f"Unknown edge refinement {settings.edge_refine}")
 
 
