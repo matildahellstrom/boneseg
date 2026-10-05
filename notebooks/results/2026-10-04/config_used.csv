@@ -1,0 +1,27 @@
+,value
+seed,9
+z_margin,40
+slices_per_file,100
+tuning_every,4
+clip_low,1.0
+clip_high,99.5
+vit_eval_size,980
+target_um_per_px,None
+dino_layer_from_end,4
+neg_weight,1.2
+score_norm,robust
+n_points,25
+boundary_margin,5
+threshold_mode,top_percent
+top_percent,10.0
+seeds,"(0, 1, 2)"
+unet_backbone,dinov2_s14
+unet_size,960
+unet_features,"(32, 64, 128, 256)"
+unet_batch_size,4
+unet_lr,0.001
+unet_epochs,30
+unet_patience,6
+unet_thresholds,"(0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9)"
+unet_seeds,"(0,)"
+unet_slices_per_file,25

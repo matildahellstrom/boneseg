@@ -13,7 +13,7 @@ venv/
 data/
 cache/
 outputs/
-results/
+/results/
 projects/
 *.pt
 *.pth
