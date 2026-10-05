@@ -1,0 +1,42 @@
+{
+ "channel": "rgb",
+ "passes": 2,
+ "budgets": [
+  [
+   3,
+   6
+  ],
+  [
+   10,
+   20
+  ]
+ ],
+ "grid": {
+  "neg_weight": [
+   0.4,
+   0.8,
+   1.2
+  ],
+  "edge_refine": [
+   "none",
+   "guided"
+  ],
+  "threshold_position": [
+   -1,
+   0.5,
+   0.7,
+   0.9
+  ]
+ },
+ "min_px": [
+  0,
+  1000,
+  2500,
+  5000
+ ],
+ "seeds": [
+  0,
+  1,
+  2
+ ]
+}
