@@ -150,7 +150,7 @@ Each of these was measured and did not hold up, so the defaults stay simpler:
 - An adaptive stack mode that refreshed the prototypes slice by slice lowered Dice in every setting, for example from 0.78 to 0.59.
 - Three channels as a colour image scored the same or worse than one grey channel (0.63 to 0.65, against 0.65 for grey).
 - Tuning the input size and λ on one labelled slice made other slices worse (0.61 against 0.64).
-- Half-patch-shifted passes to double the feature resolution scored 0.61 against 0.65. A stricter threshold helped with 25 clicks but hurt with 3.
+- Shifted passes and a stricter threshold were first left out after tests on file A alone, where shifted passes cost about 0.01. On four samples they help: together with a guided edge filter they raise Dice with 25 clicks from 0.68 to 0.76 and cut the bone-area overestimate from +6.6 to +2.0 points, so they are now the defaults (see `paper/README.md`). File A remains the exception.
 - Flip-averaged features and features from two layers did not help (0.64 against 0.65).
 - Earlier transformer blocks did worse for Small and Base (Small: 0.60 for the second-last and 0.56 for the fourth-last block, against 0.65 for the last, with 25 + 25 clicks). On the notebook's Kaggle run, tuning picked the fourth-last block for Giant, which has 40 blocks, so the best depth depends on the backbone; the "Transformer block" setting is under "Clean-up and advanced".
 - Neighbourhood features for click-based segmentation gained about 0.015 on Liu file A but lost 0.07 on the demo's small cells.

@@ -141,7 +141,7 @@ function settings() {
     smooth_px: +$("smooth").value,
     vit_size: +$("vitSize").value,
     layer_from_end: +$("layer").value,
-    threshold_position: +$("strict").value,
+    threshold_position: $("strict").value === "" ? -1 : +$("strict").value,
     edge_refine: $("edgeRefine").value,
     shift_passes: +$("shiftPasses").value,
     refiner: $("refiner").value,
@@ -182,7 +182,6 @@ function syncSettingLabels() {
   $("minObjValue").textContent = `${$("minObj").value} µm²`;
   $("fillValue").textContent = `${$("fillHoles").value} µm²`;
   $("smoothValue").textContent = `${$("smooth").value} px`;
-  $("strictValue").textContent = (+$("strict").value).toFixed(2);
   const bb = S.health?.backbones.find((b) => b.id === $("backboneSelect").value);
   $("backboneHint").textContent = !bb ? "" : bb.id === "classic"
     ? "Hand-made intensity and texture features. Instant, but less accurate than DINOv2."

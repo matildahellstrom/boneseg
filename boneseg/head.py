@@ -26,8 +26,11 @@ def features(emb: Embedding, context: int) -> torch.Tensor:
     slices from 0.67 to 0.69 with four labelled slices, and from 0.64 to 0.67 with one."""
     g = emb.grid.float().cpu()
     if context > 1:
+        # The neighbourhood is measured in patches, so a model keeps its spatial context on a finer grid
+        k = context * getattr(emb, "passes", 1)
+        k += 1 - k % 2
         t = g.permute(2, 0, 1)[None]
-        ctx = F.avg_pool2d(t, context, stride=1, padding=context // 2, count_include_pad=False)[0].permute(1, 2, 0)
+        ctx = F.avg_pool2d(t, k, stride=1, padding=k // 2, count_include_pad=False)[0].permute(1, 2, 0)
         g = torch.cat([g, ctx], -1)
     return g.reshape(-1, g.shape[-1])
 

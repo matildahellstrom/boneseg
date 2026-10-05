@@ -32,10 +32,12 @@ class SegmentationSettings:
     fill_holes_um2: float = 0.0      # Holes smaller than this are filled
     smooth_px: int = 0               # Radius of a morphological opening and closing
     score_norm: str = "robust"       # "robust" standardizes scores per image by median and MAD, or "none"
-    threshold_position: float = 0.5  # "clicks" mode: 0.5 is halfway between background and object clicks, higher is stricter
-    edge_refine: str = "none"        # "guided" snaps the score map to intensity edges of the image before thresholding
+    # Defaults below follow the four-sample nested evaluation (paper/README.md); method-v1 was 0.5, "none" and 1
+    threshold_position: float = -1.0 # "clicks" mode: 0.5 is halfway between background and object clicks, higher is
+                                     # stricter; -1 is automatic: 0.7 with five or fewer clicks of a kind, else 0.9
+    edge_refine: str = "guided"      # "guided" snaps the score map to intensity edges of the image before thresholding
     guided_eps: float = 0.01         # Guided-filter edge sensitivity: smaller follows weaker edges
-    shift_passes: int = 1            # Feature extraction at n x n sub-patch shifts, giving an n times finer feature grid
+    shift_passes: int = 2            # Feature extraction at n x n sub-patch shifts, giving an n times finer feature grid
     refiner: str = ""                # Learned full-resolution refiner after the click threshold: "", "bundled" or a file path
     clip_low: float = 1.0
     clip_high: float = 99.5
@@ -56,6 +58,7 @@ class Embedding:
     height: int          # Original image height
     width: int
     image: np.ndarray | None = None   # The normalized image, kept for edge refinement
+    passes: int = 1                   # Grid cells per patch along each axis (shift_passes)
 
 
 def vit_input_size(h: int, w: int, vit_size: int, patch: int) -> tuple[int, int]:
@@ -105,7 +108,7 @@ def embed_image(backbone: Backbone, img: np.ndarray, settings: SegmentationSetti
             torch.cuda.empty_cache()
         raise ValueError("The GPU ran out of memory. Pick a smaller backbone, such as DINOv2 Small, or a lower "
                          "'Detail' setting under 'Clean-up and advanced'") from None
-    return Embedding(grid=grid, height=h, width=w, image=img)
+    return Embedding(grid=grid, height=h, width=w, image=img, passes=max(1, int(settings.shift_passes)))
 
 
 _REFINERS: dict = {}
@@ -216,6 +219,14 @@ def threshold_heatmap(heat: np.ndarray, settings: SegmentationSettings) -> tuple
     return heat >= thr, thr
 
 
+def auto_position(position: float, n_pos: int, n_neg: int) -> float:
+    """The threshold position to use. The automatic choice (-1) matches what nested tuning picked in every fold:
+    0.7 when the extreme clicks set the threshold (five or fewer of a kind), 0.9 when quantiles do."""
+    if position >= 0:
+        return float(position)
+    return 0.9 if n_pos > 5 and n_neg > 5 else 0.7
+
+
 def calibrate_threshold(pos_scores, neg_scores, position: float = 0.5) -> float | None:
     """Raw-score threshold between the object clicks and the background clicks, halfway by default.
     A position above 0.5 moves it towards the object clicks, which makes the mask stricter.
@@ -301,7 +312,8 @@ def segment_with_prototypes(emb: Embedding, pos: torch.Tensor, neg: torch.Tensor
     if settings.threshold_mode == "clicks":
         calibrated = None
         if pos_points is not None and neg_points is not None and len(pos_points) and len(neg_points):
-            calibrated = calibrate_threshold(sample_points(raw, pos_points), sample_points(raw, neg_points), settings.threshold_position)
+            calibrated = calibrate_threshold(sample_points(raw, pos_points), sample_points(raw, neg_points),
+                                             auto_position(settings.threshold_position, len(pos_points), len(neg_points)))
         if calibrated is not None:
             raw_threshold, source = calibrated, "clicks"
         elif raw_threshold is not None:

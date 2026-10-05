@@ -1,6 +1,7 @@
 {
  "samples": [
   "A",
+  "C",
   "E",
   "F"
  ],
@@ -37,6 +38,45 @@
    16.0
   ]
  },
- "method_tag": "method-v1",
- "minutes": 31.4
+ "v2_fixed": {
+  "backbone": "dinov2_s14",
+  "vit_size": 980,
+  "shift_passes": 2,
+  "guided_eps": 0.01
+ },
+ "v2_grid": {
+  "neg_weight": [
+   0.4,
+   0.8,
+   1.2
+  ],
+  "edge_refine": [
+   "none",
+   "guided"
+  ],
+  "threshold_position": [
+   0.5,
+   0.6,
+   0.7,
+   0.8,
+   0.9
+  ]
+ },
+ "refiner_budgets": [
+  [
+   3,
+   6
+  ],
+  [
+   10,
+   10
+  ],
+  [
+   25,
+   25
+  ]
+ ],
+ "refiner_steps": 1500,
+ "method_tag": "method-v1 and method-v2",
+ "minutes": 134.3
 }

@@ -103,8 +103,11 @@ def methods_text(info: dict, settings: dict, source: str, n_pos: int, n_neg: int
     else:
         clicks = f"{n_pos} object and {n_neg} background clicks" + (f" combined with the saved profile '{profile}'" if profile else "")
         pos_ = float(settings.get("threshold_position", 0.5))
+        pos_ = 0.5 if pos_ == 0.5 else pos_
         thr = {"clicks": "placed halfway between the scores at the object and background clicks" if pos_ == 0.5 else
-                         f"placed {pos_:.0%} of the way from the scores at the background clicks to those at the object clicks",
+                         (f"placed {pos_:.0%} of the way from the scores at the background clicks to those at the object clicks" if pos_ >= 0 else
+                          "placed 70% (with five or fewer clicks of a kind) or 90% (with more) of the way from the scores at the background "
+                          "clicks to those at the object clicks"),
                "otsu": "chosen with Otsu's method", "top_percent": f"set to keep the top {settings['top_percent']}% of pixels",
                "manual": f"set manually to {settings['manual_threshold']}"}.get(settings["threshold_mode"], settings["threshold_mode"])
         how = (f"Prototypes were taken from the patches under {clicks}. Each patch was scored by its mean cosine similarity to the "

@@ -4,13 +4,15 @@ Code for a reproducible comparison of boneseg with standard tools, on the Liu sa
 
 ## Protocol
 
-**Samples.** Every Liu file present in `data/liudata/` that has an expert mask. The code knows A, C, D, E and F; this run used A, E and F, since C and D (16 and 24 GB) were not downloaded. The image channel is the autofluorescence channel (3 in A, 4 in the others). The expert mask is the file's last channel, an Imaris segmentation of that channel.
+**Samples.** Every Liu file present in `data/liudata/` that has an expert mask. The code knows A, C, D, E and F; this run used A, C, E and F, since D (24 GB) was not downloaded. The image channel is the autofluorescence channel (3 in A, 4 in the others). The expert mask is the file's last channel, an Imaris segmentation of that channel.
 
 **Slices.** Twenty slices per sample, evenly spaced over the central 80% of the stack, keeping only slices where the expert mask covers at least 0.5% of the image. They alternate between development slices, used for tuning and as labelled training slices, and test slices, used only for the final scores.
 
 **Nested leave-one-sample-out.** Each sample is held out in turn. Every setting is chosen on the development slices of the other samples only:
 - boneseg from clicks: background weight λ in {0.4, 0.8, 1.2} and backbone input size in {644, 980} px
 - random forest: largest filter scale in {8, 16} px
+- boneseg v2 from clicks: background weight λ in {0.4, 0.8, 1.2}, edge refinement {none, guided filter} and threshold position in {0.5, ..., 0.9}, with 2 x 2 feature passes at 980 px
+- boneseg v2's refiner: trained on all development slices of the other samples, with simulated clicks at 3 + 6, 10 + 10 and 25 + 25
 - boneseg's learned model: its classifier type and neighbourhood features, by its own internal cross-validation on the training slices
 
 **Simulated clicks.** Object clicks inside the expert mask and background clicks outside it, at two budgets: 3 + 6 and 25 + 25.
@@ -43,28 +45,43 @@ Label-based methods are trained on 5 labelled development slices either of the h
 
 ## Results so far
 
-From `results/summary.md`: three samples (A, E, F), 10 test slices each, nested leave-one-sample-out, method `method-v1`. With three samples, these are preliminary.
+From `results/summary.md`: four samples (A, C, E, F), 10 test slices each, nested leave-one-sample-out. Two method versions are scored on the same slices and clicks: `method-v1` (git tag) and method-v2, which adds the boundary improvements below. With four samples, these results are still preliminary.
 
 | Mean Dice (95% CI over samples and slices) | 3 + 6 clicks | 25 + 25 clicks |
 |---|---|---|
-| boneseg, clicks, clean | 0.66 (0.60–0.74) | 0.70 (0.64–0.79) |
-| SAM ViT-B, clean | 0.58 (0.50–0.70) | 0.72 (0.64–0.81) |
-| micro-SAM ViT-B LM, clean | 0.48 (0.32–0.62) | 0.58 (0.40–0.72) |
-| Random forest (ilastik-style), clean | 0.45 (0.33–0.59) | 0.57 (0.46–0.70) |
-| boneseg, clicks, noisy | 0.60 (0.55–0.64) | 0.71 (0.64–0.79) |
-| SAM ViT-B, noisy | 0.53 (0.44–0.65) | 0.67 (0.59–0.78) |
-| Otsu, no input | 0.35 (0.18–0.49) | |
+| boneseg v1, clicks, clean | 0.64 (0.58–0.72) | 0.68 (0.63–0.75) |
+| boneseg v2, clicks, clean | 0.67 (0.63–0.72) | 0.76 (0.69–0.80) |
+| boneseg v2 + refiner, clicks, clean | 0.69 (0.65–0.74) | 0.73 (0.67–0.80) |
+| SAM ViT-B, clean | 0.60 (0.52–0.69) | 0.74 (0.66–0.82) |
+| micro-SAM ViT-B LM, clean | 0.49 (0.37–0.60) | 0.61 (0.46–0.71) |
+| Random forest (ilastik-style), clean | 0.41 (0.29–0.56) | 0.51 (0.38–0.65) |
+| boneseg v2 + refiner, noisy | 0.64 (0.60–0.68) | 0.67 (0.60–0.78) |
+| SAM ViT-B, noisy | 0.55 (0.46–0.65) | 0.69 (0.61–0.77) |
+| Otsu, no input | 0.31 (0.19–0.45) | |
 
 | Mean Dice, 5 labelled slices | Same sample | Other samples |
 |---|---|---|
-| boneseg learned model | 0.77 (0.72–0.82) | 0.70 (0.62–0.77) |
-| Random forest | 0.65 (0.59–0.72) | 0.48 (0.30–0.61) |
+| boneseg learned model | 0.78 (0.73–0.81) | 0.73 (0.67–0.77) |
+| boneseg v2 learned model (2 x 2 passes) | 0.77 (0.72–0.81) | 0.74 (0.68–0.79) |
+| Random forest | 0.60 (0.51–0.70) | 0.46 (0.33–0.60) |
+
+| B.Ar/T.Ar bias against the expert (expert mean 11.2%) | 3 + 6 clicks | 25 + 25 clicks |
+|---|---|---|
+| boneseg v1 | +4.5 points | +6.6 points |
+| boneseg v2 | +0.9 points | +2.0 points |
+| boneseg v2 + refiner | +3.3 points | +4.1 points |
+| SAM ViT-B | | +4.6 points |
+
+**What method-v2 changes.** Features from 2 x 2 sub-patch shifts (a twice finer feature grid), a guided filter that moves the score boundary onto image edges, and a stricter click threshold. All three were tuned on the other samples in every fold, and every fold chose the same: guided filter, background weight 0.8, and threshold position 0.7 with 3 + 6 clicks or 0.9 with 25 + 25. The app now uses these as defaults ("Auto" strictness picks 0.7 or 0.9 from the number of clicks).
 
 What this supports, and what not yet:
-- **Few or imperfect clicks.** boneseg beats SAM with few clicks (+0.08, CI +0.03 to +0.13) and with noisy clicks (+0.04, +0.01 to +0.10), and it barely degrades with noise. With 25 clean clicks, SAM and boneseg are level (SAM +0.01, CI −0.01 to +0.03).
-- **Other baselines.** It clearly beats the ilastik-style random forest and micro-SAM in every condition, and the learned model beats the random forest trained on the same labels by 0.12 (same sample) and 0.22 (other samples).
-- **Bias in bone measures.** boneseg overestimates bone area: B.Ar/T.Ar is +6.4 percentage points from clicks (expert mean 13.1%), and +3.7 from the learned model. Tb.Th is +20 to +26 µm too thick. The masks spill over the expert boundary. Because the bias is consistent (narrow limits of agreement, ICC 0.64 to 0.81, r 0.93 to 0.95), group comparisons are less affected than absolute values, but the paper should say so, or correct it.
-- **Not yet shown.** Generalization beyond these three samples, agreement with a second human, and nnU-Net as the supervised reference.
+- **v2 against v1.** With 25 clean clicks, v2 gains +0.077 Dice (CI +0.028 to +0.128, better on 92% of slices) and cuts the bone-area bias from +6.6 to +2.0 points (ICC 0.64 to 0.85). With 3 clean clicks the gain is +0.031 (CI −0.016 to +0.085). With noisy clicks v2 is level with v1.
+- **v2 against SAM.** With few clicks, boneseg (v2 + refiner) beats SAM by +0.087 (CI +0.029 to +0.140) and by +0.089 with noisy clicks. With 25 clean clicks they are level (−0.011, CI −0.053 to +0.031), and boneseg's bone-area bias is smaller (+2.0 against +4.6 points for v2).
+- **The learned refiner** (a small U-Net on the image and the score map, trained on the other samples) helps with few or noisy clicks (+0.014 and +0.043, CIs include zero) and costs a little with many clicks (−0.027). It raises the bone-area bias again, so it stays optional.
+- **Finer features for the learned model** make no difference (+0.014 and −0.006, CIs include zero).
+- **Not yet shown.** Generalization beyond these four samples, agreement with a second human, and nnU-Net as the supervised reference.
+
+Development-only experiments that led to v2, never touching test slices: `refine_experiment.py` (`results/refine_dev.csv`) and `refiner_experiment.py` (`results/refiner_dev.csv`).
 
 ## Running it
 
@@ -74,7 +91,7 @@ mkdir -p ~/.cache/boneseg-paper && cd ~/.cache/boneseg-paper
 curl -LO https://dl.fbaipublicfiles.com/segment_anything/sam_vit_b_01ec64.pth && mv sam_vit_b_01ec64.pth sam_vit_b.pth
 curl -L -o microsam_vit_b_lm.pt https://uk1s3.embassy.ebi.ac.uk/public-datasets/bioimage.io/diplomatic-bug/1.2/files/vit_b.pt
 cd -
-python paper/evaluate.py          # about 40 min for three samples on an M-series Mac; --quick for a smoke test
+python paper/evaluate.py          # about 2 hours for four samples on an M-series Mac; --quick for a smoke test
 python paper/analyze.py           # results/summary.md, results/*.csv, figures/*.png
 ```
 
@@ -100,7 +117,7 @@ python paper/analyze.py
 
 ## What is still missing for a paper
 
-- **More samples.** C and D, and ideally samples from another lab or stain.
+- **More samples.** D, and ideally samples from another lab or stain.
 - **A second annotator** on a subset of test slices, to know how well two people agree.
 - **A small user study** with real clicks and timing, since simulated clicks are only a proxy.
 - **Osteoclast-level agreement** (Oc.Pm/B.Pm, N.Oc/B.Pm), which needs expert osteoclast masks; the current expert masks are bone only.

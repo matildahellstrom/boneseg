@@ -458,7 +458,7 @@ def test_guided_filter_snaps_to_image_edge():
 def test_shift_passes_give_finer_grid_and_still_segment(blobs):
     img, gt, centers = blobs
     bb = get_backbone("classic")
-    one = segment.embed_image(bb, img, classic_settings())
+    one = segment.embed_image(bb, img, classic_settings(shift_passes=1))
     two = segment.embed_image(bb, img, classic_settings(shift_passes=2))
     assert two.grid.shape[0] == 2 * one.grid.shape[0] and two.grid.shape[1] == 2 * one.grid.shape[1]
     s = classic_settings(shift_passes=2, edge_refine="guided")

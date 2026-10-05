@@ -61,3 +61,11 @@ How boneseg grew from the research notebook, grouped by theme. Hashes point to t
 - `63ef068` Measured and left out for carrying models between files: per-image feature centering, brightness and blur copies, DINOv2 Base and Large.
 - `2ae92b0`, `b8d701c` Each dataset remembers its channel, and batch runs (in the app and on the command line) can use each file's own channel, because the autofluorescence is channel 3 in A but 4 in E and F. On the real files, a model trained on five expert slices of A scored 0.67 on A, 0.75 on E and 0.57 on F over whole stacks.
 
+
+## 5 October 2026
+
+### Sharper boundaries, measured on four samples
+- `7749f47` The research notebook tunes every DINOv2 backbone separately instead of reusing Giant's settings.
+- Sample C was added to the paper evaluation, which now covers A, C, E and F.
+- `4569641` Four boundary options: a stricter click threshold, guided-filter edge snapping, 2 x 2 shifted feature passes, and a small learned refiner. `f057733` `python -m boneseg train-refiner` trains a refiner on your own labelled files.
+- The nested evaluation on four samples made the first three the defaults: Dice with 25 clicks 0.68 to 0.76, bone-area bias +6.6 to +2.0 points. The refiner helps only with few or noisy clicks and stays optional. Learned models measure their neighbourhood in patches, so models trained before keep working on the finer grid.
