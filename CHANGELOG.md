@@ -74,3 +74,7 @@ How boneseg grew from the research notebook, grouped by theme. Hashes point to t
 - `404d0e8` `boneseg/finetune.py` trains DINOv2 Small's last blocks on expert slices; `python -m boneseg finetune` makes a fine-tuned backbone, which the app lists from its models folder.
 - Leave-one-sample-out on four samples: fine-tuned features raise Dice with 3 + 6 clicks on a new sample from 0.674 to 0.745 (+0.071, CI +0.048 to +0.097), and change nothing with 25 + 25 clicks or with labels from other samples.
 - A refiner trained on all four samples ships as the "bundled" refiner. `docs/how-it-works.md` explains DINOv2, the U-Net additions and fine-tuning for users.
+
+### Osteoclasts on public data
+- `736c52c`, `e70a805` The NOISe mouse osteoclast data (five batches, expert outlines) streamed from its 18 GB archive. boneseg reads colour images directly. Leave-one-batch-out: boneseg from clicks 0.735 Dice against SAM 0.534, micro-SAM 0.326 and a random forest 0.626; counts about 4 osteoclasts per patch within +7% (ICC 0.81) at the default settings. Fine-tuning helps with few clicks (+0.058).
+- `bc07f59` Learned models select their variant by five-fold cross-validation beyond six labelled slices.
