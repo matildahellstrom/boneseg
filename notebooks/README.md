@@ -34,3 +34,7 @@ The Kaggle run started that morning uses the reviewed notebook from commit `8dd4
 - **A linear probe on the DINO features** (section 4.2b), compared with the U-Nets on the same held-out slices.
 
 Each change was checked by running every cell with a stand-in model on synthetic data, not on the real data.
+
+## Changes since the run of 4 October 2026
+
+The run of 4 October (tables in `results/2026-10-04/`) tuned settings on Giant and used them for every backbone, so Small and Base were evaluated at block 4 from the end, which suits Giant's 40 blocks but not their 12. Every backbone is now tuned separately on the tuning slices, its settings are saved in `settings_by_backbone`, and the backbone comparison uses them. The U-Net inputs and the linear probe use the U-Net backbone's own settings, so the DINO Small baseline is Small-tuned. Giant's settings still drive the transfer experiments and the sensitivity sweeps. This needs a new Kaggle run, which also takes longer, since tuning now runs four times.
