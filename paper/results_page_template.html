@@ -1,0 +1,385 @@
+<title>boneseg Evaluation Results</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Literata:opsz,wght@7..72,500;7..72,650&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: one reading column of report sections; each section pairs a chart with its table, selectors sit above the chart. */
+:root {
+  --bg: #f6f7f5; --panel: #ffffff; --fg: #1d2421; --muted: #5d6863; --line: #dde2df; --grid: #e9ece9;
+  --accent: #008a87; --accent-soft: #7cc9c5; --expert: #c2354b; --amber: #c27c0e; --violet: #7a5bb7; --earth: #8a6d55; --stone: #8f9893;
+  --good: #1d7f4f; --bad: #b3373a; --chip: #e7f3f2;
+  --display: "Literata", Georgia, "Times New Roman", serif;
+  --body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #121715; --panel: #19201d; --fg: #e3e9e6; --muted: #9aa6a0; --line: #2c3632; --grid: #232c28;
+  --accent: #3cc8c2; --accent-soft: #2a7e7a; --expert: #ee6a7c; --amber: #e3a23a; --violet: #a68ce0; --earth: #b8977b; --stone: #7b8580;
+  --good: #4cc48a; --bad: #f07a7c; --chip: #1d3331; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #121715; --panel: #19201d; --fg: #e3e9e6; --muted: #9aa6a0; --line: #2c3632; --grid: #232c28;
+  --accent: #3cc8c2; --accent-soft: #2a7e7a; --expert: #ee6a7c; --amber: #e3a23a; --violet: #a68ce0; --earth: #b8977b; --stone: #7b8580;
+  --good: #4cc48a; --bad: #f07a7c; --chip: #1d3331; color-scheme: dark }
+* { box-sizing: border-box }
+body { background: var(--bg); color: var(--fg); font: 15px/1.55 var(--body); padding-inline: 16px; padding-block: 32px 64px }
+.wrap { max-width: 980px; margin: 0 auto; display: grid; gap: 40px }
+h1, h2, h3 { font-family: var(--display); font-weight: 650; text-wrap: balance; margin: 0; line-height: 1.2 }
+h1 { font-size: clamp(28px, 4.6vw, 40px) }
+h2 { font-size: 23px }
+h3 { font-size: 16px; font-family: var(--body); font-weight: 600 }
+p { margin: 0; max-width: 68ch }
+.eyebrow { font: 500 12px/1 var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--accent) }
+.lede { color: var(--muted); font-size: 16px }
+header { display: grid; gap: 12px; border-bottom: 1px solid var(--line); padding-bottom: 24px }
+.meta { display: flex; flex-wrap: wrap; gap: 8px }
+.chip { font: 500 12px/1 var(--mono); padding: 6px 9px; border-radius: 4px; background: var(--chip); color: var(--fg) }
+section { display: grid; gap: 16px; min-width: 0 }
+.findings { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 12px }
+.finding { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 14px 16px; display: grid; gap: 6px; align-content: start }
+.finding b { font: 600 26px/1.1 var(--mono); color: var(--accent); font-variant-numeric: tabular-nums }
+.finding span { color: var(--muted); font-size: 13.5px }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 16px; display: grid; gap: 14px; min-width: 0 }
+.controls { display: flex; flex-wrap: wrap; gap: 6px; align-items: center }
+.controls .lab { font-size: 13px; color: var(--muted); margin-right: 4px }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 5px; overflow: hidden; flex-wrap: wrap }
+.seg button { font: 500 13px/1 var(--body); padding: 8px 11px; background: transparent; color: var(--fg); border: 0; border-right: 1px solid var(--line); cursor: pointer }
+.seg button:last-child { border-right: 0 }
+.seg button[aria-pressed="true"] { background: var(--accent); color: var(--bg) }
+.seg button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px }
+svg { display: block; width: 100%; height: auto; overflow: visible }
+svg text { fill: var(--fg); font-family: var(--body) }
+svg .tick { fill: var(--muted); font: 11px var(--mono) }
+svg .gridl { stroke: var(--grid); stroke-width: 1 }
+svg .zero { stroke: var(--muted); stroke-width: 1 }
+.scroll { overflow-x: auto; min-width: 0 }
+table { border-collapse: collapse; width: 100%; font-size: 13.5px; font-variant-numeric: tabular-nums }
+th, td { padding: 7px 10px; text-align: right; border-bottom: 1px solid var(--line); white-space: nowrap }
+th:first-child, td:first-child { text-align: left; white-space: normal; min-width: 170px }
+th { font: 600 12px/1.3 var(--body); color: var(--muted); text-transform: uppercase; letter-spacing: .04em }
+td.num { font-family: var(--mono) }
+tr.hl td { background: var(--chip) }
+.pos { color: var(--good) } .neg { color: var(--bad) }
+.legend { display: flex; flex-wrap: wrap; gap: 14px; font-size: 12.5px; color: var(--muted) }
+.legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; vertical-align: -1px }
+.note { font-size: 13px; color: var(--muted); max-width: 80ch }
+.two { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px }
+.two > * { min-width: 0 }
+a { color: var(--accent) }
+.ds { display: grid; gap: 10px }
+.dsrow { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 16px; padding: 12px 0; border-bottom: 1px solid var(--line) }
+.dsrow:last-child { border-bottom: 0 }
+.dsrow .fit { font: 500 11px/1 var(--mono); padding: 5px 7px; border-radius: 4px; align-self: start; white-space: nowrap }
+.fit.high { background: var(--accent); color: var(--bg) } .fit.mid { background: var(--chip); color: var(--fg) } .fit.low { border: 1px solid var(--line); color: var(--muted) }
+.dsrow p { font-size: 14px; color: var(--muted); grid-column: 1 / -1 }
+.cases { display: grid; gap: 18px }
+figure { margin: 0; display: grid; gap: 8px; min-width: 0 }
+figure img { width: 100%; border-radius: 4px; border: 1px solid var(--line); background: #000 }
+figcaption { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: baseline; font-size: 13.5px; color: var(--muted) }
+figcaption b { font: 600 13px/1 var(--mono); color: var(--fg); text-transform: uppercase; letter-spacing: .06em }
+figcaption .dv { font: 600 15px/1 var(--mono); color: var(--accent) }
+.key { display: flex; flex-wrap: wrap; gap: 14px; font-size: 12.5px; color: var(--muted) }
+.key i { display: inline-block; width: 12px; height: 12px; border-radius: 2px; margin-right: 6px; vertical-align: -2px }
+.facts { display: flex; flex-wrap: wrap; gap: 8px }
+@media (prefers-reduced-motion: no-preference) { svg .bar { transition: width .25s ease } }
+</style>
+
+<div class="wrap">
+<header>
+  <div class="eyebrow">Bone segmentation · evaluation report</div>
+  <h1>boneseg Evaluation Results</h1>
+  <p class="lede">How well boneseg's masks match an expert's bone masks on four Liu autofluorescence samples, compared with standard tools, and what the boundary improvements, the U-Net refiner and fine-tuning DINOv2 add.</p>
+  <div class="meta"><span class="chip">Samples A · C · E · F</span><span class="chip">10 test slices per sample</span><span class="chip">Nested leave-one-sample-out</span><span class="chip">5 October 2026</span></div>
+</header>
+
+<section>
+  <h2>Key findings</h2>
+  <div class="findings">
+    <div class="finding"><b>0.68 → 0.76</b><span>Dice with 25 + 25 clicks after the boundary improvements, now the app's defaults.</span></div>
+    <div class="finding"><b>+6.6 → +2.0</b><span>Percentage points of bone-area overestimate (B.Ar/T.Ar) with 25 + 25 clicks.</span></div>
+    <div class="finding"><b>+0.087</b><span>Dice ahead of SAM with only 3 + 6 clicks (boneseg v2 + refiner). With 25 + 25 clicks they are level.</span></div>
+    <div class="finding"><b>+0.071</b><span>Dice gain from a fine-tuned DINOv2 with 3 + 6 clicks on a sample it never saw.</span></div>
+  </div>
+  <p class="note">Dice measures overlap with the expert mask: 1 is a perfect match. Intervals are 95% hierarchical bootstrap intervals, resampling samples and then slices. Every setting was tuned on the other samples, so each score is for a sample the method was not tuned on. With four samples, the intervals describe these samples, not bone imaging in general.</p>
+</section>
+
+<section id="samples">
+  <h2>Results per sample</h2>
+  <p>The four samples differ in image size, how much bone they hold, and how hard their boundaries are. Pick a sample to see every method on it, how its ten test slices spread, and three of them as images.</p>
+  <div class="panel">
+    <div class="controls">
+      <span class="lab">Sample</span>
+      <div class="seg" id="sampleSeg"><button data-v="A" aria-pressed="true">A</button><button data-v="C" aria-pressed="false">C</button><button data-v="E" aria-pressed="false">E</button><button data-v="F" aria-pressed="false">F</button></div>
+    </div>
+    <div class="facts" id="sampleFacts"></div>
+    <h3>Dice of boneseg v2 on each test slice, 25 + 25 careful clicks</h3>
+    <div id="stripChart"></div>
+    <div class="scroll"><table id="sampleTable"></table></div>
+    <h3>Worst, median and best test slice</h3>
+    <div class="key"><span><i style="background:#28d2cd"></i>Both boneseg and the expert</span><span><i style="background:#ffaa1e"></i>boneseg only (extra)</span><span><i style="background:#eb3c8c"></i>Expert only (missed)</span><span><i style="background:#fff;border:1px solid var(--line)"></i>Expert outline</span><span><i style="background:#3cff5a"></i>Bone click</span><span><i style="background:#ff3c3c"></i>Background click</span></div>
+    <div class="cases" id="cases"></div>
+    <p class="note" id="caseNote"></p>
+  </div>
+</section>
+
+<section id="clicks">
+  <h2>Segmenting from clicks</h2>
+  <p>Each method got exactly the same simulated clicks inside and outside the expert mask. Careful clicks keep 10 px from the boundary. Careless clicks may sit on it, and one in ten lands on the wrong side.</p>
+  <div class="panel">
+    <div class="controls">
+      <span class="lab">Clicks</span>
+      <div class="seg" id="budgetSeg"><button data-v="3+6" aria-pressed="false">3 + 6</button><button data-v="25+25" aria-pressed="true">25 + 25</button></div>
+      <span class="lab">Placement</span>
+      <div class="seg" id="noiseSeg"><button data-v="clean" aria-pressed="true">Careful</button><button data-v="noisy" aria-pressed="false">Careless</button></div>
+    </div>
+    <div id="clickChart"></div>
+    <div class="legend"><span><i style="background:var(--fg)"></i>Mean with 95% interval</span><span>Letters: mean per sample</span></div>
+    <div class="scroll"><table id="clickTable"></table></div>
+  </div>
+</section>
+
+<section id="labels">
+  <h2>Learning from labelled slices</h2>
+  <p>Methods trained on 5 expert-labelled slices, either from the sample being segmented or from each of the other samples.</p>
+  <div class="panel">
+    <div class="controls">
+      <span class="lab">Labels from</span>
+      <div class="seg" id="labelSeg"><button data-v="labels from same sample" aria-pressed="true">Same sample</button><button data-v="labels from other samples" aria-pressed="false">Other samples</button></div>
+    </div>
+    <div id="labelChart"></div>
+    <div class="scroll"><table id="labelTable"></table></div>
+  </div>
+</section>
+
+<section id="paired">
+  <h2>Paired comparisons</h2>
+  <p>Differences in Dice on the same test slices with the same clicks. To the right of zero, the first method is better. An interval that crosses zero means the difference is not established.</p>
+  <div class="panel">
+    <div class="controls">
+      <span class="lab">Comparison</span>
+      <div class="seg" id="pairSeg"><button data-v="v2v1" aria-pressed="true">v2 vs v1</button><button data-v="refv2" aria-pressed="false">Refiner vs v2</button><button data-v="v2sam" aria-pressed="false">v2 vs SAM</button><button data-v="refsam" aria-pressed="false">v2 + refiner vs SAM</button></div>
+    </div>
+    <div id="pairChart"></div>
+  </div>
+</section>
+
+<section id="measures">
+  <h2>Bone measures against the expert</h2>
+  <p>Researchers report bone measures, so a small Dice gain matters less than an unbiased measurement. Bias is the mean of method minus expert per slice. The bars span the 95% limits of agreement, where nineteen of twenty slices fall.</p>
+  <div class="panel">
+    <div class="controls">
+      <span class="lab">Measure</span>
+      <div class="seg" id="measSeg"><button data-v="B.Ar/T.Ar_%" aria-pressed="true">B.Ar/T.Ar</button><button data-v="B.Pm/T.Ar_per_mm" aria-pressed="false">B.Pm/T.Ar</button><button data-v="Tb.Th_um" aria-pressed="false">Tb.Th</button></div>
+    </div>
+    <div id="measChart"></div>
+    <div class="scroll"><table id="measTable"></table></div>
+  </div>
+</section>
+
+<section id="finetune">
+  <h2>Fine-tuning DINOv2</h2>
+  <p>The last 4 of DINOv2 Small's 12 blocks were trained on expert slices, with early stopping on separate validation slices. The baseline is the same code with DINOv2 left frozen. Click results use a backbone fine-tuned on the other three samples.</p>
+  <div class="panel">
+    <div id="ftChart"></div>
+    <div class="legend"><span><i style="background:var(--stone)"></i>Frozen DINOv2</span><span><i style="background:var(--accent)"></i>Fine-tuned DINOv2</span></div>
+    <div class="scroll"><table id="ftTable"></table></div>
+  </div>
+  <p class="note">Fine-tuning makes 3 + 6 clicks almost as good as 25 + 25 clicks, on all four samples. It changes nothing once there are enough clicks or labels. Trained on the sample's own slices, it helped on A, E and F and hurt on C.</p>
+</section>
+
+<section id="unet">
+  <h2>U-Nets in the research notebook</h2>
+  <p>The notebook's Kaggle run trained U-Nets on five samples, with labels from other samples, and compared them with DINOv2 Small clicks.</p>
+  <div class="panel">
+    <div id="unetChart"></div>
+    <div class="two">
+      <p class="note">A U-Net on the image alone learns little from so few labels. Given DINOv2's score map, it only has to sharpen the edges and does well. The app's learned refiner is a light version of the image-plus-score-map U-Net. It helps with few or careless clicks and costs a little with many, so it is off by default.</p>
+      <p class="note">This run evaluated DINOv2 Small with settings tuned for DINOv2 Giant, which understates Small. A corrected run with per-backbone tuning is ready to push to Kaggle.</p>
+    </div>
+  </div>
+</section>
+
+<section id="datasets">
+  <h2>Public data for further development</h2>
+  <p>None of these match the Liu autofluorescence images exactly, which is the point: each tests a different step from the current data.</p>
+  <div class="panel ds" id="dsList"></div>
+</section>
+</div>
+
+<script>
+const DATA = __DATA__;
+const SAMPLES = ["A", "C", "E", "F"];
+const M = {
+  otsu: ["Otsu threshold", "--stone"], rf_clicks: ["Random forest (ilastik-style)", "--earth"], sam: ["SAM ViT-B", "--amber"],
+  microsam: ["micro-SAM ViT-B LM", "--violet"], dino_clicks: ["boneseg v1", "--accent-soft"], dino_clicks_v2: ["boneseg v2 (default)", "--accent"],
+  dino_clicks_v2_refined: ["boneseg v2 + refiner", "--accent"], rf_labels: ["Random forest", "--earth"],
+  dino_labels: ["boneseg learned model", "--accent-soft"], dino_labels_v2: ["boneseg learned model, 2 × 2 passes", "--accent"], nnunet: ["nnU-Net", "--violet"]
+};
+const css = (v) => `var(${v})`;
+const f3 = (x) => x == null || isNaN(x) ? "–" : x.toFixed(3);
+const sgn = (x, d = 3) => (x > 0 ? "+" : x < 0 ? "−" : "") + Math.abs(x).toFixed(d);
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+function seg(id, onChange) {
+  const el = document.getElementById(id);
+  el.addEventListener("click", (e) => {
+    const b = e.target.closest("button"); if (!b) return;
+    el.querySelectorAll("button").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
+    onChange(b.dataset.v);
+  });
+  return () => el.querySelector('[aria-pressed="true"]').dataset.v;
+}
+
+// Horizontal interval chart: rows {label, v, lo, hi, color, pts:{A:..}, strong}; scale [x0, x1]
+function intervalChart(el, rows, { x0 = 0, x1 = 1, ticks = [0, .2, .4, .6, .8, 1], fmt = (t) => t.toFixed(1), zero = null, rowH = 34, labelW = 210, padR = 56 } = {}) {
+  const W = 760, top = 8, H = top + rows.length * rowH + 28;
+  const X = (v) => labelW + (Math.max(x0, Math.min(x1, v)) - x0) / (x1 - x0) * (W - labelW - padR);
+  let s = `<svg viewBox="0 0 ${W} ${H}" role="img">`;
+  ticks.forEach((t) => { s += `<line class="gridl" x1="${X(t)}" x2="${X(t)}" y1="${top}" y2="${H - 24}"/><text class="tick" x="${X(t)}" y="${H - 8}" text-anchor="middle">${fmt(t)}</text>`; });
+  if (zero !== null) s += `<line class="zero" x1="${X(zero)}" x2="${X(zero)}" y1="${top}" y2="${H - 24}"/>`;
+  rows.forEach((r, i) => {
+    const y = top + i * rowH + rowH / 2, c = css(r.color);
+    s += `<text x="${labelW - 12}" y="${y + 4}" text-anchor="end" font-size="13" font-weight="${r.strong ? 600 : 400}">${esc(r.label)}</text>`;
+    if (r.bar !== false) s += `<rect class="bar" x="${X(Math.max(x0, zero ?? x0))}" y="${y - 9}" width="${Math.max(0, X(r.v) - X(Math.max(x0, zero ?? x0)))}" height="18" rx="2" fill="${c}" opacity="${r.strong ? .9 : .45}"/>`;
+    if (r.lo != null) s += `<line x1="${X(r.lo)}" x2="${X(r.hi)}" y1="${y}" y2="${y}" stroke="var(--fg)" stroke-width="1.5"/><line x1="${X(r.lo)}" x2="${X(r.lo)}" y1="${y - 5}" y2="${y + 5}" stroke="var(--fg)" stroke-width="1.5"/><line x1="${X(r.hi)}" x2="${X(r.hi)}" y1="${y - 5}" y2="${y + 5}" stroke="var(--fg)" stroke-width="1.5"/>`;
+    if (r.bar === false) s += `<circle cx="${X(r.v)}" cy="${y}" r="5" fill="${c}" stroke="var(--panel)" stroke-width="1.5"/>`;
+    if (r.pts) SAMPLES.forEach((k) => { if (r.pts[k] != null) s += `<text x="${X(r.pts[k])}" y="${y - 12}" text-anchor="middle" font-size="9.5" fill="var(--muted)" style="fill:var(--muted)">${k}</text>`; });
+    s += `<text class="tick" x="${W - padR + 8}" y="${y + 4}">${r.txt ?? f3(r.v)}</text>`;
+  });
+  el.innerHTML = s + "</svg>";
+}
+
+function diceTable(el, rows) {
+  el.innerHTML = `<thead><tr><th>Method</th>${SAMPLES.map((s) => `<th>${s}</th>`).join("")}<th>Mean</th><th>95% interval</th></tr></thead><tbody>` +
+    rows.map((r) => `<tr class="${r.m === "dino_clicks_v2" || r.m === "dino_labels" ? "hl" : ""}"><td>${esc(M[r.m][0])}</td>${SAMPLES.map((s) => `<td class="num">${f3(r[s])}</td>`).join("")}<td class="num"><b>${f3(r.mean)}</b></td><td class="num">${f3(r.lo)}–${f3(r.hi)}</td></tr>`).join("") + "</tbody>";
+}
+
+const clickOrder = ["dino_clicks_v2_refined", "dino_clicks_v2", "dino_clicks", "sam", "microsam", "rf_clicks", "otsu"];
+const budget = seg("budgetSeg", drawClicks), noise = seg("noiseSeg", drawClicks);
+function drawClicks() {
+  const cond = `${budget()} clicks, ${noise()}`;
+  const rows = clickOrder.map((m) => DATA.dice.find((d) => d.m === m && (m === "otsu" ? d.c === "no input" : d.c === cond))).filter(Boolean);
+  intervalChart(document.getElementById("clickChart"), rows.map((r) => ({ label: M[r.m][0] + (r.m === "otsu" ? " (no clicks)" : ""), v: r.mean, lo: r.lo, hi: r.hi, color: M[r.m][1], strong: r.m.startsWith("dino_clicks_v2"), pts: r })));
+  diceTable(document.getElementById("clickTable"), rows);
+}
+
+const labelOrder = ["dino_labels", "dino_labels_v2", "rf_labels", "nnunet"];
+const labelSrc = seg("labelSeg", drawLabels);
+function drawLabels() {
+  const rows = labelOrder.map((m) => DATA.dice.find((d) => d.m === m && d.c === labelSrc())).filter(Boolean);
+  intervalChart(document.getElementById("labelChart"), rows.map((r) => ({ label: M[r.m][0], v: r.mean, lo: r.lo, hi: r.hi, color: M[r.m][1], strong: r.m.startsWith("dino"), pts: r })));
+  diceTable(document.getElementById("labelTable"), rows);
+}
+
+const PAIRS = { v2v1: ["dino_clicks_v2", "dino_clicks"], refv2: ["dino_clicks_v2_refined", "dino_clicks_v2"], v2sam: ["dino_clicks_v2", "sam"], refsam: ["dino_clicks_v2_refined", "sam"] };
+const pairSel = seg("pairSeg", drawPairs);
+function drawPairs() {
+  const [a, b] = PAIRS[pairSel()];
+  const rows = DATA.pairs.filter((p) => p.a === a && p.b === b);
+  intervalChart(document.getElementById("pairChart"), rows.map((p) => ({
+    label: p.c.replace("clean", "careful").replace("noisy", "careless"), v: p.d, lo: p.lo, hi: p.hi, bar: false,
+    color: p.lo > 0 ? "--good" : p.hi < 0 ? "--bad" : "--stone", txt: `${sgn(p.d)} · ${Math.round(p.win * 100)}% wins`
+  })), { x0: -0.15, x1: 0.2, ticks: [-0.1, -0.05, 0, 0.05, 0.1, 0.15, 0.2], fmt: (t) => sgn(t, 2), zero: 0, labelW: 170, padR: 130 });
+}
+
+const MEAS = { "B.Ar/T.Ar_%": ["percentage points", 1], "B.Pm/T.Ar_per_mm": ["1/mm", 2], "Tb.Th_um": ["µm", 1] };
+const measPicks = [["sam", "25+25 clicks, clean"], ["dino_clicks", "25+25 clicks, clean"], ["dino_clicks_v2", "25+25 clicks, clean"], ["dino_clicks_v2_refined", "25+25 clicks, clean"],
+  ["dino_clicks", "3+6 clicks, clean"], ["dino_clicks_v2", "3+6 clicks, clean"], ["dino_labels", "labels from same sample"], ["rf_labels", "labels from same sample"]];
+const measSel = seg("measSeg", drawMeas);
+function drawMeas() {
+  const key = measSel(), [unit, dp] = MEAS[key];
+  const rows = measPicks.map(([m, c]) => DATA.agree.find((a) => a.m === m && a.c === c && a.meas === key)).filter(Boolean);
+  const ext = Math.max(...rows.map((r) => Math.max(Math.abs(r.lo), Math.abs(r.hi)))) * 1.05;
+  const step = ext > 40 ? 20 : ext > 15 ? 5 : ext > 6 ? 2 : 1;
+  const ticks = []; for (let t = -Math.floor(ext / step) * step; t <= ext; t += step) ticks.push(t);
+  intervalChart(document.getElementById("measChart"), rows.map((r) => ({
+    label: `${M[r.m][0]}, ${r.c.replace(" clicks, clean", "").replace("labels from same sample", "5 labels")}`, v: r.bias, lo: r.lo, hi: r.hi, bar: false,
+    color: M[r.m][1], strong: r.m.startsWith("dino_clicks_v2"), txt: sgn(r.bias, dp)
+  })), { x0: -ext, x1: ext, ticks, fmt: (t) => sgn(t, 0), zero: 0, labelW: 250 });
+  document.getElementById("measTable").innerHTML = `<thead><tr><th>Method and condition</th><th>Expert mean</th><th>Bias (${unit})</th><th>Limits of agreement</th><th>ICC(A,1)</th><th>r</th></tr></thead><tbody>` +
+    rows.map((r) => `<tr><td>${esc(M[r.m][0])}, ${esc(r.c)}</td><td class="num">${r.exp.toFixed(dp)}</td><td class="num"><b>${sgn(r.bias, dp)}</b></td><td class="num">${sgn(r.lo, dp)} to ${sgn(r.hi, dp)}</td><td class="num">${r.icc.toFixed(2)}</td><td class="num">${r.r.toFixed(2)}</td></tr>`).join("") + "</tbody>";
+}
+
+function drawFt() {
+  const W = 760, labelW = 230, padR = 70, rowH = 46, top = 8, H = top + DATA.ft.length * rowH + 28, x0 = 0.6, x1 = 0.85;
+  const X = (v) => labelW + (v - x0) / (x1 - x0) * (W - labelW - padR);
+  let s = `<svg viewBox="0 0 ${W} ${H}" role="img">`;
+  [0.6, 0.65, 0.7, 0.75, 0.8, 0.85].forEach((t) => { s += `<line class="gridl" x1="${X(t)}" x2="${X(t)}" y1="${top}" y2="${H - 24}"/><text class="tick" x="${X(t)}" y="${H - 8}" text-anchor="middle">${t.toFixed(2)}</text>`; });
+  DATA.ft.forEach((r, i) => {
+    const y = top + i * rowH + rowH / 2, sig = r.diff.lo > 0;
+    s += `<text x="${labelW - 12}" y="${y + 4}" text-anchor="end" font-size="13">${esc(r.c.replace("clean", "careful"))}</text>`;
+    s += `<line x1="${X(r.fr.mean)}" x2="${X(r.ft.mean)}" y1="${y}" y2="${y}" stroke="var(--line)" stroke-width="6" stroke-linecap="round"/>`;
+    s += `<circle cx="${X(r.fr.mean)}" cy="${y}" r="6" fill="var(--stone)"/><circle cx="${X(r.ft.mean)}" cy="${y}" r="6" fill="var(--accent)"/>`;
+    s += `<text class="tick" x="${W - padR + 8}" y="${y + 4}" style="fill:var(${sig ? "--good" : "--muted"})">${sgn(r.diff.d)}</text>`;
+  });
+  document.getElementById("ftChart").innerHTML = s + "</svg>";
+  document.getElementById("ftTable").innerHTML = `<thead><tr><th>Condition</th><th>Backbone</th>${SAMPLES.map((k) => `<th>${k}</th>`).join("")}<th>Mean</th><th>Fine-tuned minus frozen (95% interval)</th></tr></thead><tbody>` +
+    DATA.ft.map((r) => ["fr", "ft"].map((k, j) => `<tr class="${k === "ft" ? "hl" : ""}">${j === 0 ? `<td rowspan="2">${esc(r.c.replace("clean", "careful"))}</td>` : ""}<td style="text-align:left">${k === "ft" ? "Fine-tuned" : "Frozen"}</td>${SAMPLES.map((s) => `<td class="num">${f3(r[k][s])}</td>`).join("")}<td class="num"><b>${f3(r[k].mean)}</b></td>${j === 0 ? `<td rowspan="2" class="num ${r.diff.lo > 0 ? "pos" : ""}">${sgn(r.diff.d)} (${sgn(r.diff.lo)} to ${sgn(r.diff.hi)})</td>` : ""}</tr>`).join("")).join("") + "</tbody>";
+}
+
+function drawUnet() {
+  const rows = [["DINOv2 Small clicks (baseline)", 0.578, "--stone"], ["U-Net on the image", 0.544, "--earth"], ["U-Net on the score map", 0.653, "--accent-soft"],
+    ["U-Net on image + score map", 0.695, "--accent"], ["U-Net on image + score map + mask", 0.664, "--accent-soft"], ["Trained layer on DINOv2, no U-Net", 0.706, "--violet"]];
+  intervalChart(document.getElementById("unetChart"), rows.map(([l, v, c]) => ({ label: l, v, color: c, strong: l.includes("image + score map") && !l.includes("mask") })),
+    { x0: 0, x1: 0.8, ticks: [0, 0.2, 0.4, 0.6, 0.8], labelW: 250, rowH: 32 });
+}
+
+const DATASETS = [
+  ["FEXHIS: human cortical bone, light microscopy", "high", "https://zenodo.org/records/21666670",
+   "10× light-microscopy images of human bone from three sites, with manual masks for Haversian canals, osteocyte lacunae, cement lines and background. Tests boneseg's several-structure mode and a new imaging type."],
+  ["NOISe: osteoclast instance masks", "high", "https://github.com/michaelwwan/noise",
+   "About 200,000 expert-annotated osteoclast masks, mouse cells on plastic and human cells on bone chips, with code. The missing piece for validating Oc.Pm/B.Pm and N.Oc/B.Pm, which the Liu masks cannot."],
+  ["BaMBo: bone marrow biopsies", "mid", "https://www.biorxiv.org/content/10.1101/2024.10.02.616393.full.pdf",
+   "Annotated whole-slide images of bone marrow biopsies, including trabecular bone. Stained histology, so a strong test of whether fine-tuning and the refiner carry over to brightfield images."],
+  ["Micro-CT trabecular bone samples (ORMIR)", "mid", "https://zenodo.org/records/11061947",
+   "Segmented 100 × 100 × 100 micro-CT volumes at 17.6 µm, used for trabecular thickness and separation (19 GB). Useful for checking boneseg's Tb.Th against an established 3D reference."],
+  ["Bone CLARITY: cleared mouse bones, light-sheet", "mid", "https://data.caltech.edu/records/234",
+   "Light-sheet images of optically cleared mouse femur, tibia and vertebrae. Mostly unlabelled, which suits self-supervised adaptation of DINOv2 and tests on large 3D fluorescence stacks."],
+  ["MiceBoneChallenge: mouse micro-CT", "low", "https://arxiv.org/pdf/2411.17260",
+   "Annotated 3D micro-CT scans of mouse bones with growth-plate labels and six reference solutions. A different task, but a good source of whole mouse long bones."],
+  ["Cortical, trabecular and pore micro-CT (Dryad)", "low", "https://datadryad.org/dataset/doi:10.5061/dryad.b2rbnzsq4",
+   "Micro-CT images with cortical bone, trabecular bone and medullary pores segmented, from a 2D and 3D deep-learning study. Another several-structure benchmark in a different modality."]
+];
+document.getElementById("dsList").innerHTML = DATASETS.map(([t, fit, url, d]) =>
+  `<div class="dsrow"><h3><a href="${url}" target="_blank" rel="noopener">${esc(t)}</a></h3><span class="fit ${fit}">${fit === "high" ? "Best next step" : fit === "mid" ? "Good test" : "Further afield"}</span><p>${esc(d)}</p></div>`).join("");
+
+const NOTES = {
+  A: "Sample A is the hardest. Its worst slice shows the typical failure: boneseg also marks wide areas whose texture resembles bone but which the expert did not include, so bone area doubles. Whether all of those areas are wrong is worth a second expert look.",
+  C: "Sample C has the least bone, about 5% of the image. Small spill-overs therefore weigh heavily in its bone area, while Dice stays high.",
+  E: "Sample E's large, smooth bone pieces suit boneseg best. Even the best slice shows a thin amber rim along the outer edge, the remaining boundary error.",
+  F: "Sample F's thin trabeculae are found reliably, but in the worst slice the masks spill past their edges into the neighbouring tissue, which is what inflates bone area and thickness."
+};
+const sampleSel = seg("sampleSeg", drawSample);
+function drawSample() {
+  const k = sampleSel();
+  const cs = DATA.cases.filter((c) => c.sample === k);
+  const c0 = cs[0];
+  const gbar = DATA.persample.find((r) => r.sample === k && r.method === "dino_clicks_v2" && r.condition === "25+25 clicks, clean");
+  document.getElementById("sampleFacts").innerHTML = [`${c0.w} × ${c0.h} px slices`, `${c0.um} µm per pixel`, `expert bone area ${gbar.gbar.toFixed(1)}%`, `expert Tb.Th ${gbar.gtb.toFixed(0)} µm`, "10 test slices"].map((t) => `<span class="chip">${esc(t)}</span>`).join("");
+  // Strip of per-slice Dice, examples marked
+  const W = 760, H = 74, x0 = 0.5, x1 = 0.95, L = 20, R = 20, X = (v) => L + (v - x0) / (x1 - x0) * (W - L - R);
+  let s = `<svg viewBox="0 0 ${W} ${H}" role="img">`;
+  for (let t = 0.5; t <= 0.951; t += 0.05) s += `<line class="gridl" x1="${X(t)}" x2="${X(t)}" y1="6" y2="${H - 22}"/><text class="tick" x="${X(t)}" y="${H - 6}" text-anchor="middle">${t.toFixed(2)}</text>`;
+  DATA.strip.filter((p) => p.s === k).forEach((p) => {
+    const ex = cs.find((c) => c.z === p.z);
+    s += `<circle cx="${X(p.d)}" cy="26" r="${ex ? 8 : 6}" fill="${ex ? "var(--accent)" : "var(--accent-soft)"}" opacity="${ex ? 1 : .7}" stroke="var(--panel)" stroke-width="1.5"/>`;
+    if (ex) s += `<text x="${X(p.d)}" y="12" text-anchor="middle" font-size="10.5" style="fill:var(--muted)">${ex.kind}</text>`;
+  });
+  document.getElementById("stripChart").innerHTML = s + "</svg>";
+  const rowsM = [["dino_clicks_v2_refined"], ["dino_clicks_v2"], ["dino_clicks"], ["sam"], ["microsam"], ["rf_clicks"]];
+  const get = (m, c) => DATA.persample.find((r) => r.sample === k && r.method === m && r.condition === c);
+  const cell = (r) => r ? `<td class="num">${r.dice.toFixed(3)}</td>` : `<td class="num">–</td>`;
+  let t = `<thead><tr><th>Method</th><th>3 + 6 careful</th><th>3 + 6 careless</th><th>25 + 25 careful</th><th>25 + 25 careless</th><th>Bone area, 25 + 25 careful (expert ${gbar.gbar.toFixed(1)}%)</th></tr></thead><tbody>`;
+  rowsM.forEach(([m]) => {
+    const r25 = get(m, "25+25 clicks, clean");
+    t += `<tr class="${m === "dino_clicks_v2" ? "hl" : ""}"><td>${esc(M[m][0])}</td>${cell(get(m, "3+6 clicks, clean"))}${cell(get(m, "3+6 clicks, noisy"))}${cell(r25)}${cell(get(m, "25+25 clicks, noisy"))}<td class="num">${r25 ? r25.bar.toFixed(1) + "% (" + sgn(r25.bar - r25.gbar, 1) + ")" : "–"}</td></tr>`;
+  });
+  [["dino_labels", "boneseg learned model"], ["dino_labels_v2", "boneseg learned model, 2 × 2 passes"], ["rf_labels", "Random forest"]].forEach(([m, lab]) => {
+    const a = get(m, "labels from same sample"), b = get(m, "labels from other samples");
+    t += `<tr><td>${esc(lab)}, 5 labels</td><td colspan="2" class="num">same sample ${a ? a.dice.toFixed(3) : "–"}</td><td colspan="2" class="num">other samples ${b ? b.dice.toFixed(3) : "–"}</td><td class="num">${a ? a.bar.toFixed(1) + "% (" + sgn(a.bar - a.gbar, 1) + ")" : "–"}</td></tr>`;
+  });
+  document.getElementById("sampleTable").innerHTML = t + "</tbody>";
+  document.getElementById("cases").innerHTML = cs.map((c) => `<figure><img src="examples/${c.file}" alt="Sample ${c.sample}, slice ${c.z}: the image and the boneseg mask compared with the expert's" loading="lazy" width="1100"><figcaption><b>${c.kind}</b><span class="dv">Dice ${c.dice.toFixed(3)}</span><span>slice ${c.z}</span><span>bone area ${c.bar_pred.toFixed(1)}% against the expert's ${c.bar_gt.toFixed(1)}%</span></figcaption></figure>`).join("");
+  document.getElementById("caseNote").textContent = NOTES[k];
+}
+
+drawSample(); drawClicks(); drawLabels(); drawPairs(); drawMeas(); drawFt(); drawUnet();
+</script>
