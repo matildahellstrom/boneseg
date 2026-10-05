@@ -127,10 +127,18 @@ def segment_with_head(head: Head, emb: Embedding, settings: SegmentationSettings
                               raw_score_range=(0.0, 1.0), threshold_source="learned (probability 0.5)" if thr == 0.5 else settings.threshold_mode)
 
 
+def cv_folds(n: int, max_folds: int = 5) -> list[list[int]]:
+    """Leave-one-slice-out for up to six labelled slices, otherwise five interleaved folds, so that model selection
+    stays fast when many slices are labelled (20 slices took over half an hour with leave-one-out)."""
+    if n <= 6:
+        return [[i] for i in range(n)]
+    return [list(range(f, n, max_folds)) for f in range(max_folds)]
+
+
 def train_head(samples: list[tuple[Embedding, np.ndarray]], settings: SegmentationSettings, keys: list,
                kind: str = "auto", pixel_um=(1.0, 1.0), context: int | None = None) -> Head:
-    """Trains on all samples. With two or more labelled slices, leave-one-slice-out cross-validation
-    estimates the Dice on unseen slices and picks the best of a linear or MLP head, with or without
+    """Trains on all samples. With two or more labelled slices, cross-validation (leave-one-slice-out, or five
+    folds beyond six slices) estimates the Dice on unseen slices and picks the best of a linear or MLP head, with or without
     neighbourhood features (unless kind or context is given). Neighbourhood features helped on Liu
     file A and cost a little on the small cells of the demo stack, so the data decides."""
     kinds = ["linear", "mlp"] if kind == "auto" else [kind]
@@ -140,11 +148,12 @@ def train_head(samples: list[tuple[Embedding, np.ndarray]], settings: Segmentati
     if len(samples) >= 2:
         for k, c in candidates:
             dices = []
-            for i in range(len(samples)):
-                model, dim = fit([s for j, s in enumerate(samples) if j != i], k, context=c)
+            for fold in cv_folds(len(samples)):
+                model, dim = fit([s for j, s in enumerate(samples) if j not in fold], k, context=c)
                 h = Head(settings.backbone, settings.layer_from_end, settings.vit_size, k, model.state_dict(), dim, context=c)
-                e, m = samples[i]
-                dices.append(metrics.dice(segment_with_head(h, e, settings, pixel_um).mask, m))
+                for i in fold:
+                    e, m = samples[i]
+                    dices.append(metrics.dice(segment_with_head(h, e, settings, pixel_um).mask, m))
             cv[f"{k}" if len(contexts) == 1 else f"{k}, context {c}"] = {"mean_dice": float(np.mean(dices)), "per_slice": [float(d) for d in dices],
                                                                          "kind": k, "context": c}
         best_key = max(cv, key=lambda key: cv[key]["mean_dice"])
@@ -216,14 +225,15 @@ def train_head_multi(samples, names: list[str], settings: SegmentationSettings, 
     if len(samples) >= 2:
         for k, c in candidates:
             scores = []
-            for i in range(len(samples)):
-                model, dim = fit_multi([s for j, s in enumerate(samples) if j != i], n, k, c)
+            for fold in cv_folds(len(samples)):
+                model, dim = fit_multi([s for j, s in enumerate(samples) if j not in fold], n, k, c)
                 h = Head(settings.backbone, settings.layer_from_end, settings.vit_size, k, model.state_dict(), dim, context=c, names=list(names))
-                e, m = samples[i]
-                pred = labels_with_head(h, e, settings, pixel_um)
-                present = [cls for cls in range(1, n) if (m == cls).any()]
-                if present:
-                    scores.append(float(np.mean([metrics.dice(pred == cls, m == cls) for cls in present])))
+                for i in fold:
+                    e, m = samples[i]
+                    pred = labels_with_head(h, e, settings, pixel_um)
+                    present = [cls for cls in range(1, n) if (m == cls).any()]
+                    if present:
+                        scores.append(float(np.mean([metrics.dice(pred == cls, m == cls) for cls in present])))
             cv[f"{k}, context {c}"] = {"mean_dice": float(np.mean(scores)) if scores else 0.0, "per_slice": scores, "kind": k, "context": c}
         best_key = max(cv, key=lambda key: cv[key]["mean_dice"])
         best, best_ctx = cv[best_key]["kind"], cv[best_key]["context"]

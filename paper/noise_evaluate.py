@@ -112,22 +112,8 @@ def pilot(args, log):
     print(summ.sort_values("f1", ascending=False).groupby(level=0).head(8).to_string())
 
 
-def full(args, log):
-    bb = get_backbone("dinov2_s14")
-    st = SegmentationSettings(shift_passes=args.passes)
-    data = {b: load_batch(b) for b in BATCHES}
-    seeds = [0, 1, 2]
-    emb_cache, od_cache = {}, {}
-
-    def prep(p):
-        k = (p.batch, p.name)
-        if k not in emb_cache:
-            img = image_for(p, args.channel)
-            emb_cache[k] = (img, embed_image(bb, img, st))
-            od_cache[k] = to_channel(p.rgb, "od")
-        return emb_cache[k][0], emb_cache[k][1], od_cache[k]
-
-    # Baseline masks on every development patch once (seed 0), to tune their minimum cell size per fold
+def dev_scores(data, prep, log):
+    """Baseline masks (seed 0) and boneseg masks for every setting on every development patch."""
     log("baseline masks on development patches")
     base_dev = {}
     for b in BATCHES:
@@ -150,6 +136,34 @@ def full(args, log):
                 pos, neg = osteoclast_clicks(p, od, *budget, seed)
                 for k, mask in click_masks(emb, guide, pos, neg, GRID).items():
                     dino_dev[(budget, seed, (p.batch, p.name), k)] = scores_by_min(mask, p)
+
+    return base_dev, dino_dev
+
+
+def full(args, log):
+    bb = get_backbone("dinov2_s14")
+    st = SegmentationSettings(shift_passes=args.passes)
+    data = {b: load_batch(b) for b in BATCHES}
+    seeds = [0, 1, 2]
+    emb_cache, od_cache = {}, {}
+
+    def prep(p):
+        k = (p.batch, p.name)
+        if k not in emb_cache:
+            img = image_for(p, args.channel)
+            emb_cache[k] = (img, embed_image(bb, img, st))
+            od_cache[k] = to_channel(p.rgb, "od")
+        return emb_cache[k][0], emb_cache[k][1], od_cache[k]
+
+    # Development-patch scores are cached: they do not depend on the held-out batch
+    import pickle
+    cache = OUT.parent.parent / "data" / "noise" / f"dev_scores_{args.channel}_{args.passes}.pkl"
+    base_dev, dino_dev = pickle.loads(cache.read_bytes()) if cache.exists() else ({}, {})
+    if not base_dev:
+        base_dev, dino_dev = dev_scores(data, prep, log)
+        cache.write_bytes(pickle.dumps((base_dev, dino_dev)))
+    else:
+        log("development-patch scores loaded from cache")
 
     rows, tuning = [], []
     for held in BATCHES:
