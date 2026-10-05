@@ -122,7 +122,14 @@ python paper/finetune_analyze.py
 - **What goes wrong.** On development patches, only 10 of 456 predicted cells were fragments or merges of real osteoclasts. Most errors are look-alikes: clusters of small stained cells and pale large cells that the experts do not count (137 predicted cells), and faint or thin osteoclasts that are missed (84 of 400). A per-cell filter on size, stain and shape raised F1 on development patches from 0.68 to 0.72, but turned the over-count into an under-count, so it is not used.
 - **Fine-tuning DINOv2** on 5 patches of each other batch (colour, last 4 blocks): with 3 + 6 clicks Dice rises from 0.683 to 0.741 (+0.058, CI +0.033 to +0.086) and the count bias falls to +8% (ICC 0.79); with 10 + 20 clicks it makes no difference (+0.006). The same pattern as on bone.
 - **Batch m5 is hard for every method** (boneseg 0.56, SAM 0.27), with paler stain and out-of-focus areas.
-- **Not yet compared:** NOISe's own detector, trained per fold, which needs a GPU (the published checkpoint saw all five batches).
+- **Not yet compared:** NOISe's own detector, trained per fold, which needs a GPU (the published checkpoint saw all five batches). `kaggle_noise/` is a ready Kaggle kernel: it streams the NOISe archive, retrains YOLOv8-L segmentation once per held-out batch on 1500 patches of each other batch (1.3 GPU-hours per fold, about 7 hours in all), and predicts the same test patches:
+
+```bash
+kaggle kernels push -p paper/kaggle_noise
+kaggle kernels output matildahellstrom/boneseg-noise-detector-baseline -p noise_out
+python paper/noise_yolo_score.py --preds noise_out/preds.zip
+python paper/noise_analyze.py
+```
 
 ## Running it
 
