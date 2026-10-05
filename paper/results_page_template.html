@@ -87,7 +87,7 @@ figcaption .dv { font: 600 15px/1 var(--mono); color: var(--accent) }
   <div class="eyebrow">Bone segmentation · evaluation report</div>
   <h1>boneseg Evaluation Results</h1>
   <p class="lede">How well boneseg's masks match an expert's bone masks on four Liu autofluorescence samples, compared with standard tools, and what the boundary improvements, the U-Net refiner and fine-tuning DINOv2 add.</p>
-  <div class="meta"><span class="chip">Samples A · C · E · F</span><span class="chip">10 test slices per sample</span><span class="chip">Nested leave-one-sample-out</span><span class="chip">5 October 2026</span></div>
+  <div class="meta"><span class="chip">Bone: samples A · C · E · F</span><span class="chip">Osteoclasts: NOISe batches m1–m5</span><span class="chip">10 test slices per sample</span><span class="chip">Nested leave-one-sample-out</span><span class="chip">5 October 2026</span></div>
 </header>
 
 <section>
@@ -96,6 +96,7 @@ figcaption .dv { font: 600 15px/1 var(--mono); color: var(--accent) }
     <div class="finding"><b>0.68 → 0.76</b><span>Dice with 25 + 25 clicks after the boundary improvements, now the app's defaults.</span></div>
     <div class="finding"><b>+6.6 → +2.0</b><span>Percentage points of bone-area overestimate (B.Ar/T.Ar) with 25 + 25 clicks.</span></div>
     <div class="finding"><b>+0.087</b><span>Dice ahead of SAM with only 3 + 6 clicks (boneseg v2 + refiner). With 25 + 25 clicks they are level.</span></div>
+    <div class="finding"><b>0.74 vs 0.53</b><span>Osteoclast Dice of boneseg against SAM with 10 + 20 clicks, on mouse cultures from the public NOISe data.</span></div>
     <div class="finding"><b>+0.071</b><span>Dice gain from a fine-tuned DINOv2 with 3 + 6 clicks on a sample it never saw.</span></div>
   </div>
   <p class="note">Dice measures overlap with the expert mask: 1 is a perfect match. Intervals are 95% hierarchical bootstrap intervals, resampling samples and then slices. Every setting was tuned on the other samples, so each score is for a sample the method was not tuned on. With four samples, the intervals describe these samples, not bone imaging in general.</p>
@@ -183,6 +184,37 @@ figcaption .dv { font: 600 15px/1 var(--mono); color: var(--accent) }
     <div class="scroll"><table id="ftTable"></table></div>
   </div>
   <p class="note">Fine-tuning makes 3 + 6 clicks almost as good as 25 + 25 clicks, on all four samples. It changes nothing once there are enough clicks or labels. Trained on the sample's own slices, it helped on A, E and F and hurt on C.</p>
+</section>
+
+<section id="osteoclasts">
+  <h2>Osteoclasts on public data</h2>
+  <p>The NOISe data has brightfield images of TRAP-stained mouse osteoclast cultures in five batches, with every osteoclast outlined by experts. An osteoclast is a purple cell with three or more nuclei. Each batch was held out in turn, with every setting tuned on the other four. A cell counts as found when a predicted cell overlaps the expert outline by at least half (IoU 0.5).</p>
+  <div class="panel">
+    <div class="controls">
+      <span class="lab">Clicks</span>
+      <div class="seg" id="noiseSeg2"><button data-v="10+20 clicks" aria-pressed="true">10 + 20</button><button data-v="3+6 clicks" aria-pressed="false">3 + 6</button></div>
+    </div>
+    <div id="noiseChart"></div>
+    <div class="scroll"><table id="noiseTable"></table></div>
+    <p class="note">There are about four osteoclasts per patch. Before the run, the targets for counting were set at ICC ≥ 0.8 and bias within 10%. Tuned for finding cells, boneseg over-counts by 0.8 per patch. With the app's default settings, fixed on the bone data beforehand, 10 + 20 clicks count within +7% at ICC 0.81, just inside both targets.</p>
+  </div>
+  <div class="cases">
+    <div class="panel" style="align-content:start">
+      <h3>What boneseg's extra and missing cells are</h3>
+      <div id="diagChart"></div>
+      <p class="note">On development patches, splitting and merging of osteoclasts is rare. Most errors are look-alikes: clusters of small stained cells and pale large cells that the experts do not count, and 84 of 400 faint or thin osteoclasts that are missed. Telling them apart needs the nucleus count, which clicks alone cannot convey.</p>
+    </div>
+    <div class="panel" style="align-content:start">
+      <h3>Fine-tuning DINOv2 on osteoclasts</h3>
+      <div class="scroll"><table id="noiseFtTable"></table></div>
+      <p class="note">Same pattern as on bone: fine-tuned features help clearly with few clicks and make no difference with many.</p>
+    </div>
+  </div>
+  <div class="panel">
+    <h3>Worst, median and best test patch, boneseg with 10 + 20 clicks</h3>
+    <div class="key"><span><i style="background:#00aaaa"></i>Both boneseg and the experts</span><span><i style="background:#ff9600"></i>boneseg only</span><span><i style="background:#e12882"></i>Experts only (missed)</span><span><i style="background:#141414"></i>Expert outline</span><span><i style="background:#00c83c"></i>Osteoclast click</span><span><i style="background:#e61e1e"></i>Background click</span></div>
+    <div class="cases" id="noiseCases"></div>
+  </div>
 </section>
 
 <section id="unet">
@@ -383,5 +415,26 @@ function drawSample() {
   document.getElementById("caseNote").textContent = NOTES[k];
 }
 
-drawSample(); drawClicks(); drawLabels(); drawPairs(); drawMeas(); drawFt(); drawUnet();
+const NM = { dino_clicks: ["boneseg", "--accent"], sam: ["SAM ViT-B", "--amber"], microsam: ["micro-SAM ViT-B LM", "--violet"], rf_clicks: ["Random forest (ilastik-style)", "--earth"], otsu: ["Otsu threshold (no clicks)", "--stone"] };
+const NCAP = { worst: "The patch's only two osteoclasts are slivers cut off at its lower corners, and the size filter removes them. On whole images this would not happen. The pale large cell in the middle is not counted by the experts, and boneseg rightly leaves it out.",
+  median: "Two of three osteoclasts are found. The elongated dark one at the top is missed.", best: "The single osteoclast is outlined almost exactly." };
+const noiseSel = seg("noiseSeg2", drawNoise);
+function drawNoise() {
+  const c = noiseSel();
+  const rows = ["dino_clicks", "rf_clicks", "sam", "microsam", "otsu"].map((m) => DATA.noise.summary.find((r) => r.method === m && (m === "otsu" ? r.condition === "no input" : r.condition === c))).filter(Boolean);
+  intervalChart(document.getElementById("noiseChart"), rows.map((r) => ({ label: NM[r.method][0], v: r.dice, lo: r.dice_lo, hi: r.dice_hi, color: NM[r.method][1], strong: r.method === "dino_clicks",
+    pts: { A: null } })), { labelW: 230 });
+  const lab = DATA.noise.summary.filter((r) => r.condition.startsWith("labels"));
+  document.getElementById("noiseTable").innerHTML = `<thead><tr><th>Method</th><th>Dice</th><th>Recall</th><th>Precision</th><th>F1</th><th>Count bias per patch</th><th>Count ICC</th></tr></thead><tbody>` +
+    rows.concat(lab).map((r) => `<tr class="${r.method === "dino_clicks" ? "hl" : ""}"><td>${esc(r.method.endsWith("labels") ? (r.method === "dino_labels" ? "boneseg learned model" : "Random forest") + ", 5 labelled patches, " + r.condition.replace("labels from ", "") : NM[r.method][0])}</td><td class="num">${r.dice.toFixed(3)}</td><td class="num">${r.recall.toFixed(2)}</td><td class="num">${r.precision.toFixed(2)}</td><td class="num"><b>${r.f1.toFixed(2)}</b></td><td class="num">${sgn(r.count_bias, 2)}</td><td class="num">${r.count_icc.toFixed(2)}</td></tr>`).join("") + "</tbody>";
+}
+function drawNoiseStatic() {
+  intervalChart(document.getElementById("diagChart"), DATA.noise.diag.map(([l, n], i) => ({ label: l, v: n, color: i === 0 ? "--accent" : i === 1 ? "--amber" : "--stone", txt: String(n), strong: i < 2 })),
+    { x0: 0, x1: 300, ticks: [0, 100, 200, 300], fmt: (t) => String(t), labelW: 250, rowH: 30 });
+  document.getElementById("noiseFtTable").innerHTML = `<thead><tr><th>Condition</th><th>Frozen</th><th>Fine-tuned</th><th>Difference (95% CI)</th></tr></thead><tbody>` +
+    DATA.noise.ft.map((r) => `<tr><td>${esc(r.c)}</td><td class="num">${r.fr.toFixed(3)}</td><td class="num">${r.ft.toFixed(3)}</td><td class="num ${r.lo > 0 ? "pos" : ""}">${sgn(r.d)} (${sgn(r.lo)} to ${sgn(r.hi)})</td></tr>`).join("") + "</tbody>";
+  document.getElementById("noiseCases").innerHTML = DATA.noise.cases.map((c) => `<figure><img src="${IMAGES[c.file]}" alt="Osteoclast patch from batch ${c.batch}: the image and boneseg's cells compared with the experts'" loading="lazy" width="1100"><figcaption><b>${c.kind}</b><span class="dv">Dice ${c.dice.toFixed(3)}</span><span>batch ${c.batch}</span><span>${c.tp} of ${c.n_gt} osteoclasts found, ${c.n_pred} predicted</span></figcaption><p class="note">${esc(NCAP[c.kind])}</p></figure>`).join("");
+}
+
+drawNoise(); drawNoiseStatic(); drawSample(); drawClicks(); drawLabels(); drawPairs(); drawMeas(); drawFt(); drawUnet();
 </script>
