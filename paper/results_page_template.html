@@ -78,6 +78,11 @@ figcaption b { font: 600 13px/1 var(--mono); color: var(--fg); text-transform: u
 figcaption .dv { font: 600 15px/1 var(--mono); color: var(--accent) }
 .key { display: flex; flex-wrap: wrap; gap: 14px; font-size: 12.5px; color: var(--muted) }
 .key i { display: inline-block; width: 12px; height: 12px; border-radius: 2px; margin-right: 6px; vertical-align: -2px }
+.gal { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 12px }
+.gal figure img { aspect-ratio: 1; object-fit: cover; background: var(--panel) }
+.crops { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 8px }
+.crops figure img { aspect-ratio: 1; object-fit: cover; background: var(--panel) }
+.crops figcaption { font-size: 12px }
 .facts { display: flex; flex-wrap: wrap; gap: 8px }
 @media (prefers-reduced-motion: no-preference) { svg .bar { transition: width .25s ease } }
 </style>
@@ -189,6 +194,14 @@ figcaption .dv { font: 600 15px/1 var(--mono); color: var(--accent) }
 <section id="osteoclasts">
   <h2>Osteoclasts on public data</h2>
   <p>The NOISe data has brightfield images of TRAP-stained mouse osteoclast cultures in five batches, with every osteoclast outlined by experts. An osteoclast is a purple cell with three or more nuclei. Each batch was held out in turn, with every setting tuned on the other four. A cell counts as found when a predicted cell overlaps the expert outline by at least half (IoU 0.5).</p>
+  <div class="panel">
+    <h3>What the data looks like</h3>
+    <p class="note">One typical test patch from each batch, 832 × 832 px, with the experts' osteoclasts outlined in red. Most purple cells are small cells with a single nucleus, which do not count. The batches differ in background, stain strength and cell shape.</p>
+    <div class="gal" id="noiseGallery"></div>
+    <h3>Osteoclasts up close</h3>
+    <p class="note">Large purple cells with several nuclei, two from each batch. Pale or thin osteoclasts, like some of these, are the ones boneseg most often misses.</p>
+    <div class="crops" id="noiseCrops"></div>
+  </div>
   <div class="panel">
     <div class="controls">
       <span class="lab">Clicks</span>
@@ -436,5 +449,7 @@ function drawNoiseStatic() {
   document.getElementById("noiseCases").innerHTML = DATA.noise.cases.map((c) => `<figure><img src="${IMAGES[c.file]}" alt="Osteoclast patch from batch ${c.batch}: the image and boneseg's cells compared with the experts'" loading="lazy" width="1100"><figcaption><b>${c.kind}</b><span class="dv">Dice ${c.dice.toFixed(3)}</span><span>batch ${c.batch}</span><span>${c.tp} of ${c.n_gt} osteoclasts found, ${c.n_pred} predicted</span></figcaption><p class="note">${esc(NCAP[c.kind])}</p></figure>`).join("");
 }
 
+document.getElementById("noiseGallery").innerHTML = DATA.gallery.gallery.map((g) => `<figure><img src="${IMAGES[g.file]}" alt="Batch ${g.batch}: TRAP-stained osteoclast culture with ${g.n} expert-outlined osteoclasts" loading="lazy" width="560"><figcaption><b>${g.batch}</b><span>${g.n} osteoclasts</span></figcaption></figure>`).join("");
+document.getElementById("noiseCrops").innerHTML = DATA.gallery.crops.map((c) => `<figure><img src="${IMAGES[c.file]}" alt="Close-up of an osteoclast from batch ${c.batch}" loading="lazy" width="220"><figcaption>${c.batch}</figcaption></figure>`).join("");
 drawNoise(); drawNoiseStatic(); drawSample(); drawClicks(); drawLabels(); drawPairs(); drawMeas(); drawFt(); drawUnet();
 </script>
