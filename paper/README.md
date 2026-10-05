@@ -101,6 +101,29 @@ python paper/finetune_experiment.py   # about 75 min for four samples on an M-se
 python paper/finetune_analyze.py
 ```
 
+## Osteoclasts: the NOISe mouse data
+
+`noise_common.py`, `noise_evaluate.py`, `noise_analyze.py` and `noise_finetune.py` test osteoclast segmentation and counting on the public NOISe data (Wan et al., 2024): brightfield images of TRAP-stained mouse osteoclast cultures in five batches, with expert outlines of every osteoclast (TRAP-positive, three or more nuclei). The cells grow on plastic, so there is no bone surface, and Oc.Pm/B.Pm cannot be tested; the human bone-chip images are not public.
+
+**Protocol.** 20 development and 20 test patches (832 × 832 px) per batch, split by well; leave-one-batch-out, with every setting tuned on the development patches of the other four batches. Simulated clicks put object clicks inside osteoclasts and half of the background clicks on stained cells that are not osteoclasts. A predicted cell counts as found when it overlaps an expert outline with IoU ≥ 0.5. A pilot on development patches chose colour input (better than any single stain channel) with 2 × 2 feature passes. Before the run, the targets for counting were set at ICC ≥ 0.8 and bias within 10%.
+
+| Test patches, 5 batches | Dice (95% CI) | Cell F1 | Count bias per patch | Count ICC |
+|---|---|---|---|---|
+| boneseg, 10 + 20 clicks | 0.735 (0.64–0.82) | 0.66 | +0.81 | 0.79 |
+| SAM ViT-B, 10 + 20 clicks | 0.534 (0.39–0.65) | 0.42 | −0.85 | 0.46 |
+| micro-SAM ViT-B LM, 10 + 20 clicks | 0.326 (0.23–0.43) | 0.16 | −1.31 | 0.23 |
+| Random forest, 10 + 20 clicks | 0.626 (0.54–0.72) | 0.61 | −1.17 | 0.64 |
+| boneseg, 3 + 6 clicks | 0.683 (0.58–0.77) | 0.59 | +0.62 | 0.68 |
+| boneseg learned model, 5 labelled patches of the same batch | 0.668 (0.60–0.75) | 0.60 | +1.80 | 0.51 |
+| Otsu, no input | 0.434 (0.32–0.56) | 0.47 | −1.50 | 0.38 |
+
+- **boneseg leads every baseline** on new batches: +0.20 Dice over SAM (CI +0.14 to +0.27) with 10 + 20 clicks and +0.18 with 3 + 6. SAM is built to outline one object from a set of clicks, while a patch holds several osteoclasts.
+- **Counting.** There are about four osteoclasts per patch. Tuned for cell F1, boneseg over-counts by 0.8 (ICC 0.79), just short of the targets. With the app's default settings, which were fixed on the bone data before this evaluation, 10 + 20 clicks give +0.27 per patch (+7%, ICC 0.81) at the same Dice, just inside both targets.
+- **What goes wrong.** On development patches, only 10 of 456 predicted cells were fragments or merges of real osteoclasts. Most errors are look-alikes: clusters of small stained cells and pale large cells that the experts do not count (137 predicted cells), and faint or thin osteoclasts that are missed (84 of 400). A per-cell filter on size, stain and shape raised F1 on development patches from 0.68 to 0.72, but turned the over-count into an under-count, so it is not used.
+- **Fine-tuning DINOv2** on 5 patches of each other batch (colour, last 4 blocks): with 3 + 6 clicks Dice rises from 0.683 to 0.741 (+0.058, CI +0.033 to +0.086) and the count bias falls to +8% (ICC 0.79); with 10 + 20 clicks it makes no difference (+0.006). The same pattern as on bone.
+- **Batch m5 is hard for every method** (boneseg 0.56, SAM 0.27), with paler stain and out-of-focus areas.
+- **Not yet compared:** NOISe's own detector, trained per fold, which needs a GPU (the published checkpoint saw all five batches).
+
 ## Running it
 
 ```bash
