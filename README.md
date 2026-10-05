@@ -101,6 +101,8 @@ Each file gets its own folder with a mask or label stack, per-slice measurements
 
 ## How it works
 
+For a plain-language explanation of what DINOv2, the U-Net refiner and fine-tuning each do to the masks, with measured effects, see [docs/how-it-works.md](docs/how-it-works.md).
+
 The image goes through a frozen, self-supervised DINOv2 backbone, which gives one feature vector per 14×14 pixel patch. The patches under your clicks become prototypes. Every patch is scored by its mean cosine similarity to the object prototypes, minus λ times its similarity to the background prototypes. The score map is upsampled and thresholded into a mask.
 
 Several choices differ from the notebook. Each was measured with the benchmark scripts on the demo stack and on Liu file A (channel 3, scored against its masked channel 4).

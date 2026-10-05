@@ -69,3 +69,8 @@ How boneseg grew from the research notebook, grouped by theme. Hashes point to t
 - Sample C was added to the paper evaluation, which now covers A, C, E and F.
 - `4569641` Four boundary options: a stricter click threshold, guided-filter edge snapping, 2 x 2 shifted feature passes, and a small learned refiner. `f057733` `python -m boneseg train-refiner` trains a refiner on your own labelled files.
 - The nested evaluation on four samples made the first three the defaults: Dice with 25 clicks 0.68 to 0.76, bone-area bias +6.6 to +2.0 points. The refiner helps only with few or noisy clicks and stays optional. Learned models measure their neighbourhood in patches, so models trained before keep working on the finer grid.
+
+### Fine-tuning DINOv2
+- `404d0e8` `boneseg/finetune.py` trains DINOv2 Small's last blocks on expert slices; `python -m boneseg finetune` makes a fine-tuned backbone, which the app lists from its models folder.
+- Leave-one-sample-out on four samples: fine-tuned features raise Dice with 3 + 6 clicks on a new sample from 0.674 to 0.745 (+0.071, CI +0.048 to +0.097), and change nothing with 25 + 25 clicks or with labels from other samples.
+- A refiner trained on all four samples ships as the "bundled" refiner. `docs/how-it-works.md` explains DINOv2, the U-Net additions and fine-tuning for users.

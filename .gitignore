@@ -26,3 +26,4 @@ projects/
 
 # Paper evaluation: nnU-Net export and weights stay out of git; results tables and figures are committed
 nnUNet_raw/
+!boneseg/models/*.pt

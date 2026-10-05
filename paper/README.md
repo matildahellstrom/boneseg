@@ -83,6 +83,24 @@ What this supports, and what not yet:
 
 Development-only experiments that led to v2, never touching test slices: `refine_experiment.py` (`results/refine_dev.csv`) and `refiner_experiment.py` (`results/refiner_dev.csv`).
 
+## Fine-tuning DINOv2
+
+`finetune_experiment.py` (`results/finetune_summary.md`) asks whether training DINOv2 Small's last 4 blocks on expert slices improves the masks. Same protocol: leave-one-sample-out, test slices only, validation slices for early stopping. The baseline is the same code with DINOv2 frozen, so only the adaptation of DINOv2 differs.
+
+| Fine-tuned minus frozen, test Dice | Difference (95% CI) | Slices improved |
+|---|---|---|
+| 3 + 6 clicks on a new sample, backbone fine-tuned on the other samples | +0.071 (+0.048 to +0.097) | 82% |
+| 25 + 25 clicks on a new sample | −0.001 (−0.021 to +0.015) | 50% |
+| Output layer trained on 5 slices of the same sample | +0.034 (−0.009 to +0.063) | 80% |
+| Output layer trained on 5 slices of each other sample | −0.001 (−0.045 to +0.031) | 55% |
+
+Fine-tuned features make few clicks almost as good as many (3 + 6 clicks: 0.674 to 0.745, on all four samples). They do not help once there are enough clicks or labels. Fine-tuning on the same sample helped on A, E and F and hurt on C.
+
+```bash
+python paper/finetune_experiment.py   # about 75 min for four samples on an M-series Mac
+python paper/finetune_analyze.py
+```
+
 ## Running it
 
 ```bash
