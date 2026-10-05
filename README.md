@@ -54,6 +54,8 @@ Add `-e BONESEG_TOKEN=some-secret` to require an access token, then open http://
 
 ### Recipes
 
+**Brightfield colour images** (TRAP, H&E and other stains). Colour PNG, JPEG and TIFF files get an extra channel, "Colour (RGB)", which the app opens by default. DINOv2 then sees the image as a colour photograph, which found osteoclasts more reliably than any single channel on the NOISe data. Intensity measurements on this channel use the brightness.
+
 **Some files have expert masks, others do not** (as in the Liu data, where the last channel is the expert segmentation).
 1. Open a file with expert masks and pick its image channel. The reference channel is picked up from its name.
 2. Click "Label 5 slices from the reference", then "Train model". The summary shows the model's Dice against the expert mask on slices it was not trained on.

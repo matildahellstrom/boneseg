@@ -252,13 +252,19 @@ class Store:
             self.planes.put(key, p)
         return p
 
-    def plane(self, ds_id: str, c: int, z: int, low: float = 1.0, high: float = 99.5) -> np.ndarray:
+    def color_plane(self, ds_id: str, c: int, z: int, low: float = 1.0, high: float = 99.5) -> np.ndarray:
+        """The normalized plane as the model and the viewer see it: [H, W, 3] for the colour channel, else [H, W]."""
         key = (ds_id, "norm", c, z, low, high)
         p = self.planes.get(key)
         if p is None:
             p = bio.normalize_plane(self.raw_plane(ds_id, c, z), low, high)
             self.planes.put(key, p)
         return p
+
+    def plane(self, ds_id: str, c: int, z: int, low: float = 1.0, high: float = 99.5) -> np.ndarray:
+        """The normalized plane as one channel, for intensities and reports (the colour channel as its brightness)."""
+        p = self.color_plane(ds_id, c, z, low, high)
+        return bio.luminance(p) if p.ndim == 3 else p
 
     def embedding(self, ds_id: str, c: int, z: int, s: SegmentationSettings) -> Embedding:
         key = self.embedding_key(ds_id, c, z, s)
@@ -270,7 +276,7 @@ class Store:
         with self.compute_lock:
             emb = self.embeddings.get(key)
             if emb is None:
-                emb = embed_image(get_backbone(s.backbone), self.plane(ds_id, c, z, s.clip_low, s.clip_high), s)
+                emb = embed_image(get_backbone(s.backbone), self.color_plane(ds_id, c, z, s.clip_low, s.clip_high), s)
                 self.embeddings.put(key, emb)
         return emb
 

@@ -27,6 +27,7 @@ class Volume:
     channel_names: list[str] = field(default_factory=list)
     dtype: str = "float32"
     voxel_size_known: bool = False
+    rgb_channel: int | None = None   # Index of the virtual "Colour (RGB)" channel, if the file is a colour image
     _reader: object = None
     _xz_reader: object = None  # Optional fast reader for one row across all slices
 
@@ -37,6 +38,8 @@ class Volume:
             raise IndexError(f"Channel {channel} is out of range, the file has {self.n_channels}")
         if not 0 <= z < self.n_z:
             raise IndexError(f"Slice {z} is out of range, the file has {self.n_z}")
+        if channel == self.rgb_channel:
+            return np.stack([np.asarray(self._reader(i, z)) for i in range(3)], -1)
         return np.asarray(self._reader(channel, z))
 
     def get_xz(self, channel: int, y: int) -> np.ndarray:
@@ -44,6 +47,8 @@ class Volume:
         channel, y = int(channel), int(y)
         if not 0 <= y < self.height:
             raise IndexError(f"Row {y} is out of range, the image has {self.height}")
+        if channel == self.rgb_channel:
+            return np.mean([self.get_xz(i, y).astype(np.float32) for i in range(3)], axis=0)
         if self._xz_reader is not None:
             return np.asarray(self._xz_reader(channel, y))
         return np.stack([self.get_plane(channel, z)[y] for z in range(self.n_z)])
@@ -63,6 +68,7 @@ class Volume:
             "voxel_size_known": self.voxel_size_known,
             "channel_names": self.channel_names,
             "dtype": self.dtype,
+            "rgb_channel": self.rgb_channel,
         }
 
 
@@ -73,6 +79,23 @@ def normalize_plane(plane: np.ndarray, low: float = 1.0, high: float = 99.5) -> 
     if hi - lo < 1e-8:
         return np.zeros_like(plane, dtype=np.float32)
     return np.clip((plane - lo) / (hi - lo), 0, 1).astype(np.float32)
+
+
+def luminance(a: np.ndarray) -> np.ndarray:
+    """A single-channel version of a plane: colour planes are averaged over red, green and blue."""
+    return a.mean(-1) if a.ndim == 3 else a
+
+
+def add_colour_channel(vol: Volume) -> Volume:
+    """Colour images (three or four 8-bit channels, as from a brightfield camera) get an extra channel holding all
+    three colours, which DINOv2 reads as a colour photograph. On stained brightfield osteoclasts this beat every
+    single channel (paper/README.md)."""
+    rgb_names = [n.lower() for n in vol.channel_names[:3]] == ["red", "green", "blue"]
+    if vol.rgb_channel is None and vol.n_channels in (3, 4) and (rgb_names or vol.dtype == "uint8"):
+        vol.rgb_channel = vol.n_channels
+        vol.n_channels += 1
+        vol.channel_names = list(vol.channel_names) + ["Colour (RGB)"]
+    return vol
 
 
 def _default_names(n: int) -> list[str]:
@@ -178,7 +201,7 @@ def load_tiff(path: Path) -> Volume:
         arr = series.asarray()
         voxel, known = _tiff_voxel(tif)
     arr, axes = _to_czyx(arr, axes)
-    return _from_array(path.name, arr, voxel, known=known)
+    return add_colour_channel(_from_array(path.name, arr, voxel, known=known))
 
 
 def load_image(path: Path) -> Volume:
@@ -192,7 +215,7 @@ def load_image(path: Path) -> Volume:
     else:
         arr = np.moveaxis(arr[..., :3], -1, 0)[:, None]
         names = ["Red", "Green", "Blue"]
-    return _from_array(path.name, arr, names=names)
+    return add_colour_channel(_from_array(path.name, arr, names=names))
 
 
 def load_npy(path: Path) -> Volume:

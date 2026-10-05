@@ -98,11 +98,13 @@ def embed_grid(backbone: Backbone, img: np.ndarray, in_h: int, in_w: int, layer_
 def embed_image(backbone: Backbone, img: np.ndarray, settings: SegmentationSettings) -> Embedding:
     """Embeds a normalized [0, 1] image, grey [H, W] or colour [H, W, 3] (DINOv2 backbones only)."""
     if img.ndim == 3 and backbone.name == "classic":
-        raise ValueError("The classic backbone needs a single-channel image")
+        img_model = img.mean(-1)   # The classic features are defined on one channel
+    else:
+        img_model = img
     h, w = img.shape[:2]
     in_h, in_w = vit_input_size(h, w, settings.vit_size, backbone.patch_size)
     try:
-        grid = embed_grid(backbone, img, in_h, in_w, settings.layer_from_end, max(1, int(settings.shift_passes)))
+        grid = embed_grid(backbone, img_model, in_h, in_w, settings.layer_from_end, max(1, int(settings.shift_passes)))
     except (torch.OutOfMemoryError, RuntimeError) as e:
         if "out of memory" not in str(e).lower() and not isinstance(e, torch.OutOfMemoryError):
             raise

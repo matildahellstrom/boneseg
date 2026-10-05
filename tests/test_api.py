@@ -764,3 +764,27 @@ def test_model_files_are_confined_without_path_access(tmp_path):
         assert any(i.endswith("dinov2_s14_mine.pt") for i in ids)
     finally:
         backbone.MODEL_DIRS = None
+
+
+def test_colour_images_get_a_colour_channel(client, tmp_path):
+    from PIL import Image
+    img, gt, centers = make_blobs(seed=0)
+    # A brightfield-like colour image: purple objects on a light background
+    rgb = np.stack([1 - 0.5 * img, 1 - 0.8 * img, 1 - 0.3 * img], -1)
+    buf = io.BytesIO()
+    Image.fromarray((np.clip(rgb, 0, 1) * 255).astype(np.uint8)).save(buf, format="PNG")
+    r = client.post("/api/datasets", files={"file": ("cells.png", buf.getvalue(), "image/png")})
+    assert r.status_code == 200, r.text
+    ds = r.json()
+    assert ds["n_channels"] == 4 and ds["rgb_channel"] == 3 and ds["channel_names"][3] == "Colour (RGB)"
+    png = client.get(f"/api/datasets/{ds['id']}/plane", params={"c": 3, "z": 0})
+    assert png.status_code == 200 and Image.open(io.BytesIO(png.content)).mode == "RGB"
+    body = {"channel": 3, "z": 0, "pos": [list(c) for c in centers[:3]], "neg": bg_points(gt), "settings": SETTINGS}
+    r = client.post(f"/api/datasets/{ds['id']}/segment", json=body)
+    assert r.status_code == 200, r.text
+    csv = client.get(f"/api/datasets/{ds['id']}/export/objects.csv", params={"c": 3, "z": 0, "all_channels": True}).text
+    assert "Red_mean" in csv and "Colour" not in csv.split("\n")[0]
+    r = client.patch(f"/api/datasets/{ds['id']}", json={"reference_channel": 3})
+    assert r.status_code == 400 and "colour channel" in r.text
+    side = client.get(f"/api/datasets/{ds['id']}/xz", params={"c": 3, "y": 10})
+    assert side.status_code == 200

@@ -45,6 +45,14 @@ def gray_png(plane01: np.ndarray, max_side: int = 1600, gamma: float = 1.0) -> b
     return to_png_bytes(_resize(img, display_shape(*plane01.shape, max_side)))
 
 
+def color_png(rgb01: np.ndarray, max_side: int = 1600, gamma: float = 1.0) -> bytes:
+    p = np.clip(rgb01, 0, 1)
+    if gamma != 1.0:
+        p = p ** gamma
+    img = Image.fromarray((p * 255).astype(np.uint8), "RGB")
+    return to_png_bytes(_resize(img, display_shape(*rgb01.shape[:2], max_side)))
+
+
 def composite_png(base01: np.ndarray, overlay01: np.ndarray, color=(255, 0, 255), max_side: int = 1600, strength: float = 0.8) -> bytes:
     """The base channel in grey with a second channel added on top in colour, for display only."""
     shape = display_shape(*base01.shape, max_side)

@@ -172,7 +172,7 @@ def router(ctx: AppContext) -> APIRouter:
             names = ds.info().get("channel_names", ds.volume.channel_names)
             chans = {}
             for i in range(ds.volume.n_channels):
-                if i == ref:
+                if i == ref or i == ds.volume.rgb_channel:
                     continue
                 safe = re.sub(r"[^A-Za-z0-9]+", "_", f"ch{i}_{names[i]}").strip("_")
                 chans[safe] = store.raw_plane(ds_id, i, z)
