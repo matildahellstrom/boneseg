@@ -73,7 +73,8 @@ class LRU:
 
 
 def _embedding_bytes(emb) -> int:
-    return int(emb.grid.numel() * emb.grid.element_size())
+    img = getattr(emb, "image", None)
+    return int(emb.grid.numel() * emb.grid.element_size()) + (int(img.nbytes) if img is not None else 0)
 
 
 class ResultCache(OrderedDict):
@@ -292,7 +293,7 @@ class Store:
         return m
 
     def embedding_key(self, ds_id, c, z, s: SegmentationSettings):
-        return (ds_id, c, z, s.backbone, s.vit_size, s.layer_from_end, s.clip_low, s.clip_high)
+        return (ds_id, c, z, s.backbone, s.vit_size, s.layer_from_end, s.clip_low, s.clip_high, max(1, int(s.shift_passes)))
 
     def prefetch(self, ds_id: str, c: int, zs: list[int], s: SegmentationSettings):
         """Computes features for the given slices in the background, so moving to them is instant.

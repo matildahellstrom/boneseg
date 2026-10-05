@@ -11,6 +11,10 @@ development slices.
   dino_clicks        boneseg from clicks (frozen DINOv2 prototypes, click-calibrated threshold)
   rf_labels          the random forest trained on labelled slices (dense labels, subsampled)
   dino_labels        boneseg's learned model trained on labelled slices
+  dino_clicks_v2     boneseg from clicks with the boundary improvements: 2 x 2 feature passes, a tuned threshold
+                     position, optional guided-filter edge snapping
+  dino_clicks_v2_refined   the same, followed by the learned refiner trained on other samples
+  dino_labels_v2     the learned model on 2 x 2 feature passes
 """
 from __future__ import annotations
 
@@ -138,7 +142,7 @@ _EMB: dict = {}
 
 
 def dino_embedding(key, img, settings: SegmentationSettings):
-    k = (key, settings.backbone, settings.vit_size, settings.layer_from_end)
+    k = (key, settings.backbone, settings.vit_size, settings.layer_from_end, settings.shift_passes)
     if k not in _EMB:
         _EMB[k] = embed_image(get_backbone(settings.backbone), img, settings)
     return _EMB[k]
@@ -146,6 +150,21 @@ def dino_embedding(key, img, settings: SegmentationSettings):
 
 def dino_clicks(key, img, pos, neg, settings: SegmentationSettings, pixel_um) -> np.ndarray:
     return segment(dino_embedding(key, img, settings), pos, neg, settings, pixel_um).mask
+
+
+def refiner_fit(slices, settings_for_budget: dict, budgets, seeds, simulated_clicks, steps=1500, log=None):
+    """Trains a refiner on labelled slices, several simulated click draws each (every second draw noisy),
+    each budget with the settings tuned for it."""
+    from boneseg.refine import click_example, train_refiner
+    def examples():
+        for sl in slices:
+            for budget in budgets:
+                st = settings_for_budget[budget]
+                for seed in seeds:
+                    pos, neg = simulated_clicks(sl.gt, *budget, 1000 + seed, seed % 2 == 1)
+                    raw, thr = click_example(dino_embedding((sl.sample, sl.z), sl.img, st), pos, neg, st)
+                    yield sl.img, raw, thr, sl.gt
+    return train_refiner(examples(), steps=steps, log=log)
 
 
 def dino_labels_fit(train: list, settings: SegmentationSettings, pixel_um):

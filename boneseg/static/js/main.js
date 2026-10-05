@@ -138,7 +138,7 @@ function bind() {
     refreshProfiles("");
   };
 
-  for (const id of ["thrMode", "topPercent", "manualThr", "lambda", "minObj", "fillHoles", "smooth", "vitSize", "layer", "backboneSelect"]) {
+  for (const id of ["thrMode", "topPercent", "manualThr", "lambda", "minObj", "fillHoles", "smooth", "vitSize", "layer", "backboneSelect", "strict", "edgeRefine", "shiftPasses", "refiner"]) {
     $(id).addEventListener("input", syncSettingLabels);
     $(id).addEventListener("change", () => { rememberSettings(); if (S.result) scheduleSegment(0); });
   }

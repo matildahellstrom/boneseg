@@ -7,6 +7,7 @@ similarity), and the upsampled score map is thresholded into a mask.
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
+from pathlib import Path
 
 import numpy as np
 import scipy.ndimage as ndi
@@ -31,6 +32,11 @@ class SegmentationSettings:
     fill_holes_um2: float = 0.0      # Holes smaller than this are filled
     smooth_px: int = 0               # Radius of a morphological opening and closing
     score_norm: str = "robust"       # "robust" standardizes scores per image by median and MAD, or "none"
+    threshold_position: float = 0.5  # "clicks" mode: 0.5 is halfway between background and object clicks, higher is stricter
+    edge_refine: str = "none"        # "guided" snaps the score map to intensity edges of the image before thresholding
+    guided_eps: float = 0.01         # Guided-filter edge sensitivity: smaller follows weaker edges
+    shift_passes: int = 1            # Feature extraction at n x n sub-patch shifts, giving an n times finer feature grid
+    refiner: str = ""                # Learned full-resolution refiner after the click threshold: "", "bundled" or a file path
     clip_low: float = 1.0
     clip_high: float = 99.5
 
@@ -49,6 +55,7 @@ class Embedding:
     grid: torch.Tensor   # [H_grid, W_grid, D], L2-normalized
     height: int          # Original image height
     width: int
+    image: np.ndarray | None = None   # The normalized image, kept for edge refinement
 
 
 def vit_input_size(h: int, w: int, vit_size: int, patch: int) -> tuple[int, int]:
@@ -57,12 +64,40 @@ def vit_input_size(h: int, w: int, vit_size: int, patch: int) -> tuple[int, int]
     return max(patch, int(round(h * scale / patch)) * patch), max(patch, int(round(w * scale / patch)) * patch)
 
 
+def _shifted(img: np.ndarray, dy: float, dx: float) -> np.ndarray:
+    """The image moved by (-dy, -dx) pixels, so that pixel (y + dy, x + dx) lands at (y, x)."""
+    if dy == 0 and dx == 0:
+        return img
+    return ndi.shift(img, (-dy, -dx), order=1, mode="reflect")
+
+
+def embed_grid(backbone: Backbone, img: np.ndarray, in_h: int, in_w: int, layer_from_end: int, passes: int = 1) -> torch.Tensor:
+    """Feature grid of an image. With passes = n > 1, the image is embedded n x n times, shifted by fractions of a
+    patch, and the grids are interleaved into one n times finer grid. Shift (a, b) samples patch centres at
+    offsets ((a + 0.5) / n - 0.5) patches, so cell (n i + a, n j + b) of the fine grid sits exactly where a uniform
+    grid of that size expects it, and the rest of the pipeline needs no change."""
+    t = lambda a: torch.from_numpy(np.ascontiguousarray(a, dtype=np.float32))  # noqa: E731
+    if passes <= 1:
+        return backbone.embed(t(img), in_h, in_w, layer_from_end)
+    h, w = img.shape
+    step_y, step_x = backbone.patch_size * h / in_h, backbone.patch_size * w / in_w   # One patch in image pixels
+    fine = None
+    for a in range(passes):
+        for b in range(passes):
+            off = lambda k: (k + 0.5) / passes - 0.5  # noqa: E731
+            g = backbone.embed(t(_shifted(img, off(a) * step_y, off(b) * step_x)), in_h, in_w, layer_from_end)
+            if fine is None:
+                fine = g.new_zeros((g.shape[0] * passes, g.shape[1] * passes, g.shape[2]))
+            fine[a::passes, b::passes] = g
+    return fine
+
+
 def embed_image(backbone: Backbone, img: np.ndarray, settings: SegmentationSettings) -> Embedding:
     """Embeds a normalized [0, 1] image."""
     h, w = img.shape
     in_h, in_w = vit_input_size(h, w, settings.vit_size, backbone.patch_size)
     try:
-        grid = backbone.embed(torch.from_numpy(np.ascontiguousarray(img, dtype=np.float32)), in_h, in_w, settings.layer_from_end)
+        grid = embed_grid(backbone, img, in_h, in_w, settings.layer_from_end, max(1, int(settings.shift_passes)))
     except (torch.OutOfMemoryError, RuntimeError) as e:
         if "out of memory" not in str(e).lower() and not isinstance(e, torch.OutOfMemoryError):
             raise
@@ -70,7 +105,47 @@ def embed_image(backbone: Backbone, img: np.ndarray, settings: SegmentationSetti
             torch.cuda.empty_cache()
         raise ValueError("The GPU ran out of memory. Pick a smaller backbone, such as DINOv2 Small, or a lower "
                          "'Detail' setting under 'Clean-up and advanced'") from None
-    return Embedding(grid=grid, height=h, width=w)
+    return Embedding(grid=grid, height=h, width=w, image=img)
+
+
+_REFINERS: dict = {}
+BUNDLED_REFINER = Path(__file__).resolve().parent / "models" / "refiner_liu.pt"
+
+
+def get_refiner(spec: str):
+    """Loads a refiner once: "bundled" is the one shipped with boneseg, anything else a file path."""
+    from .refine import Refiner
+    path = BUNDLED_REFINER if spec == "bundled" else Path(spec).expanduser()
+    if str(path) not in _REFINERS:
+        if not path.exists():
+            raise ValueError(f"Refiner file not found: {path}")
+        _REFINERS[str(path)] = Refiner.load(path)
+    return _REFINERS[str(path)]
+
+
+def box_mean(a: np.ndarray, r: int) -> np.ndarray:
+    return ndi.uniform_filter(a, size=2 * r + 1, mode="reflect")
+
+
+def guided_filter(guide: np.ndarray, src: np.ndarray, r: int, eps: float) -> np.ndarray:
+    """He et al.'s guided filter: smooths src where the guide is flat and keeps the guide's edges.
+    Used to move the coarse, patch-level score boundary onto real intensity edges."""
+    I, p = guide.astype(np.float32), src.astype(np.float32)
+    mI, mp = box_mean(I, r), box_mean(p, r)
+    a = (box_mean(I * p, r) - mI * mp) / (box_mean(I * I, r) - mI * mI + eps)
+    b = mp - a * mI
+    return box_mean(a, r) * I + box_mean(b, r)
+
+
+def refine_scores(raw: np.ndarray, emb: Embedding, settings: SegmentationSettings) -> np.ndarray:
+    """Applies the chosen edge refinement to a full-resolution score map."""
+    if settings.edge_refine == "none" or emb.image is None:
+        return raw
+    if settings.edge_refine == "guided":
+        # Radius of one feature cell, the scale at which the score map is blurred
+        cell = max(emb.height / emb.grid.shape[0], emb.width / emb.grid.shape[1])
+        return guided_filter(emb.image, raw, max(1, int(round(cell))), settings.guided_eps)
+    raise ValueError(f"Unknown edge refinement {settings.edge_refine}")
 
 
 def points_to_cells(points, h, w, h_grid, w_grid) -> tuple[np.ndarray, np.ndarray]:
@@ -141,8 +216,9 @@ def threshold_heatmap(heat: np.ndarray, settings: SegmentationSettings) -> tuple
     return heat >= thr, thr
 
 
-def calibrate_threshold(pos_scores, neg_scores) -> float | None:
-    """Raw-score threshold halfway between the object clicks and the background clicks.
+def calibrate_threshold(pos_scores, neg_scores, position: float = 0.5) -> float | None:
+    """Raw-score threshold between the object clicks and the background clicks, halfway by default.
+    A position above 0.5 moves it towards the object clicks, which makes the mask stricter.
 
     Uses the weakest object click and the strongest background click, or the 10th and 90th percentiles
     once there are more than five clicks of a kind, so one stray click does not decide the threshold.
@@ -153,7 +229,7 @@ def calibrate_threshold(pos_scores, neg_scores) -> float | None:
         return None
     lo = np.quantile(pos_scores, 0.1) if len(pos_scores) > 5 else pos_scores.min()
     hi = np.quantile(neg_scores, 0.9) if len(neg_scores) > 5 else neg_scores.max()
-    return float((lo + hi) / 2)
+    return float(hi + position * (lo - hi))
 
 
 def sample_points(a: np.ndarray, points) -> np.ndarray:
@@ -217,7 +293,7 @@ def segment_with_prototypes(emb: Embedding, pos: torch.Tensor, neg: torch.Tensor
     In "clicks" mode the threshold comes from, in order: clicks on this image, a raw threshold handed in
     (from the annotated slice of a stack or from a profile), or Otsu as the last resort."""
     score = normalize_scores(score_grid(emb.grid, pos, neg, settings.neg_weight), settings.score_norm)
-    raw = upsample(score, (emb.height, emb.width))
+    raw = refine_scores(upsample(score, (emb.height, emb.width)), emb, settings)
     lo, hi = float(raw.min()), float(raw.max())
     span = max(hi - lo, 1e-12)
     heat = rescale01(raw)
@@ -225,7 +301,7 @@ def segment_with_prototypes(emb: Embedding, pos: torch.Tensor, neg: torch.Tensor
     if settings.threshold_mode == "clicks":
         calibrated = None
         if pos_points is not None and neg_points is not None and len(pos_points) and len(neg_points):
-            calibrated = calibrate_threshold(sample_points(raw, pos_points), sample_points(raw, neg_points))
+            calibrated = calibrate_threshold(sample_points(raw, pos_points), sample_points(raw, neg_points), settings.threshold_position)
         if calibrated is not None:
             raw_threshold, source = calibrated, "clicks"
         elif raw_threshold is not None:
@@ -239,6 +315,9 @@ def segment_with_prototypes(emb: Embedding, pos: torch.Tensor, neg: torch.Tensor
     else:
         mask, thr = threshold_heatmap(heat, settings)
         raw_threshold = lo + thr * span
+    if settings.refiner and emb.image is not None:
+        mask = get_refiner(settings.refiner).predict(emb.image, raw, float(raw_threshold)) >= 0.5
+        source += ", refined"
     mask = postprocess(mask, settings, pixel_um)
     return SegmentationResult(heat=heat, mask=mask, threshold=float(thr), raw_threshold=float(raw_threshold),
                               raw_score_range=(lo, hi), threshold_source=source)

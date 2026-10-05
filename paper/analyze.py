@@ -24,7 +24,8 @@ RES, FIG = HERE / "results", HERE / "figures"
 LABELS = {"otsu": "Otsu threshold", "rf_clicks": "Random forest, clicks (ilastik-style)", "sam": "SAM ViT-B, point prompts",
           "microsam": "micro-SAM ViT-B LM, point prompts", "dino_clicks": "boneseg, clicks",
           "rf_labels": "Random forest, 5 labelled slices", "dino_labels": "boneseg learned model, 5 labelled slices",
-          "nnunet": "nnU-Net 2D, labelled slices"}
+          "nnunet": "nnU-Net 2D, labelled slices", "dino_clicks_v2": "boneseg v2, clicks",
+          "dino_clicks_v2_refined": "boneseg v2 + refiner, clicks", "dino_labels_v2": "boneseg v2 learned model, 5 labelled slices"}
 MEASURES = {"B.Ar/T.Ar_%": "B.Ar/T.Ar (%)", "B.Pm/T.Ar_per_mm": "B.Pm/T.Ar (1/mm)", "Tb.Th_um": "Tb.Th (µm)"}
 
 
@@ -65,7 +66,7 @@ def icc_a1(x: np.ndarray, y: np.ndarray) -> float:
 def condition_label(row) -> str:
     if row["method"] == "otsu":
         return "no input"
-    if row["method"] in ("rf_labels", "dino_labels", "nnunet"):
+    if row["method"] in ("rf_labels", "dino_labels", "dino_labels_v2", "nnunet"):
         return f"labels from {row['budget']}"
     return f"{row['budget']} clicks, {'noisy' if row['noisy'] else 'clean'}"
 
@@ -87,7 +88,8 @@ def main():
     lines.append("## Dice per method\n")
     lines.append("| Method | Condition | " + " | ".join(samples) + " | Mean (95% CI) |")
     lines.append("|---|---|" + "---|" * len(samples) + "---|")
-    order = ["otsu", "rf_clicks", "sam", "microsam", "dino_clicks", "rf_labels", "dino_labels", "nnunet"]
+    order = ["otsu", "rf_clicks", "sam", "microsam", "dino_clicks", "dino_clicks_v2", "dino_clicks_v2_refined", "rf_labels", "dino_labels",
+             "dino_labels_v2", "nnunet"]
     dice_rows = []
     for cond in sorted(df["condition"].unique(), key=lambda c: (c != "no input", "labels" in c, c)):
         for m in order:
@@ -121,14 +123,35 @@ def main():
         est, lo, hi = hier_boot(diff, "diff")
         lines.append(f"| {LABELS['rf_labels']} (vs boneseg learned model) | {cond} | {est:+.3f} ({lo:+.3f} to {hi:+.3f}) | {(diff['diff'] > 0).mean():.0%} |")
 
+    # 2b. method-v2 against method-v1 and the baselines ------------------------------------------------
+    def paired(a, b):
+        A = df[df["method"] == a].set_index(["sample", "z", "condition"])["dice"]
+        for cond in sorted(df.loc[df["method"] == b, "condition"].unique()):
+            B = df[(df["method"] == b) & (df["condition"] == cond)].set_index(["sample", "z", "condition"])["dice"]
+            diff = (A - B).dropna().reset_index().rename(columns={"dice": "diff"})
+            if diff.empty:
+                continue
+            est, lo, hi = hier_boot(diff, "diff")
+            lines.append(f"| {LABELS[a]} | {LABELS[b]} | {cond} | {est:+.3f} ({lo:+.3f} to {hi:+.3f}) | {(diff['diff'] > 0).mean():.0%} |")
+    if (df["method"] == "dino_clicks_v2").any():
+        lines.append("\n## Paired differences in Dice for method-v2\n")
+        lines.append("Positive means the first method is better. Wins: share of test slices where it scored higher.\n")
+        lines.append("| Method | Compared with | Condition | Difference (95% CI) | Wins |")
+        lines.append("|---|---|---|---|---|")
+        for a, b in (("dino_clicks_v2", "dino_clicks"), ("dino_clicks_v2_refined", "dino_clicks_v2"), ("dino_clicks_v2_refined", "sam"),
+                     ("dino_clicks_v2_refined", "microsam"), ("dino_clicks_v2_refined", "rf_clicks"), ("dino_labels_v2", "dino_labels")):
+            paired(a, b)
+
     # 3. Agreement of bone measures ---------------------------------------------------------------------
     lines.append("\n## Agreement of bone measures with the expert masks\n")
     lines.append("Per test slice, pooled over samples. Bias = method minus expert; LoA = 95% limits of agreement.\n")
     lines.append("| Method | Condition | Measure | Expert mean | Bias | LoA | ICC(A,1) | r |")
     lines.append("|---|---|---|---|---|---|---|---|")
     picks = [("otsu", "no input"), ("rf_clicks", "25+25 clicks, clean"), ("sam", "25+25 clicks, clean"), ("microsam", "25+25 clicks, clean"),
-             ("dino_clicks", "25+25 clicks, clean"), ("rf_labels", "labels from same sample"), ("dino_labels", "labels from same sample"),
-             ("dino_labels", "labels from other samples"), ("nnunet", "labels from other samples")]
+             ("dino_clicks", "25+25 clicks, clean"), ("dino_clicks_v2", "25+25 clicks, clean"), ("dino_clicks_v2_refined", "25+25 clicks, clean"),
+             ("dino_clicks", "3+6 clicks, clean"), ("dino_clicks_v2", "3+6 clicks, clean"), ("dino_clicks_v2_refined", "3+6 clicks, clean"),
+             ("rf_labels", "labels from same sample"), ("dino_labels", "labels from same sample"), ("dino_labels_v2", "labels from same sample"),
+             ("dino_labels", "labels from other samples"), ("dino_labels_v2", "labels from other samples"), ("nnunet", "labels from other samples")]
     agree = []
     for m, cond in picks:
         sub = df[(df["method"] == m) & (df["condition"] == cond)]
@@ -148,8 +171,9 @@ def main():
 
     # Figures --------------------------------------------------------------------------------------------
     clean25 = [("otsu", "no input"), ("rf_clicks", "25+25 clicks, clean"), ("sam", "25+25 clicks, clean"), ("microsam", "25+25 clicks, clean"),
-               ("dino_clicks", "25+25 clicks, clean"), ("rf_labels", "labels from same sample"), ("dino_labels", "labels from same sample"),
-               ("dino_labels", "labels from other samples")]
+               ("dino_clicks", "25+25 clicks, clean"), ("dino_clicks_v2_refined", "25+25 clicks, clean"), ("rf_labels", "labels from same sample"),
+               ("dino_labels", "labels from same sample"), ("dino_labels", "labels from other samples")]
+    clean25 = [mc for mc in clean25 if ((df["method"] == mc[0]) & (df["condition"] == mc[1])).any()]
     fig, ax = plt.subplots(figsize=(10, 4.2))
     width = 0.8 / len(samples)
     for i, s in enumerate(samples):
@@ -166,8 +190,11 @@ def main():
     fig.savefig(FIG / "dice_by_method.png", dpi=180)
     plt.close(fig)
 
-    fig, axes = plt.subplots(1, 4, figsize=(13, 3.4), sharey=True)
-    for ax, (m, c) in zip(axes, [("otsu", "no input"), ("sam", "25+25 clicks, clean"), ("dino_clicks", "25+25 clicks, clean"), ("dino_labels", "labels from same sample")]):
+    ba = [("otsu", "no input"), ("sam", "25+25 clicks, clean"), ("dino_clicks", "25+25 clicks, clean"), ("dino_clicks_v2_refined", "25+25 clicks, clean"),
+          ("dino_labels", "labels from same sample")]
+    ba = [mc for mc in ba if ((df["method"] == mc[0]) & (df["condition"] == mc[1])).any()]
+    fig, axes = plt.subplots(1, len(ba), figsize=(3.3 * len(ba), 3.4), sharey=True)
+    for ax, (m, c) in zip(axes, ba):
         sub = df[(df["method"] == m) & (df["condition"] == c)]
         x, y = sub["pred_B.Ar/T.Ar_%"].to_numpy(), sub["gt_B.Ar/T.Ar_%"].to_numpy()
         mean, diff = (x + y) / 2, x - y
@@ -187,7 +214,9 @@ def main():
     plt.close(fig)
 
     fig, ax = plt.subplots(figsize=(6.5, 3.6))
-    for m in ("rf_clicks", "sam", "microsam", "dino_clicks"):
+    for m in ("rf_clicks", "sam", "microsam", "dino_clicks", "dino_clicks_v2", "dino_clicks_v2_refined"):
+        if not (df["method"] == m).any():
+            continue
         vals = [df[(df["method"] == m) & (df["condition"] == c)]["dice"].mean() for c in
                 ("3+6 clicks, clean", "3+6 clicks, noisy", "25+25 clicks, clean", "25+25 clicks, noisy")]
         ax.plot(range(4), vals, marker="o", label=LABELS[m])

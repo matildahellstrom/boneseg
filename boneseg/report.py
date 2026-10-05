@@ -102,12 +102,24 @@ def methods_text(info: dict, settings: dict, source: str, n_pos: int, n_neg: int
                f"of {len(head['trained_on'])} manually corrected slices and thresholded at a probability of 0.5")
     else:
         clicks = f"{n_pos} object and {n_neg} background clicks" + (f" combined with the saved profile '{profile}'" if profile else "")
-        thr = {"clicks": "placed halfway between the scores at the object and background clicks",
+        pos_ = float(settings.get("threshold_position", 0.5))
+        thr = {"clicks": "placed halfway between the scores at the object and background clicks" if pos_ == 0.5 else
+                         f"placed {pos_:.0%} of the way from the scores at the background clicks to those at the object clicks",
                "otsu": "chosen with Otsu's method", "top_percent": f"set to keep the top {settings['top_percent']}% of pixels",
                "manual": f"set manually to {settings['manual_threshold']}"}.get(settings["threshold_mode"], settings["threshold_mode"])
         how = (f"Prototypes were taken from the patches under {clicks}. Each patch was scored by its mean cosine similarity to the "
                f"object prototypes minus {settings['neg_weight']} times its mean similarity to the background prototypes, and the "
                f"score map was upsampled bilinearly and thresholded, with the threshold {thr}")
+        if int(settings.get("shift_passes", 1)) > 1:
+            n = int(settings["shift_passes"])
+            how = (f"Features were extracted {n * n} times with the image shifted by fractions of a patch, and interleaved into a "
+                   f"{n} times finer feature grid. ") + how
+        if settings.get("edge_refine") == "guided":
+            how += (f"; before thresholding, the score map was edge-aligned with a guided filter (He et al., 2013) using the image as "
+                    f"guide (radius one feature cell, eps {settings.get('guided_eps', 0.01):g})")
+        if settings.get("refiner"):
+            how += ("; the final mask came from a small learned refiner, a U-Net that takes the image and the score relative to "
+                    "the threshold and predicts the mask at full resolution")
     clean = []
     if settings.get("min_object_um2"):
         clean.append(f"objects smaller than {settings['min_object_um2']} µm² were removed")

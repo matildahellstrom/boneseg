@@ -738,3 +738,16 @@ def test_batch_uses_each_samples_own_channel(client):
     assert job["meta"]["channels"] == {a["id"]: 0, b["id"]: 1}
     status = {s["dataset_id"]: s["status"] for s in job["result"]["samples"]}
     assert status == {a["id"]: "done", b["id"]: "done", c["id"]: "skipped"}
+
+
+def test_boundary_settings_through_the_api(client):
+    ds, gt, centers = upload_stack(client)
+    client.patch(f"/api/datasets/{ds['id']}", json={"reference_channel": 1})
+    st = {**SETTINGS, "threshold_position": 0.6, "edge_refine": "guided", "shift_passes": 2}
+    body = {"channel": 0, "z": 1, "pos": [list(c) for c in centers[:3]], "neg": bg_points(gt), "settings": st}
+    r = client.post(f"/api/datasets/{ds['id']}/segment", json=body)
+    assert r.status_code == 200, r.text
+    assert r.json()["evaluation"]["dice"] > 0.6
+    # A missing refiner file is a clear error, not a crash
+    r = client.post(f"/api/datasets/{ds['id']}/segment", json={**body, "settings": {**st, "refiner": "/no/such/refiner.pt"}})
+    assert r.status_code == 400 and "Refiner file not found" in r.text

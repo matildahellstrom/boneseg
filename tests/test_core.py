@@ -438,3 +438,48 @@ def test_batch_per_file_channels(tmp_path):
     out = pd.read_csv(tmp_path / "o" / "summary.csv")
     assert out["status"].tolist()[:2] == ["ok", "ok"] and out["channel"].tolist()[:2] == [0, 1]
     assert out["status"].iloc[2].startswith("failed") and "no channel" in out["status"].iloc[2]
+
+
+def test_threshold_position_moves_towards_object_clicks():
+    assert segment.calibrate_threshold([1.0], [0.0]) == 0.5
+    assert segment.calibrate_threshold([1.0], [0.0], 0.7) == pytest.approx(0.7)
+
+
+def test_guided_filter_snaps_to_image_edge():
+    # A step edge in the image at column 32, and a blurry score whose 0-crossing sits at column 36
+    img = np.zeros((64, 64), np.float32)
+    img[:, 32:] = 1
+    score = np.tile(np.linspace(-1, 1, 64) * 8 - (36 - 31.5) / 63 * 16, (64, 1)).astype(np.float32)
+    out = segment.guided_filter(img, score, 8, 1e-3)
+    before, after = np.argmax(score[32] >= 0), np.argmax(out[32] >= 0)
+    assert abs(after - 32) <= 1 < abs(before - 32)
+
+
+def test_shift_passes_give_finer_grid_and_still_segment(blobs):
+    img, gt, centers = blobs
+    bb = get_backbone("classic")
+    one = segment.embed_image(bb, img, classic_settings())
+    two = segment.embed_image(bb, img, classic_settings(shift_passes=2))
+    assert two.grid.shape[0] == 2 * one.grid.shape[0] and two.grid.shape[1] == 2 * one.grid.shape[1]
+    s = classic_settings(shift_passes=2, edge_refine="guided")
+    emb = segment.embed_image(bb, img, s)
+    assert emb.image is not None
+    assert metrics.dice(segment.segment(emb, centers[:3], background_points(gt), s).mask, gt) > 0.6
+
+
+def test_untrained_refiner_reproduces_threshold_and_loads(tmp_path, blobs):
+    from boneseg.refine import Refiner, RefinerNet
+    img, gt, centers = blobs
+    s = classic_settings()
+    emb = segment.embed_image(get_backbone("classic"), img, s)
+    plain = segment.segment(emb, centers[:3], background_points(gt), s)
+    net = RefinerNet()
+    path = tmp_path / "r.pt"
+    Refiner(state=net.state_dict()).save(path)
+    s2 = classic_settings(refiner=str(path))
+    emb2 = segment.embed_image(get_backbone("classic"), img, s2)
+    res = segment.segment(emb2, centers[:3], background_points(gt), s2)
+    assert "refined" in res.threshold_source
+    assert (res.mask != plain.mask).mean() < 0.002
+    with pytest.raises(ValueError):
+        segment.get_refiner(str(tmp_path / "missing.pt"))
