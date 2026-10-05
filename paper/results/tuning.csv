@@ -1,0 +1,49 @@
+held_out,budget,method,setting,dice
+A,3+6,dino_clicks,"neg_weight=0.4, vit_size=644",0.6376920166366462
+A,3+6,dino_clicks,"neg_weight=0.4, vit_size=980",0.6053798458321713
+A,3+6,dino_clicks,"neg_weight=0.8, vit_size=644",0.6352513685976341
+A,3+6,dino_clicks,"neg_weight=0.8, vit_size=980",0.5840700601896701
+A,3+6,dino_clicks,"neg_weight=1.2, vit_size=644",0.6176169269845673
+A,3+6,dino_clicks,"neg_weight=1.2, vit_size=980",0.5577335014296961
+A,3+6,rf_clicks,sigma_max=8.0,0.5071052327219292
+A,3+6,rf_clicks,sigma_max=16.0,0.5063644259147166
+A,25+25,dino_clicks,"neg_weight=0.4, vit_size=644",0.7330072675736865
+A,25+25,dino_clicks,"neg_weight=0.4, vit_size=980",0.7159093314970693
+A,25+25,dino_clicks,"neg_weight=0.8, vit_size=644",0.738262728845244
+A,25+25,dino_clicks,"neg_weight=0.8, vit_size=980",0.7185381470238733
+A,25+25,dino_clicks,"neg_weight=1.2, vit_size=644",0.7341890556048152
+A,25+25,dino_clicks,"neg_weight=1.2, vit_size=980",0.7091255157824998
+A,25+25,rf_clicks,sigma_max=8.0,0.6198354037512044
+A,25+25,rf_clicks,sigma_max=16.0,0.6219723235957686
+E,3+6,dino_clicks,"neg_weight=0.4, vit_size=644",0.579891721849729
+E,3+6,dino_clicks,"neg_weight=0.4, vit_size=980",0.5565522978622361
+E,3+6,dino_clicks,"neg_weight=0.8, vit_size=644",0.5788754034804116
+E,3+6,dino_clicks,"neg_weight=0.8, vit_size=980",0.5392623844401803
+E,3+6,dino_clicks,"neg_weight=1.2, vit_size=644",0.5609301428871585
+E,3+6,dino_clicks,"neg_weight=1.2, vit_size=980",0.5121257985852553
+E,3+6,rf_clicks,sigma_max=8.0,0.3871848408623224
+E,3+6,rf_clicks,sigma_max=16.0,0.3899634476351414
+E,25+25,dino_clicks,"neg_weight=0.4, vit_size=644",0.6562918336979037
+E,25+25,dino_clicks,"neg_weight=0.4, vit_size=980",0.6491481435561441
+E,25+25,dino_clicks,"neg_weight=0.8, vit_size=644",0.6604206936960628
+E,25+25,dino_clicks,"neg_weight=0.8, vit_size=980",0.6588665224539176
+E,25+25,dino_clicks,"neg_weight=1.2, vit_size=644",0.6571699018683905
+E,25+25,dino_clicks,"neg_weight=1.2, vit_size=980",0.6539268304809329
+E,25+25,rf_clicks,sigma_max=8.0,0.5042606852173913
+E,25+25,rf_clicks,sigma_max=16.0,0.5118346532275322
+F,3+6,dino_clicks,"neg_weight=0.4, vit_size=644",0.6460902284362599
+F,3+6,dino_clicks,"neg_weight=0.4, vit_size=980",0.6038576312285954
+F,3+6,dino_clicks,"neg_weight=0.8, vit_size=644",0.6646710968874594
+F,3+6,dino_clicks,"neg_weight=0.8, vit_size=980",0.6111309639941178
+F,3+6,dino_clicks,"neg_weight=1.2, vit_size=644",0.6565910033728594
+F,3+6,dino_clicks,"neg_weight=1.2, vit_size=980",0.6046610467198985
+F,3+6,rf_clicks,sigma_max=8.0,0.4732241906959135
+F,3+6,rf_clicks,sigma_max=16.0,0.47489219862238735
+F,25+25,dino_clicks,"neg_weight=0.4, vit_size=644",0.7077994420807541
+F,25+25,dino_clicks,"neg_weight=0.4, vit_size=980",0.6763645391878621
+F,25+25,dino_clicks,"neg_weight=0.8, vit_size=644",0.7122363179490651
+F,25+25,dino_clicks,"neg_weight=0.8, vit_size=980",0.6837043295313592
+F,25+25,dino_clicks,"neg_weight=1.2, vit_size=644",0.7065094975832908
+F,25+25,dino_clicks,"neg_weight=1.2, vit_size=980",0.6764658106100949
+F,25+25,rf_clicks,sigma_max=8.0,0.5670896789901738
+F,25+25,rf_clicks,sigma_max=16.0,0.5758981667167402

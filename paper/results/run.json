@@ -1,0 +1,42 @@
+{
+ "samples": [
+  "A",
+  "E",
+  "F"
+ ],
+ "seeds": [
+  0,
+  1,
+  2
+ ],
+ "n_slices": 20,
+ "budgets": [
+  [
+   3,
+   6
+  ],
+  [
+   25,
+   25
+  ]
+ ],
+ "dino_grid": {
+  "neg_weight": [
+   0.4,
+   0.8,
+   1.2
+  ],
+  "vit_size": [
+   644,
+   980
+  ]
+ },
+ "rf_grid": {
+  "sigma_max": [
+   8.0,
+   16.0
+  ]
+ },
+ "method_tag": "method-v1",
+ "minutes": 31.4
+}
