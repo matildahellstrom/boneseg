@@ -216,17 +216,9 @@ def train_refiner_from_files(specs: list[str], settings, n_slices: int = 10, dra
 
     def examples():
         for spec in specs:
-            parts = spec.rsplit(":", 2)
-            path, ch = parts[0], int(parts[1])
-            vol = bio.load_volume(path)
-            mask_ch = int(parts[2]) if len(parts) == 3 else vol.n_channels - 1
-            zs = [z for z in np.linspace(0, vol.n_z - 1, n_slices * 3).round().astype(int)]
-            picked = [z for z in dict.fromkeys(zs) if (vol.get_plane(mask_ch, int(z)) > 0).mean() > 0.005]
-            picked = [picked[i] for i in sorted(set(np.linspace(0, len(picked) - 1, min(n_slices, len(picked))).round().astype(int)))] if picked else []
-            log(f"{Path(path).name}: {len(picked)} slices with a mask")
-            for z in picked:
-                img = bio.normalize_plane(vol.get_plane(ch, int(z)), settings.clip_low, settings.clip_high)
-                gt = vol.get_plane(mask_ch, int(z)) > 0
+            picked = bio.labelled_slices(spec, n_slices, settings.clip_low, settings.clip_high)
+            log(f"{Path(spec.rsplit(':', 2)[0]).name}: {len(picked)} slices with a mask")
+            for z, img, gt in picked:
                 emb = embed_image(bb, img, settings)
                 for d in range(draws):
                     pos, neg = simulate_clicks(gt, *budgets[d % len(budgets)], rng, noisy=d % 2 == 1)

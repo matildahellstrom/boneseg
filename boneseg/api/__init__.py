@@ -11,6 +11,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from .. import __version__
+from .. import backbone as backbone_mod
 from ..backbone import BACKBONE_LABELS, dino_weights_cached, pick_device
 from ..segment import SegmentationSettings
 from ..store import Store
@@ -48,6 +49,9 @@ def create_app(data_dir: str | Path | None = None, allow_paths: bool = True, tok
     app = FastAPI(title="boneseg", version=__version__, default_response_class=SafeJSONResponse)
     app.state.store = store
     ctx = AppContext(store, allow_paths)
+    models_dir = store.root / "models"
+    models_dir.mkdir(exist_ok=True)
+    backbone_mod.MODEL_DIRS = None if allow_paths else [models_dir]
 
     if token:
         import hmac
@@ -85,7 +89,10 @@ def create_app(data_dir: str | Path | None = None, allow_paths: bool = True, tok
             "device": str(pick_device()),
             "allow_paths": allow_paths,
             "default_settings": SegmentationSettings().to_dict(),
-            "backbones": [{"id": k, "label": v, "ready": dino_weights_cached(k)} for k, v in BACKBONE_LABELS.items()],
+            "backbones": [{"id": k, "label": v, "ready": dino_weights_cached(k)} for k, v in BACKBONE_LABELS.items()]
+                         + [{"id": f"dinov2_s14@{p}", "label": f"DINOv2 Small, fine-tuned · {p.stem}", "ready": dino_weights_cached("dinov2_s14")}
+                            for p in sorted(models_dir.glob("*.pt")) if p.stem.startswith("dinov2_s14")],
+            "models_dir": str(models_dir),
         }
 
     for module in (datasets, segmentation, learning, analysis, profiles, study, batch):

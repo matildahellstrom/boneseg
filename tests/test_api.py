@@ -751,3 +751,16 @@ def test_boundary_settings_through_the_api(client):
     # A missing refiner file is a clear error, not a crash
     r = client.post(f"/api/datasets/{ds['id']}/segment", json={**body, "settings": {**st, "refiner": "/no/such/refiner.pt"}})
     assert r.status_code == 400 and "Refiner file not found" in r.text
+
+
+def test_model_files_are_confined_without_path_access(tmp_path):
+    from boneseg import backbone
+    c = TestClient(create_app(tmp_path / "data", allow_paths=False))
+    try:
+        with pytest.raises(ValueError, match="models folder"):
+            backbone.get_backbone("dinov2_s14@/etc/hosts")
+        (tmp_path / "data" / "models" / "dinov2_s14_mine.pt").write_bytes(b"x")
+        ids = [b["id"] for b in c.get("/api/health").json()["backbones"]]
+        assert any(i.endswith("dinov2_s14_mine.pt") for i in ids)
+    finally:
+        backbone.MODEL_DIRS = None

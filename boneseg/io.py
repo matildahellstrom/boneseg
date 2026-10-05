@@ -219,3 +219,17 @@ def load_volume(path: str | Path) -> Volume:
     if ext == ".npy":
         return load_npy(path)
     raise ValueError(f"Unsupported file type {ext}. Supported: {', '.join(sorted(SUPPORTED_EXTENSIONS))}")
+
+
+def labelled_slices(spec: str, n_slices: int, clip_low: float = 1.0, clip_high: float = 99.5):
+    """Evenly spaced slices with a non-empty expert mask from 'file:image_channel[:mask_channel]' (the mask defaults
+    to the last channel). Returns a list of (z, normalized image, boolean mask)."""
+    parts = spec.rsplit(":", 2)
+    path, ch = parts[0], int(parts[1])
+    vol = load_volume(path)
+    mask_ch = int(parts[2]) if len(parts) == 3 else vol.n_channels - 1
+    zs = list(dict.fromkeys(np.linspace(0, vol.n_z - 1, n_slices * 3).round().astype(int).tolist()))
+    picked = [z for z in zs if (vol.get_plane(mask_ch, z) > 0).mean() > 0.005]
+    if picked:
+        picked = [picked[i] for i in sorted(set(np.linspace(0, len(picked) - 1, min(n_slices, len(picked))).round().astype(int)))]
+    return [(z, normalize_plane(vol.get_plane(ch, z), clip_low, clip_high), vol.get_plane(mask_ch, z) > 0) for z in picked]

@@ -36,7 +36,31 @@ def main(argv=None):
     tr.add_argument("--slices", type=int, default=10, help="Labelled slices per file")
     tr.add_argument("--steps", type=int, default=1500)
     tr.add_argument("--settings", default="{}", help='Segmentation settings as JSON, e.g. \'{"shift_passes": 2}\'')
+    fine = sub.add_parser("finetune", help="Fine-tune DINOv2 Small on files with an expert mask channel")
+    fine.add_argument("files", nargs="+", help="'file:image_channel' or 'file:image_channel:mask_channel' (mask defaults to the last channel)")
+    fine.add_argument("--out", default="dinov2_s14_finetuned.pt")
+    fine.add_argument("--slices", type=int, default=10, help="Labelled slices per file; every second one validates")
+    fine.add_argument("--blocks", type=int, default=4, help="Transformer blocks to train, counted from the end (0 trains the output layer only)")
+    fine.add_argument("--steps", type=int, default=1000)
     args = parser.parse_args(argv)
+
+    if args.cmd == "finetune":
+        from .finetune import finetune
+        from .io import labelled_slices
+
+        train, val = [], []
+        for spec in args.files:
+            sl = labelled_slices(spec, args.slices)
+            print(f"{spec}: {len(sl)} labelled slices")
+            train += [(img, gt) for i, (_, img, gt) in enumerate(sl) if i % 2 == 0]
+            val += [(img, gt) for i, (_, img, gt) in enumerate(sl) if i % 2 == 1]
+        if not train:
+            raise SystemExit("No slices with a mask were found")
+        ft = finetune(train, val, train_blocks=args.blocks, steps=args.steps, log=print)
+        ft.save(args.out)
+        print(f"Wrote {args.out} (best validation Dice {ft.info['best_val_dice']:.3f} at step {ft.info['best_step']}). "
+              f"Use it as the backbone 'dinov2_s14@{args.out}', or place it in the app's models folder.")
+        return
 
     if args.cmd == "train-refiner":
         import json

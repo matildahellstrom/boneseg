@@ -117,10 +117,35 @@ _cache: dict[str, Backbone] = {}
 _lock = threading.Lock()
 
 
+# Folders model files (fine-tuned backbones, refiners) may be loaded from; None allows any path. The app restricts
+# this to its own models folder when it is reachable over the network without path access.
+MODEL_DIRS: list | None = None
+
+
+def check_model_path(path: str) -> str:
+    from pathlib import Path
+    p = Path(os.path.expanduser(path)).resolve()
+    if MODEL_DIRS is not None and not any(p.is_relative_to(Path(d).resolve()) for d in MODEL_DIRS):
+        raise ValueError("Model files can only be loaded from the app's models folder")
+    return str(p)
+
+
+def backbone_label(name: str) -> str:
+    base, _, path = name.partition("@")
+    label = BACKBONE_LABELS.get(base, base)
+    return f"{label}, fine-tuned ({os.path.basename(path)})" if path else label
+
+
 def get_backbone(name: str) -> Backbone:
-    """Loads a backbone, keeping at most one DINOv2 model in memory at a time."""
-    if name not in BACKBONE_LABELS:
+    """Loads a backbone, keeping at most one DINOv2 model in memory at a time.
+    'dinov2_s14@/path/file.pt' is DINOv2 Small with the fine-tuned weights saved by boneseg.finetune."""
+    base, _, ft_path = name.partition("@")
+    if base not in BACKBONE_LABELS or (ft_path and base == "classic"):
         raise ValueError(f"Unknown backbone {name}. Choose one of {', '.join(BACKBONE_LABELS)}")
+    if ft_path:
+        ft_path = check_model_path(ft_path)
+        if not os.path.exists(ft_path):
+            raise ValueError(f"Fine-tuned model not found: {ft_path}")
     with _lock:
         if name not in _cache:
             if name == "classic":
@@ -132,10 +157,18 @@ def get_backbone(name: str) -> Backbone:
                 if torch.cuda.is_available():
                     torch.cuda.empty_cache()
                 try:
-                    _cache[name] = DinoBackbone(name, pick_device())
+                    bb = DinoBackbone(base, pick_device())
+                    if ft_path:
+                        from .finetune import FineTuned
+                        ft = FineTuned.load(os.path.expanduser(ft_path))
+                        if ft.base != base:
+                            raise ValueError(f"{ft_path} was fine-tuned from {ft.base}, not {base}")
+                        bb.model.load_state_dict({k: v.to(bb.device) for k, v in ft.backbone_state.items()}, strict=False)
+                        bb.name = name
+                    _cache[name] = bb
                 except Exception as e:  # Usually no internet on first use, or a blocked download
                     raise ValueError(
-                        f"Could not load {BACKBONE_LABELS[name]}. The first use downloads its code and weights from GitHub "
+                        f"Could not load {backbone_label(name)}. The first use downloads its code and weights from GitHub "
                         f"and Meta, so check the internet connection, or pick 'Classic features', which needs no download "
                         f"({type(e).__name__}: {str(e)[:160]})") from None
         return _cache[name]
@@ -143,6 +176,7 @@ def get_backbone(name: str) -> Backbone:
 
 def dino_weights_cached(name: str) -> bool:
     """Whether the DINOv2 weights are already downloaded, so loading will not hit the network."""
+    name = name.partition("@")[0]
     if name == "classic":
         return True
     ckpt = os.path.join(torch.hub.get_dir(), "checkpoints", f"{DINO_HUB_NAMES[name]}_pretrain.pth")

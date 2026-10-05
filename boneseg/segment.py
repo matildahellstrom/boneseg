@@ -118,7 +118,8 @@ BUNDLED_REFINER = Path(__file__).resolve().parent / "models" / "refiner_liu.pt"
 def get_refiner(spec: str):
     """Loads a refiner once: "bundled" is the one shipped with boneseg, anything else a file path."""
     from .refine import Refiner
-    path = BUNDLED_REFINER if spec == "bundled" else Path(spec).expanduser()
+    from .backbone import check_model_path
+    path = BUNDLED_REFINER if spec == "bundled" else Path(check_model_path(spec))
     if str(path) not in _REFINERS:
         if not path.exists():
             raise ValueError(f"Refiner file not found: {path}")
