@@ -38,8 +38,9 @@ u16 = (img * 60000).astype(np.uint16)
 
 CASES = {
     "grey PNG": ("a.png", lambda: _png(u8), (1, 1)),
-    "RGB PNG": ("a.png", lambda: _png(np.stack([u8, u8 // 2, u8 // 3], -1)), (3, 1)),
-    "RGBA PNG": ("a.png", lambda: _png(np.stack([u8, u8, u8, np.full_like(u8, 255)], -1), "RGBA"), (3, 1)),
+    # Colour images get a fourth, virtual "Colour (RGB)" channel
+    "RGB PNG": ("a.png", lambda: _png(np.stack([u8, u8 // 2, u8 // 3], -1)), (4, 1)),
+    "RGBA PNG": ("a.png", lambda: _png(np.stack([u8, u8, u8, np.full_like(u8, 255)], -1), "RGBA"), (4, 1)),
     "JPEG": ("a.jpg", lambda: (lambda b: (Image.fromarray(u8).save(b, format="JPEG"), b.getvalue())[1])(io.BytesIO()), (1, 1)),
     "16-bit 2D TIFF": ("a.tif", lambda: _tif(u16), (1, 1)),
     "3D TIFF, z only": ("a.tif", lambda: _tif(np.stack([u16] * 4), photometric="minisblack", metadata={"axes": "ZYX"}), (1, 4)),
@@ -94,3 +95,17 @@ def test_unreadable_files_give_clear_errors(client):
     assert r.status_code == 400 and "Could not read broken.ims" in r.json()["detail"]
     r = client.post("/api/datasets/stream", params={"filename": "five_d.npy"}, content=_npy(np.zeros((2, 2, 2, 2, 2))))
     assert r.status_code == 400 and "shape" in r.json()["detail"]
+
+
+def test_colour_volume_planes(tmp_path):
+    from PIL import Image
+    from boneseg import io as bio
+    a = (np.random.default_rng(0).random((40, 50, 3)) * 255).astype(np.uint8)
+    Image.fromarray(a).save(tmp_path / "c.png")
+    v = bio.load_volume(tmp_path / "c.png")
+    assert v.n_channels == 4 and v.rgb_channel == 3
+    assert v.get_plane(3, 0).shape == (40, 50, 3) and np.array_equal(v.get_plane(3, 0)[..., 1], a[..., 1])
+    assert v.get_xz(3, 5).shape == (1, 50)
+    g = (np.random.default_rng(0).random((40, 50)) * 255).astype(np.uint8)
+    Image.fromarray(g).save(tmp_path / "g.png")
+    assert bio.load_volume(tmp_path / "g.png").rgb_channel is None

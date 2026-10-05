@@ -78,6 +78,8 @@ def router(ctx: AppContext) -> APIRouter:
     def patch_dataset(ds_id: str, req: MetaRequest):
         ds = store.get(ds_id)
         updates = req.model_dump(exclude_unset=True)
+        if updates.get("reference_channel") is not None and updates["reference_channel"] == ds.volume.rgb_channel:
+            raise ValueError("The colour channel cannot hold a reference mask; pick the channel with the mask")
         if updates.get("reference_channel") is not None and not 0 <= updates["reference_channel"] < ds.volume.n_channels:
             raise HTTPException(400, "Reference channel out of range")
         if updates.get("default_channel") is not None and not 0 <= updates["default_channel"] < ds.volume.n_channels:
@@ -118,7 +120,9 @@ def router(ctx: AppContext) -> APIRouter:
     def plane(ds_id: str, c: int = 0, z: int = 0, low: float = 1.0, high: float = 99.5, max_side: int = 1600, gamma: float = 1.0,
               overlay: int | None = None, color: str = "ff00ff"):
         """A slice for display. With overlay, a second channel is added on top in colour."""
-        p = store.plane(ds_id, c, z, low, high)
+        p = store.color_plane(ds_id, c, z, low, high)
+        if p.ndim == 3:   # The colour channel is shown in colour
+            return Response(render.color_png(p, max_side, gamma), media_type="image/png", headers={"Cache-Control": "max-age=3600"})
         if overlay is not None and overlay != c:
             hexc = color.lstrip("#")
             rgb = tuple(int(hexc[i:i + 2], 16) for i in (0, 2, 4)) if len(hexc) == 6 else (255, 0, 255)

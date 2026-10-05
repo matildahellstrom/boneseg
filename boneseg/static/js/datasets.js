@@ -57,6 +57,7 @@ async function openDataset(id) {
     : "Pick a channel that holds an expert mask to score results with Dice.";
   // Start on a channel that is not the reference mask
   if (d.default_channel != null) S.c = d.default_channel;
+  else if (d.rgb_channel != null) S.c = d.rgb_channel;   // Colour images start in colour, which DINOv2 reads best
   else if (d.reference_channel === 0 && d.n_channels > 1) S.c = 1;
   cs.value = S.c;
   $("zSlider").max = d.n_z - 1;
