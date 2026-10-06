@@ -92,7 +92,7 @@ figcaption .dv { font: 600 15px/1 var(--mono); color: var(--accent) }
   <div class="eyebrow">Bone segmentation · evaluation report</div>
   <h1>boneseg Evaluation Results</h1>
   <p class="lede">How well boneseg's masks match an expert's bone masks on four Liu autofluorescence samples, compared with standard tools, and what the boundary improvements, the U-Net refiner and fine-tuning DINOv2 add.</p>
-  <div class="meta"><span class="chip">Bone: samples A · C · E · F</span><span class="chip">Osteoclasts: NOISe batches m1–m5</span><span class="chip">10 test slices per sample</span><span class="chip">Nested leave-one-sample-out</span><span class="chip">5 October 2026</span></div>
+  <div class="meta"><span class="chip">Bone: samples A · C · E · F</span><span class="chip">Osteoclasts: NOISe batches m1–m5</span><span class="chip">Plasma cells: SegPC-2021</span><span class="chip">10 test slices per sample</span><span class="chip">Nested leave-one-sample-out</span><span class="chip">5 October 2026</span></div>
 </header>
 
 <section>
@@ -102,6 +102,7 @@ figcaption .dv { font: 600 15px/1 var(--mono); color: var(--accent) }
     <div class="finding"><b>+6.6 → +2.0</b><span>Percentage points of bone-area overestimate (B.Ar/T.Ar) with 25 + 25 clicks.</span></div>
     <div class="finding"><b>+0.087</b><span>Dice ahead of SAM with only 3 + 6 clicks (boneseg v2 + refiner). With 25 + 25 clicks they are level.</span></div>
     <div class="finding"><b>0.74 vs 0.53</b><span>Osteoclast Dice of boneseg against SAM with 10 + 20 clicks, on mouse cultures from the public NOISe data.</span></div>
+    <div class="finding"><b>0.55 vs 0.48</b><span>Official SegPC-2021 score of boneseg against SAM for plasma cells in bone marrow, with 10 + 20 clicks.</span></div>
     <div class="finding"><b>+0.071</b><span>Dice gain from a fine-tuned DINOv2 with 3 + 6 clicks on a sample it never saw.</span></div>
   </div>
   <p class="note">Dice measures overlap with the expert mask: 1 is a perfect match. Intervals are 95% hierarchical bootstrap intervals, resampling samples and then slices. Every setting was tuned on the other samples, so each score is for a sample the method was not tuned on. With four samples, the intervals describe these samples, not bone imaging in general.</p>
@@ -227,6 +228,30 @@ figcaption .dv { font: 600 15px/1 var(--mono); color: var(--accent) }
     <h3>Worst, median and best test patch, boneseg with 10 + 20 clicks</h3>
     <div class="key"><span><i style="background:#00aaaa"></i>Both boneseg and the experts</span><span><i style="background:#ff9600"></i>boneseg only</span><span><i style="background:#e12882"></i>Experts only (missed)</span><span><i style="background:#141414"></i>Expert outline</span><span><i style="background:#00c83c"></i>Osteoclast click</span><span><i style="background:#e61e1e"></i>Background click</span></div>
     <div class="cases" id="noiseCases"></div>
+  </div>
+</section>
+
+<section id="plasma">
+  <h2>Plasma cells on public data</h2>
+  <p>SegPC-2021 has bone marrow aspirate slides of multiple myeloma patients, stained with Jenner-Giemsa, from two cameras. Experts outlined each plasma cell of interest with its nucleus and cytoplasm. Settings were tuned on 60 training images and scored on the 199 validation images with outlines. The official challenge score is the average, over expert cells, of the best overlap (IoU) of any predicted cell; it does not penalise extra cells.</p>
+  <div class="panel">
+    <div class="controls">
+      <span class="lab">Clicks</span>
+      <div class="seg" id="segpcSeg"><button data-v="10+20 clicks" aria-pressed="true">10 + 20</button><button data-v="3+6 clicks" aria-pressed="false">3 + 6</button></div>
+    </div>
+    <div id="segpcChart"></div>
+    <div class="scroll"><table id="segpcTable"></table></div>
+    <p class="note">As two structures, boneseg outlines nuclei well (Dice 0.84 with 10 + 20 clicks) and the pale cytoplasm less well (0.69). Treating the whole cell as one structure scores higher on the official measure.</p>
+  </div>
+  <div class="panel">
+    <h3>Counting plasma cells</h3>
+    <p class="note">With a minimum cell size chosen on the training images, so that specks are not counted. Precision counts unoutlined cells as errors, so it is a lower bound.</p>
+    <div class="scroll"><table id="segpcCounts"></table></div>
+  </div>
+  <div class="panel">
+    <h3>Worst, median and best validation image, boneseg with 10 + 20 clicks</h3>
+    <div class="key"><span><i style="background:#00aaaa"></i>Both boneseg and the experts</span><span><i style="background:#ff9600"></i>boneseg only (includes unoutlined cells)</span><span><i style="background:#e12882"></i>Experts only (missed)</span><span><i style="background:#141414"></i>Expert outline</span><span><i style="background:#00c83c"></i>Plasma cell click</span><span><i style="background:#e61e1e"></i>Background click</span></div>
+    <div class="cases" id="segpcCases"></div>
   </div>
 </section>
 
@@ -451,5 +476,22 @@ function drawNoiseStatic() {
 
 document.getElementById("noiseGallery").innerHTML = DATA.gallery.gallery.map((g) => `<figure><img src="${IMAGES[g.file]}" alt="Batch ${g.batch}: TRAP-stained osteoclast culture with ${g.n} expert-outlined osteoclasts" loading="lazy" width="560"><figcaption><b>${g.batch}</b><span>${g.n} osteoclasts</span></figcaption></figure>`).join("");
 document.getElementById("noiseCrops").innerHTML = DATA.gallery.crops.map((c) => `<figure><img src="${IMAGES[c.file]}" alt="Close-up of an osteoclast from batch ${c.batch}" loading="lazy" width="220"><figcaption>${c.batch}</figcaption></figure>`).join("");
-drawNoise(); drawNoiseStatic(); drawSample(); drawClicks(); drawLabels(); drawPairs(); drawMeas(); drawFt(); drawUnet();
+const SM = { dino_clicks: ["boneseg", "--accent"], dino_multi: ["boneseg, nucleus + cytoplasm", "--accent-soft"], sam: ["SAM ViT-B", "--amber"], microsam: ["micro-SAM ViT-B LM", "--violet"], rf_clicks: ["Random forest (ilastik-style)", "--earth"], otsu: ["Otsu threshold (no clicks)", "--stone"], dino_labels: ["boneseg learned model, 5 labelled images", "--accent-soft"] };
+const SCAP = { worst: "boneseg covers all eight outlined plasma cells, but the whole crowded cluster joins into one region, so each expert cell overlaps a single huge predicted cell. Separating touching cells is the main open problem on this data.",
+  median: "The outlined cells are found; neighbouring cells, some of them likely plasma cells that were not chosen for outlining, are marked too, and one cell's nucleus edge is missed.", best: "A single plasma cell, outlined almost exactly." };
+const segpcSel = seg("segpcSeg", drawSegpc);
+function drawSegpc() {
+  const c = segpcSel();
+  const rows = ["dino_clicks", "dino_multi", "sam", "microsam", "rf_clicks", "otsu"].map((m) => DATA.segpc.summary.find((r) => r.method === m && (m === "otsu" ? r.condition === "no input" : r.condition === c))).filter(Boolean)
+    .concat(DATA.segpc.summary.filter((r) => r.method === "dino_labels"));
+  intervalChart(document.getElementById("segpcChart"), rows.map((r) => ({ label: SM[r.method][0], v: r.official, lo: r.lo, hi: r.hi, color: SM[r.method][1], strong: r.method === "dino_clicks" })), { labelW: 260, x1: 0.8, ticks: [0, 0.2, 0.4, 0.6, 0.8] });
+  const f = (v) => v == null ? "–" : v.toFixed(3);
+  document.getElementById("segpcTable").innerHTML = `<thead><tr><th>Method</th><th>Official score</th><th>Olympus</th><th>Nikon</th><th>Dice near cells</th><th>Nucleus Dice</th><th>Cytoplasm Dice</th></tr></thead><tbody>` +
+    rows.map((r) => `<tr class="${r.method === "dino_clicks" ? "hl" : ""}"><td>${esc(SM[r.method][0])}</td><td class="num"><b>${f(r.official)}</b></td><td class="num">${f(r.official_olympus)}</td><td class="num">${f(r.official_nikon)}</td><td class="num">${f(r.dice_local)}</td><td class="num">${f(r.dice_nucleus)}</td><td class="num">${f(r.dice_cytoplasm)}</td></tr>`).join("") + "</tbody>";
+}
+document.getElementById("segpcCounts").innerHTML = `<thead><tr><th>Method</th><th>Condition</th><th>Precision</th><th>Recall</th><th>F1</th><th>Count bias per image</th><th>Count ICC</th></tr></thead><tbody>` +
+  DATA.segpc.counts.map((r) => `<tr class="${r.method.startsWith("boneseg, clicks") && r.condition.startsWith("10") ? "hl" : ""}"><td>${esc(r.method)}</td><td>${esc(r.condition)}</td><td class="num">${r.precision.toFixed(2)}</td><td class="num">${r.recall.toFixed(2)}</td><td class="num"><b>${r.f1.toFixed(2)}</b></td><td class="num">${esc(r.bias)}</td><td class="num">${r.icc.toFixed(2)}</td></tr>`).join("") + "</tbody>";
+document.getElementById("segpcCases").innerHTML = DATA.segpc.cases.map((c) => `<figure><img src="${IMAGES[c.file]}" alt="SegPC validation image ${c.image}: the image and boneseg's cells compared with the experts'" loading="lazy" width="1100"><figcaption><b>${c.kind}</b><span class="dv">score ${c.official.toFixed(3)}</span><span>image ${c.image}, ${c.camera}</span><span>${c.n_cells} outlined cells</span></figcaption><p class="note">${esc(SCAP[c.kind])}</p></figure>`).join("");
+
+drawSegpc(); drawNoise(); drawNoiseStatic(); drawSample(); drawClicks(); drawLabels(); drawPairs(); drawMeas(); drawFt(); drawUnet();
 </script>
