@@ -45,41 +45,41 @@ Label-based methods are trained on 5 labelled development slices either of the h
 
 ## Results so far
 
-From `results/summary.md`: four samples (A, C, E, F), 10 test slices each, nested leave-one-sample-out. Two method versions are scored on the same slices and clicks: `method-v1` (git tag) and method-v2, which adds the boundary improvements below. With four samples, these results are still preliminary.
+From `results/summary.md`: five samples (A, C, D, E, F), 10 test slices each, nested leave-one-sample-out. Sample D (24 GB) is read from Kaggle without downloading it (`remote_d.py`): its 20 slices come two per 32-slice storage block from ten blocks over the central 80% of the stack, and its fold was added after the others, tuned on A, C, E and F. Two method versions are scored on the same slices and clicks: `method-v1` (git tag) and method-v2, which adds the boundary improvements below.
 
 | Mean Dice (95% CI over samples and slices) | 3 + 6 clicks | 25 + 25 clicks |
 |---|---|---|
-| boneseg v1, clicks, clean | 0.64 (0.58–0.72) | 0.68 (0.63–0.75) |
-| boneseg v2, clicks, clean | 0.67 (0.63–0.72) | 0.76 (0.69–0.80) |
-| boneseg v2 + refiner, clicks, clean | 0.69 (0.65–0.74) | 0.73 (0.67–0.80) |
-| SAM ViT-B, clean | 0.60 (0.52–0.69) | 0.74 (0.66–0.82) |
-| micro-SAM ViT-B LM, clean | 0.49 (0.37–0.60) | 0.61 (0.46–0.71) |
-| Random forest (ilastik-style), clean | 0.41 (0.29–0.56) | 0.51 (0.38–0.65) |
-| boneseg v2 + refiner, noisy | 0.64 (0.60–0.68) | 0.67 (0.60–0.78) |
-| SAM ViT-B, noisy | 0.55 (0.46–0.65) | 0.69 (0.61–0.77) |
-| Otsu, no input | 0.31 (0.19–0.45) | |
+| boneseg v1, clicks, clean | 0.64 (0.59–0.70) | 0.70 (0.64–0.75) |
+| boneseg v2, clicks, clean | 0.66 (0.62–0.70) | 0.76 (0.70–0.80) |
+| boneseg v2 + refiner, clicks, clean | 0.67 (0.62–0.72) | 0.71 (0.65–0.78) |
+| SAM ViT-B, clean | 0.62 (0.54–0.69) | 0.76 (0.68–0.82) |
+| micro-SAM ViT-B LM, clean | 0.48 (0.38–0.57) | 0.61 (0.49–0.69) |
+| Random forest (ilastik-style), clean | 0.38 (0.27–0.51) | 0.48 (0.36–0.61) |
+| boneseg v2, noisy | 0.59 (0.53–0.64) | 0.67 (0.62–0.74) |
+| SAM ViT-B, noisy | 0.57 (0.49–0.65) | 0.71 (0.64–0.78) |
+| Otsu, no input | 0.27 (0.16–0.40) | |
 
 | Mean Dice, 5 labelled slices | Same sample | Other samples |
 |---|---|---|
-| boneseg learned model | 0.78 (0.73–0.81) | 0.73 (0.67–0.77) |
-| boneseg v2 learned model (2 x 2 passes) | 0.77 (0.72–0.81) | 0.74 (0.68–0.79) |
-| Random forest | 0.60 (0.51–0.70) | 0.46 (0.33–0.60) |
+| boneseg learned model | 0.77 (0.73–0.80) | 0.72 (0.68–0.77) |
+| boneseg v2 learned model (2 x 2 passes) | 0.76 (0.72–0.80) | 0.74 (0.68–0.78) |
+| Random forest | 0.58 (0.50–0.67) | 0.44 (0.33–0.56) |
 
-| B.Ar/T.Ar bias against the expert (expert mean 11.2%) | 3 + 6 clicks | 25 + 25 clicks |
+| B.Ar/T.Ar bias against the expert (expert mean 10.6%) | 3 + 6 clicks | 25 + 25 clicks |
 |---|---|---|
-| boneseg v1 | +4.5 points | +6.6 points |
-| boneseg v2 | +0.9 points | +2.0 points |
-| boneseg v2 + refiner | +3.3 points | +4.1 points |
-| SAM ViT-B | | +4.6 points |
+| boneseg v1 | +4.4 points | +5.7 points |
+| boneseg v2 | +1.4 points | +2.0 points |
+| boneseg v2 + refiner | +4.0 points | +4.7 points |
+| SAM ViT-B | | +4.0 points |
 
-**What method-v2 changes.** Features from 2 x 2 sub-patch shifts (a twice finer feature grid), a guided filter that moves the score boundary onto image edges, and a stricter click threshold. All three were tuned on the other samples in every fold, and every fold chose the same: guided filter, background weight 0.8, and threshold position 0.7 with 3 + 6 clicks or 0.9 with 25 + 25. The app now uses these as defaults ("Auto" strictness picks 0.7 or 0.9 from the number of clicks).
+**What method-v2 changes.** Features from 2 x 2 sub-patch shifts (a twice finer feature grid), a guided filter that moves the score boundary onto image edges, and a stricter click threshold. All three were tuned on the other samples in every fold. Every fold chose the guided filter and a threshold position of 0.7 with 3 + 6 clicks or 0.9 with 25 + 25, and a background weight of 0.8, except sample D's fold with 3 + 6 clicks (1.2). The app now uses these as defaults ("Auto" strictness picks 0.7 or 0.9 from the number of clicks).
 
 What this supports, and what not yet:
-- **v2 against v1.** With 25 clean clicks, v2 gains +0.077 Dice (CI +0.028 to +0.128, better on 92% of slices) and cuts the bone-area bias from +6.6 to +2.0 points (ICC 0.64 to 0.85). With 3 clean clicks the gain is +0.031 (CI −0.016 to +0.085). With noisy clicks v2 is level with v1.
-- **v2 against SAM.** With few clicks, boneseg (v2 + refiner) beats SAM by +0.087 (CI +0.029 to +0.140) and by +0.089 with noisy clicks. With 25 clean clicks they are level (−0.011, CI −0.053 to +0.031), and boneseg's bone-area bias is smaller (+2.0 against +4.6 points for v2).
-- **The learned refiner** (a small U-Net on the image and the score map, trained on the other samples) helps with few or noisy clicks (+0.014 and +0.043, CIs include zero) and costs a little with many clicks (−0.027). It raises the bone-area bias again, so it stays optional.
-- **Finer features for the learned model** make no difference (+0.014 and −0.006, CIs include zero).
-- **Not yet shown.** Generalization beyond these four samples, agreement with a second human, and nnU-Net as the supervised reference.
+- **v2 against v1.** With 25 clean clicks, v2 gains +0.060 Dice (CI +0.014 to +0.110, better on 78% of slices) and cuts the bone-area bias from +5.7 to +2.0 points (ICC 0.65 to 0.83). With 3 clean clicks the gain is +0.020 (CI −0.020 to +0.069); with noisy clicks v2 is level with v1. On sample D alone, v2 did not improve on v1.
+- **v2 against SAM.** With 25 clean clicks they are level (−0.001, CI −0.042 to +0.040). With 3 clean clicks boneseg is ahead (+0.042) but, with sample D added, the interval includes zero (−0.033 to +0.116); SAM does especially well on D (0.82 with 25 clicks). boneseg's bone-area bias is half of SAM's (+2.0 against +4.0 points).
+- **The learned refiner** helps with few or noisy clicks (+0.008 and +0.033) and costs with many (−0.046, CI −0.101 to +0.010); on sample D it cost 0.12. It stays optional.
+- **The learned model from 5 labelled slices** is the most accurate option: 0.77 with labels of the same sample, 0.73 with labels of other samples, against 0.44 to 0.59 for the random forest.
+- **Not yet shown.** Agreement with a second human, and nnU-Net as the supervised reference.
 
 Development-only experiments that led to v2, never touching test slices: `refine_experiment.py` (`results/refine_dev.csv`) and `refiner_experiment.py` (`results/refiner_dev.csv`).
 
