@@ -168,6 +168,7 @@ python paper/noise_analyze.py
 - **Bone volume is overestimated by about a third** (BV/TV +36%), the 3D form of the boundary spill-over seen in 2D, and Tb.N and Tb.Sp, which are derived from BV/TV, inherit it.
 - **Clicks on one slice do not carry through hundreds of slices.** Prototypes and threshold from the middle slice drift as the image changes with depth (3D Dice 0.61; on sample E the mask falls to almost no bone at the far end). The app's stack mode from one annotated slice is fine for short stacks but should be used with clicks on several slices, or with a learned model, for long ones.
 - One percent of the slices in the same-sample condition were the labelled training slices, so that volume is not fully independent of training.
+- **Sample D** (read remotely; a contiguous 64-slice block, z 224 to 287): learned models 3D Dice 0.72 (same sample) and 0.73 (other samples), Tb.Th +2% and +6%; clicks on the middle slice reach 0.76 over this short block, consistent with clicks carrying well over tens of slices but not hundreds. Including D, the mean over five samples is 0.767 / 0.734 / 0.636 (3D Dice) and Tb.Th −1% / −4% / −18%. The per-slice correlation is not meaningful on D's short, nearly constant block, so the r values above are for the four long stacks.
 
 ## Running it
 
