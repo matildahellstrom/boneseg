@@ -62,6 +62,8 @@ def measures(vol: np.ndarray, spacing) -> dict:
 def main(argv=None):
     ap = argparse.ArgumentParser()
     ap.add_argument("--samples", nargs="*", default=None)
+    ap.add_argument("--d-block", default="224-287", help="Sample D, read remotely: a contiguous block of slices (two 32-slice storage blocks)")
+    ap.add_argument("--append", action="store_true", help="Add to the existing results instead of replacing them")
     args = ap.parse_args(argv)
     names = args.samples or available_samples()
     t0 = time.time()
@@ -70,11 +72,19 @@ def main(argv=None):
     bb = get_backbone(st.backbone)
     samples = {n: load_sample(n) for n in names}
     rows, slice_rows = [], []
+    if args.append and (OUT / "stack3d.csv").exists():
+        rows = [r for r in pd.read_csv(OUT / "stack3d.csv").to_dict("records") if r["sample"] not in names]
+        slice_rows = [r for r in pd.read_csv(OUT / "stack3d_slices.csv").to_dict("records") if r["sample"] not in names]
     for name in names:
         s = samples[name]
         vol, ch = s.vol, s.channel
+        if vol is None:   # Sample D, read from Kaggle over range requests
+            from remote_d import remote_volume
+            vol = remote_volume()
         mask_ch = vol.n_channels - 1
         lo, hi = int(0.1 * (vol.n_z - 1)), int(0.9 * (vol.n_z - 1))
+        if s.vol is None:
+            lo, hi = (int(v) for v in args.d_block.split("-"))
         zs = list(range(lo, hi + 1))
         ref_z = zs[len(zs) // 2]
         img_ref = bio.normalize_plane(vol.get_plane(ch, ref_z))
@@ -84,7 +94,10 @@ def main(argv=None):
         P, N = prototypes(emb_ref, pos), prototypes(emb_ref, neg)
         thr = segment(emb_ref, pos, neg, st, vol.pixel_um).raw_threshold
         same = [(embed_image(bb, sl.img, st), sl.gt) for sl in s.dev[:5]]
-        other = [(embed_image(bb, sl.img, st), sl.gt) for n2 in names if n2 != name for sl in samples[n2].dev[:5]]
+        others = [n2 for n2 in available_samples() if n2 != name]
+        for n2 in others:
+            samples.setdefault(n2, load_sample(n2))
+        other = [(embed_image(bb, sl.img, st), sl.gt) for n2 in others for sl in samples[n2].dev[:5]]
         heads = {"labels_same": train_head(same, st, [(0, i) for i in range(len(same))], pixel_um=vol.pixel_um),
                  "labels_other": train_head(other, st, [(0, i) for i in range(len(other))], pixel_um=vol.pixel_um)}
         log(f"{name}: {len(zs)} slices ({lo}-{hi}), reference slice {ref_z}; learned models ready")
