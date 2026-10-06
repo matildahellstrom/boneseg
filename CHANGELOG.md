@@ -81,3 +81,6 @@ How boneseg grew from the research notebook, grouped by theme. Hashes point to t
 
 ### Plasma cells on public data
 - `2decbe5` SegPC-2021 (bone marrow, plasma cells with nucleus and cytoplasm): boneseg's official score 0.550 against SAM 0.475 with 10 + 20 clicks; nucleus Dice 0.84 and cytoplasm 0.69 as two structures. Touching cells merge, which is the main failure. `5b684d2` Colour images get a "Colour (RGB)" channel in the app.
+
+### Whole stacks in 3D
+- Whole-stack evaluation of the four Liu samples against the experts' 3D masks: a learned model from 5 labelled slices reaches 3D Dice 0.78, follows the expert through each stack (r 0.90) and measures Tb.Th within 1% on average, but overestimates BV/TV by about a third. Clicks on a single slice drift through long stacks (3D Dice 0.61).
