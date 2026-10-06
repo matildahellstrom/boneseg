@@ -249,6 +249,17 @@ figcaption .dv { font: 600 15px/1 var(--mono); color: var(--accent) }
     <div class="scroll"><table id="segpcCounts"></table></div>
   </div>
   <div class="panel">
+    <h3>Fine-tuning DINOv2 on plasma cells</h3>
+    <div class="scroll"><table>
+      <thead><tr><th>Official score</th><th>Frozen</th><th>Fine-tuned on 20 images</th><th>Fine-tuned on 100 images</th><th>Gain, 20 images (95% CI)</th></tr></thead>
+      <tbody>
+        <tr><td>3 + 6 clicks</td><td class="num">0.439</td><td class="num"><b>0.534</b></td><td class="num">0.503</td><td class="num pos">+0.095 (+0.068 to +0.123)</td></tr>
+        <tr><td>10 + 20 clicks</td><td class="num">0.550</td><td class="num"><b>0.579</b></td><td class="num">0.554</td><td class="num pos">+0.029 (+0.005 to +0.056)</td></tr>
+      </tbody>
+    </table></div>
+    <p class="note">The same pattern as on bone and osteoclasts: fine-tuned features help most with few clicks. More labelled images did not help further. The fine-tuned network fills cells far better (validation Dice 0.80 against 0.64), but it joins touching cells even more often and under-counts by about 1.4 cells per image. Fine-tuning and separating touching cells are complementary.</p>
+  </div>
+  <div class="panel">
     <h3>Worst, median and best validation image, boneseg with 10 + 20 clicks</h3>
     <div class="key"><span><i style="background:#00aaaa"></i>Both boneseg and the experts</span><span><i style="background:#ff9600"></i>boneseg only (includes unoutlined cells)</span><span><i style="background:#e12882"></i>Experts only (missed)</span><span><i style="background:#141414"></i>Expert outline</span><span><i style="background:#00c83c"></i>Plasma cell click</span><span><i style="background:#e61e1e"></i>Background click</span></div>
     <div class="cases" id="segpcCases"></div>
