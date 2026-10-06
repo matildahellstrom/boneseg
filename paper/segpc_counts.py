@@ -9,6 +9,7 @@ Writes paper/results/segpc_counts.csv and segpc_counts_summary.md.
 from __future__ import annotations
 
 import itertools
+import json
 import random
 import time
 from dataclasses import replace
@@ -58,6 +59,25 @@ def main():
                 "sam": M.sam_points("sam", key, img, pos, neg), "rf_clicks": M.rf_clicks(key, img.mean(-1), pos, neg, seed=seed),
                 "dino_labels": segment_with_head(head, emb, st).mask}
 
+    sizes_path = OUT / "segpc_count_sizes.json"
+    if sizes_path.exists():   # Resume: the chosen minimum cell sizes are reused
+        best = {(k.split("|")[0], tuple(json.loads(k.split("|")[1]))): v for k, v in json.loads(sizes_path.read_text()).items()}
+        log("minimum cell sizes loaded from " + sizes_path.name)
+    else:
+        best = choose_sizes(tune, masks, log)
+        sizes_path.write_text(json.dumps({f"{k[0]}|{json.dumps(list(k[1]))}": v for k, v in best.items()}, indent=1))
+    rows, done = [], set()
+    if (OUT / "segpc_counts.csv").exists():
+        prev = pd.read_csv(OUT / "segpc_counts.csv", dtype={"image": str})
+        # Only images with every row are kept; a half-finished image is redone
+        full = prev.groupby("image").size()
+        done = set(full[full == full.max()].index)
+        rows = prev[prev["image"].isin(done)].to_dict("records")
+        log(f"resuming after {len(done)} finished test images")
+    finish(test, done, rows, best, masks, log)
+
+
+def choose_sizes(tune, masks, log):
     tr = {}
     for it in tune:
         for budget in BUDGETS:
@@ -65,8 +85,13 @@ def main():
                 tr[(meth, budget, it.name)] = scores_by_min(m, it)
     best = {(meth, b): max(SIZES, key=lambda s: f1([tr[(meth, b, it.name)][s] for it in tune])) for meth in ("dino_clicks", "sam", "rf_clicks", "dino_labels") for b in BUDGETS}
     log("minimum cell sizes chosen by F1: " + "; ".join(f"{k[0]} {k[1]}: {v} px" for k, v in best.items()))
-    rows = []
+    return best
+
+
+def finish(test, done, rows, best, masks, log):
     for n, it in enumerate(test, start=1):
+        if it.name in done:
+            continue
         for budget, seed in itertools.product(BUDGETS, range(3)):
             for meth, m in masks(it, budget, seed + 100).items():
                 if meth == "dino_labels" and (budget != (10, 20) or seed):
