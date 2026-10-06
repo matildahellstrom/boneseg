@@ -78,3 +78,6 @@ How boneseg grew from the research notebook, grouped by theme. Hashes point to t
 ### Osteoclasts on public data
 - `736c52c`, `e70a805` The NOISe mouse osteoclast data (five batches, expert outlines) streamed from its 18 GB archive. boneseg reads colour images directly. Leave-one-batch-out: boneseg from clicks 0.735 Dice against SAM 0.534, micro-SAM 0.326 and a random forest 0.626; counts about 4 osteoclasts per patch within +7% (ICC 0.81) at the default settings. Fine-tuning helps with few clicks (+0.058).
 - `bc07f59` Learned models select their variant by five-fold cross-validation beyond six labelled slices.
+
+### Plasma cells on public data
+- `2decbe5` SegPC-2021 (bone marrow, plasma cells with nucleus and cytoplasm): boneseg's official score 0.550 against SAM 0.475 with 10 + 20 clicks; nucleus Dice 0.84 and cytoplasm 0.69 as two structures. Touching cells merge, which is the main failure. `5b684d2` Colour images get a "Colour (RGB)" channel in the app.

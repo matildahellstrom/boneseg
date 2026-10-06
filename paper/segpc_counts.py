@@ -104,7 +104,7 @@ def finish(test, done, rows, best, masks, log):
             pd.DataFrame(rows).to_csv(OUT / "segpc_counts.csv", index=False)
     df = pd.DataFrame(rows)
     df.to_csv(OUT / "segpc_counts.csv", index=False)
-    lines = ["# Counting plasma cells on SegPC-2021\n", "Minimum cell size chosen on 60 training images by cell F1; 200 validation images.\n",
+    lines = ["# Counting plasma cells on SegPC-2021\n", "Minimum cell size chosen on 60 training images by cell F1; the 199 validation images with outlined cells.\n",
              "| Method | Condition | Min. cell size | Precision | Recall | F1 | Count bias per image | Count ICC | Official score |", "|---|---|---|---|---|---|---|---|---|"]
     names = {"dino_clicks": "boneseg, clicks", "sam": "SAM ViT-B", "rf_clicks": "Random forest", "dino_labels": "boneseg learned model"}
     for (meth, cond), g in df.groupby(["method", "condition"]):

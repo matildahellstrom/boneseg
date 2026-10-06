@@ -131,6 +131,28 @@ python paper/noise_yolo_score.py --preds noise_out/preds.zip
 python paper/noise_analyze.py
 ```
 
+## Plasma cells: SegPC-2021
+
+`segpc_common.py`, `segpc_evaluate.py`, `segpc_analyze.py` and `segpc_counts.py` test boneseg on the SegPC-2021 challenge data (Kaggle `sbilab/segpc2021dataset`, CC BY-NC-SA 4.0; cite the three papers in its readme): bone marrow aspirate slides of multiple myeloma patients, Jenner-Giemsa stain, brightfield colour, two cameras. Experts outlined each plasma cell of interest with its nucleus and cytoplasm; other cells are present but not outlined. This is bone marrow, not bone tissue: a test of how far the method carries.
+
+**Protocol.** Settings tuned on 60 training images, scored on the 199 validation images with outlines (image 610 has none), at the official 1080 × 1440 resolution. Object clicks inside outlined plasma cells; background clicks at least 10 px from them (not aimed at unoutlined cells, which may be plasma cells too). The official score is the mean over expert cells of the best IoU of any predicted whole cell; it does not penalize extra cells.
+
+| 199 validation images | Official score (95% CI), 10 + 20 clicks | 3 + 6 clicks |
+|---|---|---|
+| boneseg, clicks | 0.550 (0.52–0.58) | 0.439 (0.42–0.46) |
+| boneseg, nucleus + cytoplasm as two structures | 0.433 (0.41–0.46) | 0.356 |
+| SAM ViT-B | 0.475 (0.45–0.50) | 0.389 |
+| micro-SAM ViT-B LM | 0.394 | 0.359 |
+| Random forest | 0.366 | 0.327 |
+| Otsu, no input | 0.417 | |
+| boneseg learned model, 5 labelled training images | 0.418 | |
+
+- **boneseg leads every baseline:** +0.075 over SAM (CI +0.052 to +0.099) with 10 + 20 clicks and +0.050 with 3 + 6.
+- **Nucleus and cytoplasm.** As two structures, boneseg reaches nucleus Dice 0.84 and cytoplasm Dice 0.69 near the outlined cells with 10 + 20 clicks; the pale cytoplasm edge is the hard part.
+- **The main failure is touching cells.** Plasma cells sit in dense clusters, and boneseg's mask, though it covers them well (Dice 0.86 near the outlined cells), joins neighbours into one region, which the per-cell score punishes: in the worst image all eight plasma cells are covered and the score is 0.04. Separating touching cells, for example from nucleus seeds, is the obvious next improvement.
+- **Counting** (`segpc_counts.py`, minimum cell size chosen by cell F1 on the training images): with 10 + 20 clicks boneseg finds cells with F1 0.46 and counts with almost no bias (+0.2 per image) but moderate agreement (ICC 0.63); SAM reaches F1 0.40 and under-counts (−1.4 per image, ICC 0.58).
+- Published challenge entries are trained on the full training set and reach far higher scores; boneseg here uses clicks on one image and no training.
+
 ## Running it
 
 ```bash
