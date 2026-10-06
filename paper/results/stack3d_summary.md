@@ -20,11 +20,15 @@ Central 80% of each stack; measures on volumes reduced to 4 x 6.5 x 6.5 um voxel
 | F | boneseg, 25 + 25 clicks on one slice | 0.624 | 4.16 (-46%) | 49.7 (+79%) | 40.2 (-44%) | 1.03 (-2%) | 927 (+6%) | 0.43 | 0.594 |
 | F | boneseg learned model, 5 slices of the sample | 0.778 | 11 (+43%) | 32.1 (+16%) | 62.3 (-14%) | 1.76 (+66%) | 506 (-42%) | 0.96 | 0.780 |
 | F | boneseg learned model, slices of other samples | 0.721 | 11.2 (+46%) | 31.8 (+15%) | 62.9 (-13%) | 1.78 (+67%) | 500 (-43%) | 0.91 | 0.719 |
+| D (64 slices) | expert | – | 9.03 | 40.7 | 49.2 | 1.84 | 495 | – | – |
+| D | boneseg, 25 + 25 clicks on one slice | 0.758 | 8.97 (-1%) | 35.1 (-14%) | 57 (+16%) | 1.57 (-14%) | 578 (+17%) | 0.77 | 0.754 |
+| D | boneseg learned model, 5 slices of the sample | 0.723 | 13.9 (+54%) | 39.7 (-2%) | 50.3 (+2%) | 2.76 (+50%) | 313 (-37%) | -0.67 | 0.724 |
+| D | boneseg learned model, slices of other samples | 0.733 | 10.9 (+20%) | 38.4 (-6%) | 52.1 (+6%) | 2.09 (+14%) | 427 (-14%) | -0.77 | 0.733 |
 
 ## Mean over samples
 
 | Method | 3D Dice | BV/TV_% difference | BS/BV_per_mm difference | Tb.Th_um difference | Tb.N_per_mm difference | Tb.Sp_um difference | Slice r |
 |---|---|---|---|---|---|---|---|
-| boneseg, 25 + 25 clicks on one slice | 0.605 | -23% (|43%|) | +49% (|55%|) | -27% (|33%|) | +4% (|24%|) | +6% (|28%|) | -0.27 |
-| boneseg learned model, 5 slices of the sample | 0.778 | +36% (|36%|) | +4% (|15%|) | -1% (|16%|) | +40% (|40%|) | -30% (|30%|) | 0.90 |
-| boneseg learned model, slices of other samples | 0.734 | +37% (|37%|) | +8% (|9%|) | -7% (|7%|) | +48% (|48%|) | -35% (|35%|) | 0.83 |
+| boneseg, 25 + 25 clicks on one slice | 0.636 | -18% (|34%|) | +36% (|46%|) | -18% (|30%|) | +0% (|22%|) | +8% (|26%|) | -0.06 |
+| boneseg learned model, 5 slices of the sample | 0.767 | +39% (|39%|) | +3% (|13%|) | -1% (|13%|) | +42% (|42%|) | -32% (|32%|) | 0.59 |
+| boneseg learned model, slices of other samples | 0.734 | +34% (|34%|) | +5% (|8%|) | -4% (|7%|) | +41% (|41%|) | -30% (|30%|) | 0.51 |
