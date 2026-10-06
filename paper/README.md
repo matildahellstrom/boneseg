@@ -154,6 +154,21 @@ python paper/noise_analyze.py
 - Published challenge entries are trained on the full training set and reach far higher scores; boneseg here uses clicks on one image and no training.
 - **Fine-tuning DINOv2** (`segpc_finetune.py`, last 4 blocks, on 20 or 100 training images not used for tuning): clicks on the fine-tuned features raise the official score with 3 + 6 clicks from 0.439 to 0.534 (+0.095, CI +0.068 to +0.123) and with 10 + 20 clicks from 0.550 to 0.579 (+0.029, CI +0.005 to +0.056). 100 images did no better than 20. The fine-tuned network fills cells far better (validation Dice 0.80 against 0.64 frozen), yet its own output scores lower per cell than an output layer on frozen features, and every fine-tuned variant under-counts by 1.3 to 1.8 cells per image: fuller masks join touching cells even more often. Fine-tuning and separating touching cells are complementary.
 
+## Whole stacks in 3D
+
+`stack3d_evaluate.py` and `stack3d_analyze.py` (`results/stack3d_summary.md`, `figures/stack3d_profiles.png`) segment the central 80% of each Liu stack (A 202, C 505, E 390 and F 233 slices; voxels 2 × 1.625 × 1.625 µm) and compare the bone volumes with the experts' 3D masks. Both volumes are reduced the same way to 4 × 6.5 × 6.5 µm voxels; Tb.Th, Tb.N and Tb.Sp follow the plate model (Tb.Th = 2 BV/BS), checked on a synthetic slab (63 µm measured for 65 µm).
+
+| Mean over the four stacks | 3D Dice | Bone area per slice vs expert (r) | BV/TV | BS/BV | Tb.Th | Tb.N | Tb.Sp |
+|---|---|---|---|---|---|---|---|
+| Learned model, 5 labelled slices of the sample | 0.778 | 0.90 | +36% | +4% | −1% | +40% | −30% |
+| Learned model, labelled slices of the other samples | 0.734 | 0.83 | +37% | +8% | −7% | +48% | −35% |
+| 25 + 25 clicks on the middle slice, carried through the stack | 0.605 | −0.27 | −23% | +49% | −27% | +4% | +6% |
+
+- **For whole stacks, label a few slices.** The learned model follows the expert through every stack (r 0.85 to 0.97 on C, E and F, 0.83 on A) and gets bone surface and trabecular thickness close: Tb.Th within 1% on average (within 16% per sample) with labels of the same sample, within 7% with labels of other samples.
+- **Bone volume is overestimated by about a third** (BV/TV +36%), the 3D form of the boundary spill-over seen in 2D, and Tb.N and Tb.Sp, which are derived from BV/TV, inherit it.
+- **Clicks on one slice do not carry through hundreds of slices.** Prototypes and threshold from the middle slice drift as the image changes with depth (3D Dice 0.61; on sample E the mask falls to almost no bone at the far end). The app's stack mode from one annotated slice is fine for short stacks but should be used with clicks on several slices, or with a learned model, for long ones.
+- One percent of the slices in the same-sample condition were the labelled training slices, so that volume is not fully independent of training.
+
 ## Running it
 
 ```bash
