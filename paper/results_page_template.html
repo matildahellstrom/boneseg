@@ -181,6 +181,24 @@ figcaption .dv { font: 600 15px/1 var(--mono); color: var(--accent) }
   </div>
 </section>
 
+<section id="stack3d">
+  <h2>Whole stacks in 3D</h2>
+  <p>The central 80% of each stack, 1,330 slices in all, segmented slice by slice and compared with the experts' 3D masks. The trabecular measures use the plate model (Tb.Th = 2 BV/BS), computed the same way for boneseg and the expert.</p>
+  <div class="panel">
+    <div class="scroll"><table>
+      <thead><tr><th>Mean over the four stacks</th><th>3D Dice</th><th>Follows the expert (r)</th><th>BV/TV</th><th>BS/BV</th><th>Tb.Th</th><th>Tb.N</th><th>Tb.Sp</th></tr></thead>
+      <tbody>
+        <tr class="hl"><td>Learned model, 5 labelled slices of the sample</td><td class="num"><b>0.778</b></td><td class="num">0.90</td><td class="num">+36%</td><td class="num">+4%</td><td class="num"><b>−1%</b></td><td class="num">+40%</td><td class="num">−30%</td></tr>
+        <tr><td>Learned model, labelled slices of other samples</td><td class="num">0.734</td><td class="num">0.83</td><td class="num">+37%</td><td class="num">+8%</td><td class="num">−7%</td><td class="num">+48%</td><td class="num">−35%</td></tr>
+        <tr><td>25 + 25 clicks on the middle slice only</td><td class="num">0.605</td><td class="num">−0.27</td><td class="num">−23%</td><td class="num">+49%</td><td class="num">−27%</td><td class="num">+4%</td><td class="num">+6%</td></tr>
+      </tbody>
+    </table></div>
+    <figure><img src="" alt="Bone area per slice through each stack for the expert, the learned model and clicks on one slice" width="1100" id="stackImg"><figcaption>Bone area per slice through each stack. Black: expert. Orange: learned model from 5 labelled slices. Teal: clicks on the middle slice carried through the stack.</figcaption></figure>
+    <div class="scroll"><table id="stackTable"></table></div>
+    <p class="note">A learned model from a few labelled slices follows the expert through every stack and measures trabecular thickness and bone surface closely, but overestimates bone volume by about a third, the 3D form of the boundary spill-over. Clicks on one slice drift as the image changes with depth: fine for short stacks, but long stacks need clicks on several slices or a learned model.</p>
+  </div>
+</section>
+
 <section id="finetune">
   <h2>Fine-tuning DINOv2</h2>
   <p>The last 4 of DINOv2 Small's 12 blocks were trained on expert slices, with early stopping on separate validation slices. The baseline is the same code with DINOv2 left frozen. Click results use a backbone fine-tuned on the other three samples.</p>
@@ -504,5 +522,13 @@ document.getElementById("segpcCounts").innerHTML = `<thead><tr><th>Method</th><t
   DATA.segpc.counts.map((r) => `<tr class="${r.method.startsWith("boneseg, clicks") && r.condition.startsWith("10") ? "hl" : ""}"><td>${esc(r.method)}</td><td>${esc(r.condition)}</td><td class="num">${r.precision.toFixed(2)}</td><td class="num">${r.recall.toFixed(2)}</td><td class="num"><b>${r.f1.toFixed(2)}</b></td><td class="num">${esc(r.bias)}</td><td class="num">${r.icc.toFixed(2)}</td></tr>`).join("") + "</tbody>";
 document.getElementById("segpcCases").innerHTML = DATA.segpc.cases.map((c) => `<figure><img src="${IMAGES[c.file]}" alt="SegPC validation image ${c.image}: the image and boneseg's cells compared with the experts'" loading="lazy" width="1100"><figcaption><b>${c.kind}</b><span class="dv">score ${c.official.toFixed(3)}</span><span>image ${c.image}, ${c.camera}</span><span>${c.n_cells} outlined cells</span></figcaption><p class="note">${esc(SCAP[c.kind])}</p></figure>`).join("");
 
+document.getElementById("stackImg").src = IMAGES["stack3d_profiles.png"];
+(function () {
+  const M3 = { expert: "Expert", clicks: "Clicks on one slice", labels_same: "Learned model, same sample", labels_other: "Learned model, other samples" };
+  const rows = DATA.stack3d;
+  const keys = [["dice_3d", "3D Dice", 3], ["BV/TV_%", "BV/TV (%)", 1], ["BS/BV_per_mm", "BS/BV (1/mm)", 1], ["Tb.Th_um", "Tb.Th (µm)", 0], ["Tb.N_per_mm", "Tb.N (1/mm)", 2], ["Tb.Sp_um", "Tb.Sp (µm)", 0]];
+  document.getElementById("stackTable").innerHTML = `<thead><tr><th>Sample</th><th>Method</th>${keys.map((k) => `<th>${k[1]}</th>`).join("")}</tr></thead><tbody>` +
+    rows.map((r) => `<tr class="${r.method === "expert" ? "hl" : ""}"><td>${esc(r.sample)}</td><td>${esc(M3[r.method])}</td>${keys.map(([k, , dp]) => `<td class="num">${r[k] == null || r[k] === "" || isNaN(r[k]) ? "–" : (+r[k]).toFixed(dp)}</td>`).join("")}</tr>`).join("") + "</tbody>";
+})();
 drawSegpc(); drawNoise(); drawNoiseStatic(); drawSample(); drawClicks(); drawLabels(); drawPairs(); drawMeas(); drawFt(); drawUnet();
 </script>
