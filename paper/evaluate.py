@@ -103,6 +103,7 @@ def main(argv=None):
     ap.add_argument("--quick", action="store_true", help="Fewer slices and seeds, for a smoke test")
     ap.add_argument("--refiner-steps", type=int, default=1500)
     ap.add_argument("--out", default=str(OUT), help="Results folder")
+    ap.add_argument("--held", nargs="*", default=None, help="Only these held-out samples; their rows replace earlier ones in the results")
     args = ap.parse_args(argv)
     names = args.samples or available_samples()
     seeds = [0] if args.quick else [0, 1, 2]
@@ -115,7 +116,12 @@ def main(argv=None):
     for s in samples.values():
         log(f"{s.name}: channel {s.channel}, {len(s.dev)} development and {len(s.test)} test slices")
     rows, tuning_rows = [], []
-    for held in names:
+    if args.held:   # Keep the other samples' earlier results
+        prev = pd.read_csv(out / "slices.csv")
+        rows = prev[~prev["sample"].isin(args.held)].to_dict("records")
+        prevt = pd.read_csv(out / "tuning.csv")
+        tuning_rows = prevt[~prevt["held_out"].isin(args.held)].to_dict("records")
+    for held in (args.held or names):
         log(f"held-out sample {held}")
         tgt = samples[held]
         inner = [samples[n] for n in names if n != held]

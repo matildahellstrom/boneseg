@@ -49,11 +49,28 @@ class Sample:
 
 
 def available_samples() -> list[str]:
-    return [k for k, (f, _) in SAMPLES.items() if (DATA / f).exists()]
+    """Samples with their file on disk; sample D also counts when its slices were extracted remotely (remote_d.py)."""
+    return [k for k, (f, _) in SAMPLES.items() if (DATA / f).exists() or (k == "D" and (DATA / "D_slices.npz").exists())]
+
+
+def _load_remote_d() -> "Sample":
+    """Sample D from the slices extracted over the network: two per 32-slice storage block, ten blocks over the
+    central 80% of the stack, alternating test and development like the other samples."""
+    d = np.load(DATA / "D_slices.npz")
+    shape = tuple(d["shape"])
+    gts = np.unpackbits(d["gt"], axis=-1)[..., :shape[1]].astype(bool)
+    vox = tuple(float(v) for v in d["voxel_um"])
+    s = Sample("D", None, SAMPLES["D"][1])
+    for i, z in enumerate(d["zs"]):
+        sl = Slice("D", int(z), bio.normalize_plane(d["img"][i]), gts[i], (vox[1], vox[2]))
+        (s.test if i % 2 == 0 else s.dev).append(sl)
+    return s
 
 
 def load_sample(name: str, n_slices: int = 20) -> Sample:
     fname, ch = SAMPLES[name]
+    if name == "D" and not (DATA / fname).exists():
+        return _load_remote_d()
     vol = bio.load_volume(DATA / fname)
     ref = vol.n_channels - 1
     lo, hi = int(0.1 * (vol.n_z - 1)), int(0.9 * (vol.n_z - 1))
