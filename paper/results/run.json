@@ -2,6 +2,7 @@
  "samples": [
   "A",
   "C",
+  "D",
   "E",
   "F"
  ],
@@ -78,5 +79,5 @@
  ],
  "refiner_steps": 1500,
  "method_tag": "method-v1 and method-v2",
- "minutes": 134.3
+ "minutes": 110.9
 }
