@@ -92,29 +92,29 @@ figcaption .dv { font: 600 15px/1 var(--mono); color: var(--accent) }
   <div class="eyebrow">Bone segmentation · evaluation report</div>
   <h1>boneseg Evaluation Results</h1>
   <p class="lede">How well boneseg's masks match an expert's bone masks on four Liu autofluorescence samples, compared with standard tools, and what the boundary improvements, the U-Net refiner and fine-tuning DINOv2 add.</p>
-  <div class="meta"><span class="chip">Bone: samples A · C · E · F</span><span class="chip">Osteoclasts: NOISe batches m1–m5</span><span class="chip">Plasma cells: SegPC-2021</span><span class="chip">10 test slices per sample</span><span class="chip">Nested leave-one-sample-out</span><span class="chip">5 October 2026</span></div>
+  <div class="meta"><span class="chip">Bone: samples A · C · D · E · F</span><span class="chip">Osteoclasts: NOISe batches m1–m5</span><span class="chip">Plasma cells: SegPC-2021</span><span class="chip">10 test slices per sample</span><span class="chip">Nested leave-one-sample-out</span><span class="chip">5 October 2026</span></div>
 </header>
 
 <section>
   <h2>Key findings</h2>
   <div class="findings">
-    <div class="finding"><b>0.68 → 0.76</b><span>Dice with 25 + 25 clicks after the boundary improvements, now the app's defaults.</span></div>
-    <div class="finding"><b>+6.6 → +2.0</b><span>Percentage points of bone-area overestimate (B.Ar/T.Ar) with 25 + 25 clicks.</span></div>
-    <div class="finding"><b>+0.087</b><span>Dice ahead of SAM with only 3 + 6 clicks (boneseg v2 + refiner). With 25 + 25 clicks they are level.</span></div>
+    <div class="finding"><b>0.70 → 0.76</b><span>Bone Dice with 25 + 25 clicks after the boundary improvements, now the app's defaults (five samples).</span></div>
+    <div class="finding"><b>+5.7 → +2.0</b><span>Percentage points of bone-area overestimate (B.Ar/T.Ar) with 25 + 25 clicks; SAM's is +4.0.</span></div>
+    <div class="finding"><b>Level</b><span>with SAM on bone Dice: equal with 25 + 25 clicks, ahead with 3 + 6 (+0.04) but not established on five samples.</span></div>
     <div class="finding"><b>0.74 vs 0.53</b><span>Osteoclast Dice of boneseg against SAM with 10 + 20 clicks, on mouse cultures from the public NOISe data.</span></div>
     <div class="finding"><b>0.55 vs 0.48</b><span>Official SegPC-2021 score of boneseg against SAM for plasma cells in bone marrow, with 10 + 20 clicks.</span></div>
     <div class="finding"><b>+0.071</b><span>Dice gain from a fine-tuned DINOv2 with 3 + 6 clicks on a sample it never saw.</span></div>
   </div>
-  <p class="note">Dice measures overlap with the expert mask: 1 is a perfect match. Intervals are 95% hierarchical bootstrap intervals, resampling samples and then slices. Every setting was tuned on the other samples, so each score is for a sample the method was not tuned on. With four samples, the intervals describe these samples, not bone imaging in general.</p>
+  <p class="note">Dice measures overlap with the expert mask: 1 is a perfect match. Intervals are 95% hierarchical bootstrap intervals, resampling samples and then slices. Every setting was tuned on the other samples, so each score is for a sample the method was not tuned on. With five samples, the intervals describe these samples, not bone imaging in general.</p>
 </section>
 
 <section id="samples">
   <h2>Results per sample</h2>
-  <p>The four samples differ in image size, how much bone they hold, and how hard their boundaries are. Pick a sample to see every method on it, how its ten test slices spread, and three of them as images.</p>
+  <p>The five samples differ in image size, how much bone they hold, and how hard their boundaries are. Pick a sample to see every method on it, how its ten test slices spread, and three of them as images.</p>
   <div class="panel">
     <div class="controls">
       <span class="lab">Sample</span>
-      <div class="seg" id="sampleSeg"><button data-v="A" aria-pressed="true">A</button><button data-v="C" aria-pressed="false">C</button><button data-v="E" aria-pressed="false">E</button><button data-v="F" aria-pressed="false">F</button></div>
+      <div class="seg" id="sampleSeg"><button data-v="A" aria-pressed="true">A</button><button data-v="C" aria-pressed="false">C</button><button data-v="D" aria-pressed="false">D</button><button data-v="E" aria-pressed="false">E</button><button data-v="F" aria-pressed="false">F</button></div>
     </div>
     <div class="facts" id="sampleFacts"></div>
     <h3>Dice of boneseg v2 on each test slice, 25 + 25 careful clicks</h3>
@@ -183,10 +183,10 @@ figcaption .dv { font: 600 15px/1 var(--mono); color: var(--accent) }
 
 <section id="stack3d">
   <h2>Whole stacks in 3D</h2>
-  <p>The central 80% of each stack, 1,330 slices in all, segmented slice by slice and compared with the experts' 3D masks. The trabecular measures use the plate model (Tb.Th = 2 BV/BS), computed the same way for boneseg and the expert.</p>
+  <p>The central 80% of samples A, C, E and F, 1,330 slices in all, and a 64-slice block of sample D, segmented slice by slice and compared with the experts' 3D masks. The trabecular measures use the plate model (Tb.Th = 2 BV/BS), computed the same way for boneseg and the expert.</p>
   <div class="panel">
     <div class="scroll"><table>
-      <thead><tr><th>Mean over the four stacks</th><th>3D Dice</th><th>Follows the expert (r)</th><th>BV/TV</th><th>BS/BV</th><th>Tb.Th</th><th>Tb.N</th><th>Tb.Sp</th></tr></thead>
+      <thead><tr><th>Mean over the four long stacks</th><th>3D Dice</th><th>Follows the expert (r)</th><th>BV/TV</th><th>BS/BV</th><th>Tb.Th</th><th>Tb.N</th><th>Tb.Sp</th></tr></thead>
       <tbody>
         <tr class="hl"><td>Learned model, 5 labelled slices of the sample</td><td class="num"><b>0.778</b></td><td class="num">0.90</td><td class="num">+36%</td><td class="num">+4%</td><td class="num"><b>−1%</b></td><td class="num">+40%</td><td class="num">−30%</td></tr>
         <tr><td>Learned model, labelled slices of other samples</td><td class="num">0.734</td><td class="num">0.83</td><td class="num">+37%</td><td class="num">+8%</td><td class="num">−7%</td><td class="num">+48%</td><td class="num">−35%</td></tr>
@@ -195,7 +195,7 @@ figcaption .dv { font: 600 15px/1 var(--mono); color: var(--accent) }
     </table></div>
     <figure><img src="" alt="Bone area per slice through each stack for the expert, the learned model and clicks on one slice" width="1100" id="stackImg"><figcaption>Bone area per slice through each stack. Black: expert. Orange: learned model from 5 labelled slices. Teal: clicks on the middle slice carried through the stack.</figcaption></figure>
     <div class="scroll"><table id="stackTable"></table></div>
-    <p class="note">A learned model from a few labelled slices follows the expert through every stack and measures trabecular thickness and bone surface closely, but overestimates bone volume by about a third, the 3D form of the boundary spill-over. Clicks on one slice drift as the image changes with depth: fine for short stacks, but long stacks need clicks on several slices or a learned model.</p>
+    <p class="note">A learned model from a few labelled slices follows the expert through every stack and measures trabecular thickness and bone surface closely, but overestimates bone volume by about a third, the 3D form of the boundary spill-over. Clicks on one slice drift as the image changes with depth: fine for short stacks (0.76 on sample D's 64-slice block), but long stacks need clicks on several slices or a learned model.</p>
   </div>
 </section>
 
@@ -207,7 +207,7 @@ figcaption .dv { font: 600 15px/1 var(--mono); color: var(--accent) }
     <div class="legend"><span><i style="background:var(--stone)"></i>Frozen DINOv2</span><span><i style="background:var(--accent)"></i>Fine-tuned DINOv2</span></div>
     <div class="scroll"><table id="ftTable"></table></div>
   </div>
-  <p class="note">Fine-tuning makes 3 + 6 clicks almost as good as 25 + 25 clicks, on all four samples. It changes nothing once there are enough clicks or labels. Trained on the sample's own slices, it helped on A, E and F and hurt on C.</p>
+  <p class="note">Fine-tuning makes 3 + 6 clicks almost as good as 25 + 25 clicks, on all four samples it was tested on (A, C, E and F; D was added later). It changes nothing once there are enough clicks or labels. Trained on the sample's own slices, it helped on A, E and F and hurt on C.</p>
 </section>
 
 <section id="osteoclasts">
@@ -307,7 +307,7 @@ figcaption .dv { font: 600 15px/1 var(--mono); color: var(--accent) }
 <script>
 const DATA = __DATA__;
 const IMAGES = __IMAGES__;
-const SAMPLES = ["A", "C", "E", "F"];
+const SAMPLES = ["A", "C", "D", "E", "F"];
 const M = {
   otsu: ["Otsu threshold", "--stone"], rf_clicks: ["Random forest (ilastik-style)", "--earth"], sam: ["SAM ViT-B", "--amber"],
   microsam: ["micro-SAM ViT-B LM", "--violet"], dino_clicks: ["boneseg v1", "--accent-soft"], dino_clicks_v2: ["boneseg v2 (default)", "--accent"],
@@ -444,6 +444,7 @@ document.getElementById("dsList").innerHTML = DATASETS.map(([t, fit, url, d]) =>
 
 const NOTES = {
   A: "Sample A is the hardest. Its worst slice shows the typical failure: boneseg also marks wide areas whose texture resembles bone but which the expert did not include, so bone area doubles. Whether all of those areas are wrong is worth a second expert look.",
+  D: "Sample D is the largest, with the finest pixels (0.975 µm). It was read from Kaggle without downloading its 24 GB. SAM does especially well here, and the boundary settings that help elsewhere did not improve on the old method.",
   C: "Sample C has the least bone, about 5% of the image. Small spill-overs therefore weigh heavily in its bone area, while Dice stays high.",
   E: "Sample E's large, smooth bone pieces suit boneseg best. Even the best slice shows a thin amber rim along the outer edge, the remaining boundary error.",
   F: "Sample F's thin trabeculae are found reliably, but in the worst slice the masks spill past their edges into the neighbouring tissue, which is what inflates bone area and thickness."
