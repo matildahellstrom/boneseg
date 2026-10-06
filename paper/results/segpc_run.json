@@ -1,0 +1,47 @@
+{
+ "tuning_images": 60,
+ "test_images": 199,
+ "budgets": [
+  [
+   3,
+   6
+  ],
+  [
+   10,
+   20
+  ]
+ ],
+ "grid": {
+  "neg_weight": [
+   0.4,
+   0.8,
+   1.2
+  ],
+  "edge_refine": [
+   "none",
+   "guided"
+  ],
+  "threshold_position": [
+   -1,
+   0.5,
+   0.7,
+   0.9
+  ]
+ },
+ "min_px": [
+  0,
+  1000,
+  3000,
+  6000
+ ],
+ "best": {
+  "dino (3, 6)": "((0.8, 'none', 0.5), 0)",
+  "dino (10, 20)": "((0.4, 'none', 0.7), 0)",
+  "sam (3, 6)": "0",
+  "sam (10, 20)": "0",
+  "microsam (3, 6)": "0",
+  "microsam (10, 20)": "0",
+  "rf_clicks (3, 6)": "0",
+  "rf_clicks (10, 20)": "0"
+ }
+}

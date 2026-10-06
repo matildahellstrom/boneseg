@@ -101,7 +101,7 @@ def main():
     train_all = load("train")
     random.Random(0).shuffle(train_all)
     tune, label_pool = train_all[:60], train_all[60:]
-    test = load("val")
+    test = [it for it in load("val") if len(it.cells)]   # Image 610 has no outlined cell, so nothing to score
     log(f"{len(tune)} tuning and {len(test)} test images")
     embs = {}
 
@@ -112,7 +112,31 @@ def main():
             embs[k] = (img, embed_image(bb, img, st))
         return embs[k]
 
-    # Tuning on training images
+    tuned_path = OUT / "segpc_tuned.json"
+    if tuned_path.exists():   # Resume: the tuned settings are reused
+        t = json.loads(tuned_path.read_text())
+        best = {}
+        for k, v in t["best"].items():
+            name, budget = json.loads(k)
+            best[(name, tuple(budget))] = (tuple(v[0]), v[1]) if isinstance(v, list) else v
+        mp_otsu = t["mp_otsu"]
+        log("tuned settings loaded from " + tuned_path.name)
+    else:
+        best, mp_otsu = tune_settings(tune, prep, log)
+        tuned_path.write_text(json.dumps({"best": {json.dumps([k[0], list(k[1])]): ([list(v[0]), v[1]] if isinstance(v, tuple) else v) for k, v in best.items()},
+                                          "mp_otsu": mp_otsu}, indent=1))
+    rows = []
+    done = set()
+    if (OUT / "segpc_slices.csv").exists():
+        prev = pd.read_csv(OUT / "segpc_slices.csv", dtype={"image": str})
+        done = set(prev["image"])
+        rows = prev.to_dict("records")
+        log(f"resuming after {len(done)} finished test images")
+    run_test(test, done, rows, best, mp_otsu, prep, label_pool, st, log)
+
+
+def tune_settings(tune, prep, log):
+    """Settings for every method on the training images, by the official score."""
     dino, base = {}, {}
     for it in tune:
         img, emb = prep(it)
@@ -140,11 +164,15 @@ def main():
     mp_otsu = max(MIN_PX, key=lambda m: np.mean([base[("otsu", None, key)][m]["official"] for key in keys]))
     log("tuned: " + "; ".join(f"{a} {b}: {v}" for (a, b), v in best.items()))
     pd.DataFrame(tuning).to_csv(OUT / "segpc_tuning.csv", index=False)
+    return best, mp_otsu
 
-    rows = []
+
+def run_test(test, done, rows, best, mp_otsu, prep, label_pool, st, log):
     head = train_head([(prep(it)[1], it.cell_mask) for it in label_pool[:5]], st, [(0, i) for i in range(5)])
     log(f"learned model on 5 training images: {head.kind}, context {head.context}")
     for n_done, it in enumerate(test, start=1):
+        if it.name in done:
+            continue
         img, emb = prep(it)
         key = (it.split, it.name)
         b = {"image": it.name, "camera": it.camera}
@@ -177,7 +205,7 @@ def main():
             log(f"{n_done} of {len(test)} test images")
             pd.DataFrame(rows).to_csv(OUT / "segpc_slices.csv", index=False)
     pd.DataFrame(rows).to_csv(OUT / "segpc_slices.csv", index=False)
-    (OUT / "segpc_run.json").write_text(json.dumps({"tuning_images": len(tune), "test_images": len(test), "budgets": BUDGETS, "grid": GRID,
+    (OUT / "segpc_run.json").write_text(json.dumps({"tuning_images": 60, "test_images": len(test), "budgets": BUDGETS, "grid": GRID,
                                                      "min_px": MIN_PX, "best": {f"{a} {b}": str(v) for (a, b), v in best.items()}}, indent=1))
     log("done")
 
