@@ -38,6 +38,29 @@ def hd95(pred: np.ndarray, gt: np.ndarray, spacing=(1.0, 1.0), max_side: int | N
     return float(np.percentile(np.concatenate([d_to_gt[bp], d_to_pred[bg]]), 95))
 
 
+def nsd(pred: np.ndarray, gt: np.ndarray, tol: float, spacing=(1.0, 1.0), max_side: int | None = None) -> float:
+    """Normalized surface distance (surface Dice): the share of both boundaries that lies within tol (in the units
+    of spacing) of the other boundary, as in Gu et al. (2025) and Nikolov et al. (2021). Two empty masks score 1,
+    one empty mask 0. With max_side, large masks are downsampled by an integer factor first, as in hd95."""
+    pred, gt = pred.astype(bool), gt.astype(bool)
+    if not pred.any() and not gt.any():
+        return 1.0
+    if not pred.any() or not gt.any():
+        return 0.0
+    if max_side and max(pred.shape) > max_side:
+        f = int(np.ceil(max(pred.shape) / max_side))
+        pred, gt = pred[::f, ::f], gt[::f, ::f]
+        spacing = (spacing[0] * f, spacing[1] * f)
+    bp = pred & ~ndi.binary_erosion(pred)
+    bg = gt & ~ndi.binary_erosion(gt)
+    if not bp.any() or not bg.any():
+        return 0.0
+    d_to_bg = ndi.distance_transform_edt(~bg, sampling=spacing)
+    d_to_bp = ndi.distance_transform_edt(~bp, sampling=spacing)
+    close = (d_to_bg[bp] <= tol).sum() + (d_to_bp[bg] <= tol).sum()
+    return float(close / (bp.sum() + bg.sum()))
+
+
 def compare(pred: np.ndarray, gt: np.ndarray, spacing=(1.0, 1.0), roi: np.ndarray | None = None, hd95_max_side: int | None = None) -> dict:
     if roi is not None:
         pred, gt = pred & roi, gt & roi
