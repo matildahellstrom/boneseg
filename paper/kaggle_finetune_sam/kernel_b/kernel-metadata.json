@@ -1,0 +1,19 @@
+{
+  "id": "matildahellstrom/boneseg-sam-finetune-b",
+  "title": "boneseg SAM fine-tuning B (osteoclasts, full SegPC, ViT-H)",
+  "code_file": "notebook.ipynb",
+  "language": "python",
+  "kernel_type": "notebook",
+  "is_private": "true",
+  "enable_gpu": "true",
+  "enable_tpu": "false",
+  "enable_internet": "true",
+  "machine_shape": "NvidiaTeslaT4",
+  "dataset_sources": [
+    "matildahellstrom/liudata",
+    "sbilab/segpc2021dataset"
+  ],
+  "competition_sources": [],
+  "kernel_sources": [],
+  "model_sources": []
+}
