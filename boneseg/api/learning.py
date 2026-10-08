@@ -12,7 +12,7 @@ from .. import render
 from ..head import Head, head_to_profile_dict, train_head
 from ..segment import Profile, SegmentationSettings
 from .context import AppContext
-from .models import AnnotationRequest, HeadRequest, LabelRequest, ProfileFromHeadRequest, ReferenceLabelRequest
+from .models import AnnotationRequest, FinetuneRequest, HeadRequest, LabelRequest, ProfileFromHeadRequest, ReferenceLabelRequest
 
 
 def router(ctx: AppContext) -> APIRouter:
@@ -155,6 +155,54 @@ def router(ctx: AppContext) -> APIRouter:
                        head=head_to_profile_dict(head))
         pid = store.save_profile(prof)
         return {"id": pid, **[p for p in store.list_profiles() if p["id"] == pid][0]}
+
+    @r.post("/api/datasets/{ds_id}/finetune")
+    def finetune_endpoint(ds_id: str, req: FinetuneRequest):
+        """Fine-tunes DINOv2 Small on this channel's labels in a background job. Every second label validates. The
+        result is saved in the models folder and appears as a backbone. For comparison, the learned model on the
+        frozen features is trained on the same labels and scored on the same validation slices."""
+        import re
+        from datetime import datetime
+
+        ds = store.get(ds_id)
+        names = store.label_structures(ds_id, req.channel)
+        if names and len(names) > 1:
+            raise ValueError("Fine-tuning works with labels of one structure; these labels hold several")
+        zs = [l["z"] for l in store.list_labels(ds_id) if l["channel"] == req.channel]
+        if len(zs) < 2:
+            raise ValueError("Fine-tuning needs at least 2 labels on this channel (5 or more work best): one in two checks the training")
+        if not 50 <= req.steps <= 5000 or not 0 <= req.blocks <= 12:
+            raise ValueError("Steps must be 50 to 5000 and blocks 0 to 12")
+        slug = re.sub(r"[^A-Za-z0-9]+", "-", ds.volume.name).strip("-")[:40] or "dataset"
+        out_path = ctx.models_dir / f"dinov2_s14_{slug}_c{req.channel}_{datetime.now():%Y%m%d-%H%M}.pt"
+
+        def work(job):
+            from ..finetune import finetune
+            from ..head import segment_with_head
+            from ..metrics import dice
+
+            job.message = "Reading the labelled slices"
+            pairs = [(z, store.color_plane(ds_id, req.channel, z), store.load_label(ds_id, req.channel, z)) for z in zs]
+            train = [(img, gt) for i, (_, img, gt) in enumerate(pairs) if i % 2 == 0]
+            val = [(img, gt) for i, (_, img, gt) in enumerate(pairs) if i % 2 == 1]
+            job.message = "Loading DINOv2"
+            ft = finetune(train, val, train_blocks=req.blocks, steps=req.steps,
+                          progress=lambda p, m: (setattr(job, "progress", 0.97 * p), setattr(job, "message", m)), cancelled=job.cancel.is_set)
+            ft.save(out_path)
+            # The same labels and validation slices with DINOv2 left frozen: the learned model of section 6
+            job.message = "Comparing with the frozen features"
+            st = SegmentationSettings.from_dict({**req.settings, "backbone": "dinov2_s14"})
+            with store.compute_lock:
+                tr = [(store.embedding(ds_id, req.channel, z, st), gt) for i, (z, _, gt) in enumerate(pairs) if i % 2 == 0]
+                head = train_head(tr, st, [(req.channel, z) for i, (z, _, _) in enumerate(pairs) if i % 2 == 0], pixel_um=ds.volume.pixel_um)
+                frozen = [dice(segment_with_head(head, store.embedding(ds_id, req.channel, z, st), st, ds.volume.pixel_um).mask, gt)
+                          for i, (z, _, gt) in enumerate(pairs) if i % 2 == 1]
+            return {"backbone": f"dinov2_s14@{out_path}", "file": out_path.name, "n_train": len(train), "n_val": len(val),
+                    "val_dice_finetuned": ft.info["best_val_dice"], "val_dice_frozen": float(np.mean(frozen)),
+                    "best_step": ft.info["best_step"], "steps": req.steps}
+
+        job = store.start_job("finetune", work, meta={"dataset_id": ds_id, "channel": req.channel, "n_labels": len(zs)})
+        return job.info()
 
     @r.get("/api/datasets/{ds_id}/head")
     def head_info(ds_id: str, c: int = 0):

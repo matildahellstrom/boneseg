@@ -12,6 +12,7 @@ from fastapi.staticfiles import StaticFiles
 
 from .. import __version__
 from .. import backbone as backbone_mod
+from .. import sam
 from ..backbone import BACKBONE_LABELS, dino_weights_cached, pick_device
 from ..segment import SegmentationSettings
 from ..store import Store
@@ -93,6 +94,7 @@ def create_app(data_dir: str | Path | None = None, allow_paths: bool = True, tok
                          + [{"id": f"dinov2_s14@{p}", "label": f"DINOv2 Small, fine-tuned · {p.stem}", "ready": dino_weights_cached("dinov2_s14")}
                             for p in sorted(models_dir.glob("*.pt")) if p.stem.startswith("dinov2_s14")],
             "models_dir": str(models_dir),
+            "sam": {"available": sam.available(), "weights_cached": sam.weights_cached()},
         }
 
     for module in (datasets, segmentation, learning, analysis, profiles, study, batch):

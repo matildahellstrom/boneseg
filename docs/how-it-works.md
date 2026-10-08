@@ -35,6 +35,14 @@ Three settings under "Clean-up and advanced" fix most of this. All three were ch
 
 Together, these raised Dice with 25 + 25 clicks from 0.68 to 0.76. They cut the bone-area bias from +6.6 to +2.0 points. With 3 + 6 clicks, Dice went from 0.64 to 0.67, and the bias from +4.5 to +0.9 points. With carelessly placed clicks, the gain disappears, so careful clicks pay off.
 
+### A second opinion from SAM, optional
+
+"Agree with SAM" under "Clean-up and advanced" gives your clicks to Segment Anything (SAM ViT-B) as well, and keeps only the pixels that both boneseg and SAM call bone. The two make different mistakes: boneseg tends to spill over the bone edge, and SAM sometimes grabs a large neighbouring region. Where they agree, both are usually right.
+
+- **With 25 + 25 clicks** on the test slices of the five Liu samples, Dice rose from 0.755 to 0.784 (+0.029, 95% interval +0.013 to +0.047, better on 84% of slices). The bone-area bias went from +2.0 points to −0.3.
+- **With 3 + 6 clicks it did not help** (−0.003), and bone area came out 2.4 points too low. Turn it on once you have clicked a fair amount.
+- **It costs** a one-time download of 375 MB and a few seconds on each new slice, since SAM runs on the CPU. It applies to clicks on one structure, not to learned models, several structures or stack runs.
+
 ## 2. The U-Net additions: a second network that works pixel by pixel
 
 A U-Net is a neural network that looks at an image at full resolution and decides for every pixel whether it belongs to the object. It sees fine detail, but it has to be trained on labelled examples, and with few examples it learns little on its own.
@@ -92,6 +100,10 @@ Fine-tuning can make results worse, so it was tested like this:
 - **It costs** about 5 minutes on an M-series Mac, and the file is 28 MB.
 
 ### How to use it
+
+In the app: save at least two labels (five or more work best), for example with "Label 5 slices from the reference", then open "Fine-tune DINOv2 on these labels" in section 6 and click "Fine-tune". Every second label checks the training. When it is done, the app shows the Dice on those check slices for the fine-tuned model and for the learned model on the unchanged DINOv2, so you can see whether fine-tuning helped on your images. "Use it as the backbone" switches to the new model, which is saved in the `models` folder and listed in the backbone menu from then on.
+
+From the command line, with several files at once:
 
 ```bash
 python -m boneseg finetune stack1.ims:3 stack2.ims:4 --out dinov2_s14_mybone.pt

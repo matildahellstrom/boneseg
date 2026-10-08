@@ -138,7 +138,7 @@ function bind() {
     refreshProfiles("");
   };
 
-  for (const id of ["thrMode", "topPercent", "manualThr", "lambda", "minObj", "fillHoles", "smooth", "vitSize", "layer", "backboneSelect", "strict", "edgeRefine", "shiftPasses", "refiner", "suggestMissed"]) {
+  for (const id of ["thrMode", "topPercent", "manualThr", "lambda", "minObj", "fillHoles", "smooth", "vitSize", "layer", "backboneSelect", "strict", "edgeRefine", "shiftPasses", "refiner", "suggestMissed", "samRefine"]) {
     $(id).addEventListener("input", syncSettingLabels);
     $(id).addEventListener("change", () => { rememberSettings(); if (S.result) scheduleSegment(0); });
   }
@@ -159,6 +159,8 @@ function bind() {
   $("editSave").onclick = () => saveLabel(true);
   $("editCancel").onclick = stopEditing;
   $("trainBtn").onclick = trainHead;
+  $("finetuneBtn").onclick = startFinetune;
+  $("finetuneCancel").onclick = () => S.finetuneJob && api(`/api/jobs/${S.finetuneJob}/cancel`, { method: "POST" }).catch(() => {});
   $("refLabelsBtn").onclick = async () => {
     busy(true, "Saving labels from the reference…");
     try {
@@ -283,7 +285,7 @@ async function init() {
     $("version").textContent = `v${S.health.version}`;
     if (!S.health.allow_paths) $("pathInput").closest("details").classList.add("hidden");
     $("devicePill").textContent = `Runs on ${S.health.device.toUpperCase()}`;
-    $("backboneSelect").innerHTML = S.health.backbones.map((b) => `<option value="${b.id}">${b.label}${b.ready ? "" : " · downloads on first use"}</option>`).join("");
+    fillBackbones();
     const d = S.health.default_settings;
     $("backboneSelect").value = d.backbone;
     $("thrMode").value = d.threshold_mode;

@@ -170,6 +170,8 @@
           <label title="Moves the mask boundary onto intensity edges in the image.">Snap edges to image <select id="edgeRefine"><option value="guided" selected>Guided filter (recommended)</option><option value="none">Off</option></select></label>
           <label title="Extracts features at shifted positions for a finer feature grid. Slower.">Feature passes <select id="shiftPasses"><option value="1">1 · fastest</option><option value="2" selected>2 × 2 · finer (recommended)</option><option value="3">3 × 3 · slowest</option></select></label>
           <label title="Marks regions that look like the structure but have no click and are left out of the mask. Off by default: in tests, following these marks helped less than clicking elsewhere."><input type="checkbox" id="suggestMissed"> Suggest possibly missed pieces</label>
+          <label title="SAM (Segment Anything, ViT-B) gets the same clicks, and the mask keeps only what both call the structure. With 25 + 25 clicks on bone this raised Dice by 0.03 and removed the overestimate of bone area; with a handful of clicks it did not help. Used for click segmentations of one structure.">Agree with SAM <select id="samRefine"><option value="off" selected>Off</option><option value="agree">Keep only what SAM agrees on</option></select></label>
+          <p class="muted small hidden" id="samHint"></p>
           <label title="A small network trained on expert bone masks that sharpens the mask after your clicks.">Learned refiner <select id="refiner"><option value="">Off</option><option value="bundled">Bone (trained on Liu autofluorescence)</option></select></label>
         </details>
         <div class="row">
@@ -216,6 +218,12 @@
         <button class="primary" id="trainBtn" disabled>Train model</button>
         <div class="small" id="trainResult"></div>
         <button class="ghost hidden" id="exportHeadBtn" title="Reuse this model on other images and in batch runs">Save model as profile…</button>
+        <details id="finetuneBox">
+          <summary class="small">Fine-tune DINOv2 on these labels</summary>
+          <p class="muted small">Adapts the last layers of DINOv2 Small to your images, so clicks and the learned model see sharper features. In tests it helped most with few clicks (Dice +0.06 to +0.10 on bone, osteoclasts and plasma cells). Needs 2 labels, works best with 5 or more; one label in two checks the training. Takes several minutes, longer on the CPU.</p>
+          <div class="row"><button class="ghost" id="finetuneBtn">Fine-tune</button><button class="ghost hidden" id="finetuneCancel">Cancel</button></div>
+          <div class="job hidden" id="finetuneJob"><div class="bar"><span id="finetuneBar"></span></div><div class="small" id="finetuneText"></div></div>
+        </details>
       </section>
 
       <section id="histoSection" class="disabled-until-data">

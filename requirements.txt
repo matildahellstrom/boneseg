@@ -11,3 +11,4 @@ imaris-ims-file-reader==0.1.8
 fastapi
 uvicorn[standard]
 python-multipart
+segment-anything

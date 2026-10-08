@@ -84,3 +84,9 @@ How boneseg grew from the research notebook, grouped by theme. Hashes point to t
 
 ### Whole stacks in 3D
 - Whole-stack evaluation of the four Liu samples against the experts' 3D masks: a learned model from 5 labelled slices reaches 3D Dice 0.78, follows the expert through each stack (r 0.90) and measures Tb.Th within 1% on average, but overestimates BV/TV by about a third. Clicks on a single slice drift through long stacks (3D Dice 0.61).
+
+## 8 October 2026
+
+### Two measured improvements move into the app
+- "Agree with SAM" (`boneseg/sam.py`, under "Clean-up and advanced"): SAM ViT-B gets the same clicks and the mask keeps only what both call the structure. With 25 + 25 clicks on the five Liu samples, Dice 0.784 against 0.755 (+0.029, CI +0.013 to +0.047) and a bone-area bias of −0.3 points instead of +2.0; with 3 + 6 clicks no gain. Off by default; the SAM weights (375 MB) download on first use.
+- "Fine-tune DINOv2 on these labels" in section 6 runs `boneseg/finetune.py` as a background job with progress and cancel, saves the result in the models folder, and reports Dice on the held-out labels for the fine-tuned model and for the learned model on the unchanged DINOv2.
