@@ -145,6 +145,7 @@ function settings() {
     edge_refine: $("edgeRefine").value,
     shift_passes: +$("shiftPasses").value,
     refiner: $("refiner").value,
+    suggest_missed: $("suggestMissed").checked,
     clip_low: S.low,
     clip_high: S.high,
   };
@@ -166,6 +167,7 @@ function applySettings(st) {
   set("manualThr", st.manual_threshold); set("lambda", st.neg_weight); set("minObj", st.min_object_um2);
   set("fillHoles", st.fill_holes_um2); set("smooth", st.smooth_px); set("vitSize", st.vit_size); set("layer", st.layer_from_end);
   set("strict", st.threshold_position); set("edgeRefine", st.edge_refine); set("shiftPasses", st.shift_passes); set("refiner", st.refiner);
+  if (st.suggest_missed != null) $("suggestMissed").checked = !!st.suggest_missed;
   if (st.clip_low != null) { S.low = st.clip_low; $("lowSlider").value = st.clip_low; }
   if (st.clip_high != null) { S.high = st.clip_high; $("highSlider").value = st.clip_high; }
   syncSettingLabels();

@@ -52,7 +52,7 @@ def candidate_region(raw, res, pos, neg, point):
 def main():
     t0 = time.time()
     log = lambda m: print(f"[{time.time() - t0:6.0f}s] {m}", flush=True)  # noqa: E731
-    st = SegmentationSettings()
+    st = SegmentationSettings(suggest_missed=True)
     bb = get_backbone(st.backbone)
     rows = []
     for name in available_samples():
