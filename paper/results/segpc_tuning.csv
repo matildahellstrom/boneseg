@@ -1,0 +1,9 @@
+method,budget,setting,official
+dino_clicks,3+6,"neg_weight=0.8, edge=none, position=0.5, min_px=0",0.45706703852773567
+sam,3+6,min_px=0,
+microsam,3+6,min_px=0,
+rf_clicks,3+6,min_px=0,
+dino_clicks,10+20,"neg_weight=0.4, edge=none, position=0.7, min_px=0",0.5472267037789024
+sam,10+20,min_px=0,
+microsam,10+20,min_px=0,
+rf_clicks,10+20,min_px=0,

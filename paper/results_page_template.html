@@ -127,6 +127,29 @@ figcaption .dv { font: 600 15px/1 var(--mono); color: var(--accent) }
   </div>
 </section>
 
+<section id="clickvar">
+  <h2>How much do the clicks matter?</h2>
+  <p>One median test slice of samples C and E, segmented with 20 different random sets of clicks at each budget. The same slice, the same settings; only the clicks change.</p>
+  <div class="panel">
+    <h3>Dice of each of the 20 click sets</h3>
+    <div id="clickvarChart"></div>
+    <div class="legend"><span><i style="background:var(--accent)"></i>Careful clicks</span><span><i style="background:var(--amber)"></i>Careless clicks (on the edge, 10% on the wrong side)</span></div>
+  </div>
+  <div class="panel">
+    <h3>Four click sets per budget, sample C</h3>
+    <div class="key"><span><i style="background:#28d2cd"></i>Both boneseg and the expert</span><span><i style="background:#ffaa1e"></i>boneseg only</span><span><i style="background:#eb3c8c"></i>Expert only (missed)</span><span><i style="background:#3cff5a"></i>Bone click</span><span><i style="background:#ff3c3c"></i>Background click</span></div>
+    <figure><img id="cvGrid" alt="Sample C segmented with four different click sets at 3 + 6, 10 + 10 and 25 + 25 clicks" width="1100"></figure>
+    <p class="note">Separate small pieces of bone are found only when a bone click lands on them, so with few clicks most of them are missed. One set of 25 + 25 clicks scored 0.69 with a thick extra rim. In both samples, the worst set of 25 + 25 clicks had only 1 of its 25 background clicks within 50 µm of bone; across all sets, more background clicks near bone went with higher Dice, but only weakly (r 0.16 and 0.39).</p>
+  </div>
+  <div class="panel">
+    <h3>Where the click sets agree</h3>
+    <p class="note">The share of the 20 click sets that call each pixel bone, from dark (none) to white (all). Blue: the expert outline.</p>
+    <figure><img id="cvAgreeC" alt="Agreement of 20 click sets on sample C at three budgets" width="1100"><figcaption><b>C</b></figcaption></figure>
+    <figure><img id="cvAgreeE" alt="Agreement of 20 click sets on sample E at three budgets" width="1100"><figcaption><b>E</b></figcaption></figure>
+    <p class="note">For users: give every separate piece of bone at least one click, and it probably helps to put some background clicks next to bone edges. Interiors are found by almost any click set; edges and small pieces are where clicks make the difference.</p>
+  </div>
+</section>
+
 <section id="clicks">
   <h2>Segmenting from clicks</h2>
   <p>Each method got exactly the same simulated clicks inside and outside the expert mask. Careful clicks keep 10 px from the boundary. Careless clicks may sit on it, and one in ten lands on the wrong side.</p>
@@ -531,5 +554,24 @@ document.getElementById("stackImg").src = IMAGES["stack3d_profiles.png"];
   document.getElementById("stackTable").innerHTML = `<thead><tr><th>Sample</th><th>Method</th>${keys.map((k) => `<th>${k[1]}</th>`).join("")}</tr></thead><tbody>` +
     rows.map((r) => `<tr class="${r.method === "expert" ? "hl" : ""}"><td>${esc(r.sample)}</td><td>${esc(M3[r.method])}</td>${keys.map(([k, , dp]) => `<td class="num">${r[k] == null || r[k] === "" || isNaN(r[k]) ? "–" : (+r[k]).toFixed(dp)}</td>`).join("")}</tr>`).join("") + "</tbody>";
 })();
-drawSegpc(); drawNoise(); drawNoiseStatic(); drawSample(); drawClicks(); drawLabels(); drawPairs(); drawMeas(); drawFt(); drawUnet();
+drawSegpc(); drawNoise(); drawNoiseStatic(); document.getElementById("cvGrid").src = IMAGES["clicks_grid_C.jpg"];
+document.getElementById("cvAgreeC").src = IMAGES["clicks_agree_C.jpg"];
+document.getElementById("cvAgreeE").src = IMAGES["clicks_agree_E.jpg"];
+(function () {
+  const W = 760, rowH = 34, L = 150, R = 20, x0 = 0.2, x1 = 0.9, X = (v) => L + (v - x0) / (x1 - x0) * (W - L - R);
+  const groups = [];
+  ["C", "E"].forEach((s) => ["3+6", "10+10", "25+25"].forEach((b) => groups.push([s, b])));
+  const H = 10 + groups.length * rowH + 24;
+  let svg = `<svg viewBox="0 0 ${W} ${H}" role="img">`;
+  for (let t = 0.2; t <= 0.901; t += 0.1) svg += `<line class="gridl" x1="${X(t)}" x2="${X(t)}" y1="6" y2="${H - 22}"/><text class="tick" x="${X(t)}" y="${H - 6}" text-anchor="middle">${t.toFixed(1)}</text>`;
+  groups.forEach(([s, b], i) => {
+    const y = 10 + i * rowH + rowH / 2;
+    svg += `<text x="${L - 12}" y="${y + 4}" text-anchor="end" font-size="13">${s}, ${b.replace("+", " + ")} clicks</text>`;
+    DATA.clickvar.filter((r) => r.s === s && r.b === b).forEach((r) => {
+      svg += `<circle cx="${X(r.d)}" cy="${y + (r.n ? 7 : -7)}" r="4" fill="${r.n ? "var(--amber)" : "var(--accent)"}" opacity="0.8"/>`;
+    });
+  });
+  document.getElementById("clickvarChart").innerHTML = svg + "</svg>";
+})();
+drawSample(); drawClicks(); drawLabels(); drawPairs(); drawMeas(); drawFt(); drawUnet();
 </script>
