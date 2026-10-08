@@ -1,8 +1,6 @@
 {
-  "id": "matildahellstrom/boneseg-sam-finetune-a",
+  "id": "matildahellstrom/boneseg-sam-fine-tuning-a-bone-plasma-cells",
   "title": "boneseg SAM fine-tuning A (bone, plasma cells)",
-  "code_file": "notebook.ipynb",
-  "language": "python",
   "kernel_type": "notebook",
   "is_private": "true",
   "enable_gpu": "true",
