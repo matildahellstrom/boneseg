@@ -289,6 +289,37 @@ def postprocess(mask: np.ndarray, settings: SegmentationSettings, pixel_um: tupl
     return mask.astype(bool)
 
 
+def missed_candidates(raw: np.ndarray, mask: np.ndarray, raw_threshold: float, pos_points, neg_points,
+                      max_n: int = 5, min_frac: float = 2e-4) -> list[dict]:
+    """Regions that look somewhat like the object but are not in the mask and hold no click: separate small pieces
+    are found only when a click lands on them, so these are worth showing the user. A region qualifies above a looser
+    threshold, halfway from the threshold down to the typical score at the background clicks, when it does not touch
+    the mask. Ranked by area times how far it rises above the loose threshold; each comes with a point inside it."""
+    neg_scores = sample_points(raw, neg_points) if neg_points is not None and len(neg_points) else np.array([np.median(raw)])
+    loose = raw_threshold - 0.5 * (raw_threshold - float(np.median(neg_scores)))
+    region = (raw >= loose) & ~ndi.binary_dilation(mask, iterations=2)
+    lab, n = ndi.label(region)
+    if n == 0:
+        return []
+    clicked = set()
+    for pts in (pos_points, neg_points):
+        if pts is not None and len(pts):
+            clicked |= {int(v) for v in sample_points(lab, pts) if v > 0}
+    idx = np.arange(1, n + 1)
+    area = ndi.sum(np.ones_like(raw), lab, idx)
+    strength = ndi.sum(raw - loose, lab, idx)
+    peaks = ndi.maximum_position(raw, lab, idx)
+    out = []
+    for i in np.argsort(-strength):
+        k = int(idx[i])
+        if k in clicked or area[i] < min_frac * raw.size:
+            continue
+        out.append({"point": [int(peaks[i][0]), int(peaks[i][1])], "area_px": int(area[i]), "score": float(strength[i] / area[i])})
+        if len(out) == max_n:
+            break
+    return out
+
+
 @dataclass
 class SegmentationResult:
     heat: np.ndarray        # Heatmap rescaled to [0, 1], full resolution
@@ -337,8 +368,11 @@ def segment_with_prototypes(emb: Embedding, pos: torch.Tensor, neg: torch.Tensor
         mask = get_refiner(settings.refiner).predict(emb.image, raw, float(raw_threshold)) >= 0.5
         source += ", refined"
     mask = postprocess(mask, settings, pixel_um)
-    return SegmentationResult(heat=heat, mask=mask, threshold=float(thr), raw_threshold=float(raw_threshold),
-                              raw_score_range=(lo, hi), threshold_source=source)
+    res = SegmentationResult(heat=heat, mask=mask, threshold=float(thr), raw_threshold=float(raw_threshold),
+                             raw_score_range=(lo, hi), threshold_source=source)
+    if pos_points is not None and len(pos_points):
+        res.extra["missed"] = missed_candidates(raw, mask, float(raw_threshold), pos_points, neg_points)
+    return res
 
 
 def segment(emb: Embedding, pos_points, neg_points, settings: SegmentationSettings, pixel_um=(1.0, 1.0)) -> SegmentationResult:

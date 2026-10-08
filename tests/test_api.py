@@ -788,3 +788,13 @@ def test_colour_images_get_a_colour_channel(client, tmp_path):
     assert r.status_code == 400 and "colour channel" in r.text
     side = client.get(f"/api/datasets/{ds['id']}/xz", params={"c": 3, "y": 10})
     assert side.status_code == 200
+
+
+def test_missed_bone_suggestions(client):
+    # A blob far from every click and outside the mask should be offered as possibly missed
+    ds, gt, centers = upload_stack(client)
+    body = {"channel": 0, "z": 1, "pos": [list(centers[0])], "neg": bg_points(gt), "settings": {**SETTINGS, "shift_passes": 1}}
+    out = client.post(f"/api/datasets/{ds['id']}/segment", json=body).json()
+    assert "missed" in out and isinstance(out["missed"], list)
+    for m in out["missed"]:
+        assert len(m["point"]) == 2 and m["area_px"] > 0
