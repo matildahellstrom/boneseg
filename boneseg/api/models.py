@@ -91,6 +91,13 @@ class HeadRequest(BaseModel):
     kind: str = "auto"
 
 
+class FinetuneRequest(BaseModel):
+    channel: int
+    steps: int = 1000
+    blocks: int = 4   # Transformer blocks trained, counted from the end
+    settings: dict = Field(default_factory=dict)  # For the comparison with the learned model on the frozen features
+
+
 class MaskSpec(BaseModel):
     channel: int
     source: str = "current"   # "current", "profile", "learned", "label" or "reference"

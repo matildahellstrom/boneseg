@@ -183,3 +183,53 @@ function setMethod(m) {
   $("methodLearned").classList.toggle("active", m === "learned");
   updateHint();
 }
+
+// ---------------------------------------------------------------------------------------------
+// Fine-tuning DINOv2 on the labels, as a background job; the result becomes a backbone
+function fillBackbones() {
+  const sel = $("backboneSelect"), current = sel.value;
+  sel.innerHTML = S.health.backbones.map((b) => `<option value="${esc(b.id)}">${esc(b.label)}${b.ready ? "" : " · downloads on first use"}</option>`).join("");
+  if (S.health.backbones.some((b) => b.id === current)) sel.value = current;
+}
+
+async function startFinetune() {
+  const n = S.labels.filter((l) => l.channel === S.c).length;
+  if (n < 2) { toast("Save at least 2 labels on this channel first (5 or more work best)"); return; }
+  try {
+    const job = await api(`/api/datasets/${S.ds.id}/finetune`, { method: "POST", body: { channel: S.c, settings: settings() } });
+    S.finetuneJob = job.id;
+    $("finetuneJob").classList.remove("hidden");
+    $("finetuneBtn").disabled = true;
+    $("finetuneCancel").classList.remove("hidden");
+    pollFinetune(job.id);
+  } catch (e) { toast(e.message, true); }
+}
+
+async function pollFinetune(id) {
+  let job;
+  try { job = await api(`/api/jobs/${id}`); } catch (e) { toast(e.message, true); return; }
+  $("finetuneBar").style.width = `${100 * job.progress}%`;
+  if (job.status === "running" || job.status === "queued") {
+    $("finetuneText").textContent = job.message || "Starting…";
+    setTimeout(() => pollFinetune(id), 1500);
+    return;
+  }
+  $("finetuneBtn").disabled = false;
+  $("finetuneCancel").classList.add("hidden");
+  if (job.status === "failed") { $("finetuneText").textContent = `Failed: ${job.error}`; return; }
+  const r = job.result;
+  const better = r.val_dice_finetuned > r.val_dice_frozen;
+  $("finetuneText").innerHTML = `${job.status === "cancelled" ? "Stopped early; kept the best step so far." : "Done."} Trained on ${r.n_train} label${r.n_train > 1 ? "s" : ""}, checked on ${r.n_val}.`
+    + ` Dice on the check slices: fine-tuned <b>${r.val_dice_finetuned.toFixed(3)}</b>, learned model on the unchanged DINOv2 <b>${r.val_dice_frozen.toFixed(3)}</b>.`
+    + (better ? " Fine-tuning helped." : " Fine-tuning did not help here; more labels may change that.")
+    + ` <button class="ghost" id="useFinetuned">Use it as the backbone</button>`
+    + `<br><span class="muted">Saved as ${esc(r.file)}. Learned models and profiles made with another backbone need to be trained or made again.</span>`;
+  S.health = await api("/api/health");
+  fillBackbones();
+  $("useFinetuned").onclick = () => {
+    $("backboneSelect").value = r.backbone;
+    syncSettingLabels(); rememberSettings();
+    toast("Switched to the fine-tuned backbone. The first click on each slice computes its features again.");
+    if (S.result) scheduleSegment(0);
+  };
+}

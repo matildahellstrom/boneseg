@@ -26,6 +26,7 @@ class AppContext:
     def __init__(self, store: Store, allow_paths: bool):
         self.store = store
         self.allow_paths = allow_paths
+        self.models_dir = store.root / "models"   # Fine-tuned backbones; listed as backbones by /api/health
 
     def prototypes_for(self, ds_id, channel, z, pos_pts, neg_pts, profile_id, settings):
         """Prototypes from clicks, a profile, or a profile refined by clicks.

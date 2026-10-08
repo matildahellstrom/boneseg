@@ -165,9 +165,11 @@ def build(ft: FineTuned, dino: nn.Module | None = None, device=None) -> SegNet:
 def finetune(train: list[tuple[np.ndarray, np.ndarray]], val: list[tuple[np.ndarray, np.ndarray]], base: str = "dinov2_s14",
              train_blocks: int = 4, vit_size: int = 980, steps: int = 1000, batch: int = 4, crop: int = 448,
              lr_backbone: float = 2e-5, lr_head: float = 1e-3, eval_every: int = 100, seed: int = 0,
-             pretrained: nn.Module | None = None, device=None, log=None) -> FineTuned:
+             pretrained: nn.Module | None = None, device=None, log=None, progress=None, cancelled=None) -> FineTuned:
     """Fine-tunes on (image, mask) pairs of [0, 1] images and boolean masks; keeps the step with the best mean
-    Dice on the validation pairs. Pass a pretrained backbone to reuse one download across runs (it is copied)."""
+    Dice on the validation pairs. Pass a pretrained backbone to reuse one download across runs (it is copied).
+    progress(fraction, message) is called after every step; when cancelled() turns true, training stops and the
+    best step so far is kept."""
     device = device or pick_device()
     torch.manual_seed(seed)
     rng = np.random.default_rng(seed)
@@ -191,6 +193,8 @@ def finetune(train: list[tuple[np.ndarray, np.ndarray]], val: list[tuple[np.ndar
                 {k: v.detach().cpu().clone() for k, v in net.head.state_dict().items()})
 
     for step in range(1, steps + 1):
+        if cancelled is not None and cancelled() and best is not None:
+            break
         net.train()
         net.dino.eval() if train_blocks == 0 else None   # Frozen backbone: no dropout or other train-time behaviour
         X, Y, M = _batch(tr, crop, batch, rng)
@@ -212,6 +216,10 @@ def finetune(train: list[tuple[np.ndarray, np.ndarray]], val: list[tuple[np.ndar
                 best_dice, best = vd, snapshot()
             if log:
                 log(f"  step {step}/{steps}: loss {loss.item():.3f}, validation Dice {vd:.3f}, {time.time() - t0:.0f}s")
+        if progress is not None:
+            el = time.time() - t0
+            progress(step / steps, f"Step {step} of {steps}" + (f", best validation Dice {best_dice:.3f}" if va and best is not None else "")
+                     + f", about {el / step * (steps - step) / 60:.0f} min left")
     bstate, hstate = best
     return FineTuned(base, train_blocks, vit_size, bstate, hstate,
                      info={"n_train": len(train), "n_val": len(val), "steps": steps, "best_val_dice": best_dice,

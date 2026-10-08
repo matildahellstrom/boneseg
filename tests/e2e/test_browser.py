@@ -368,3 +368,33 @@ def test_histomorphometry_whole_stack(page, server):
     page.wait_for_function("document.querySelector('#histoStackText').textContent.includes('slices:')", timeout=60000)
     assert "Oc.Pm/B.Pm" in page.inner_text("#histoStackText")
     assert not page.errors, page.errors
+
+
+def test_sam_setting_and_finetune_panel(page, server, monkeypatch):
+    import boneseg.finetune as fmod
+
+    class Fake:
+        info = {"best_val_dice": 0.8, "best_step": 50}
+
+        def save(self, path):
+            path.write_bytes(b"x")
+
+    def fake_finetune(train, val, train_blocks, steps, progress, cancelled):
+        progress(1.0, "done")
+        return Fake()
+
+    monkeypatch.setattr(fmod, "finetune", fake_finetune)
+    url, data = server
+    open_demo(page, url, data)
+    page.click("text=Clean-up and advanced")
+    page.select_option("#samRefine", "agree")
+    assert page.is_visible("#samHint") and page.evaluate("settings().sam_refine") == "agree"
+    page.select_option("#samRefine", "off")
+    page.evaluate("api(`/api/datasets/${S.ds.id}/labels/from-reference`, {method: 'POST', body: {channel: S.c, n: 3}}).then(() => refreshLabels())")
+    page.wait_for_function("S.labels.length === 3", timeout=20000)
+    page.click("text=Fine-tune DINOv2 on these labels")
+    page.click("#finetuneBtn")
+    page.wait_for_selector("#useFinetuned", timeout=60000)
+    assert "fine-tuned 0.800" in page.inner_text("#finetuneText")
+    assert page.evaluate("[...document.querySelectorAll('#backboneSelect option')].some(o => o.value.includes('dinov2_s14_demo'))")
+    assert not page.errors, page.errors

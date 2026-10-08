@@ -41,6 +41,8 @@ class SegmentationSettings:
     refiner: str = ""                # Learned full-resolution refiner after the click threshold: "", "bundled" or a file path
     suggest_missed: bool = False     # Point out bone-like regions with no click; off, since on the Liu test slices clicks
                                      # guided this way did worse than random extra clicks (paper/results/guided_clicks_summary.md)
+    sam_refine: str = "off"          # "agree" keeps only the pixels SAM ViT-B, given the same clicks, also calls the structure
+                                     # (boneseg/sam.py); applied by the app to single-structure click segmentations
     clip_low: float = 1.0
     clip_high: float = 99.5
 

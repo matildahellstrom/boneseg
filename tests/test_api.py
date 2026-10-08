@@ -798,3 +798,60 @@ def test_missed_bone_suggestions(client):
     assert "missed" in out and isinstance(out["missed"], list)
     for m in out["missed"]:
         assert len(m["point"]) == 2 and m["area_px"] > 0
+
+
+def test_agree_with_sam(client, monkeypatch):
+    from boneseg import sam
+
+    ds, gt, centers = upload_stack(client)
+    calls = []
+
+    def fake_sam(key, img, pos, neg):
+        calls.append((key, len(pos), len(neg)))
+        m = np.zeros(img.shape[:2], bool)
+        m[:, : img.shape[1] // 2] = True   # SAM "agrees" only on the left half
+        return m
+
+    monkeypatch.setattr(sam, "sam_mask", fake_sam)
+    body = {"channel": 0, "z": 1, "pos": [list(c) for c in centers], "neg": bg_points(gt), "settings": SETTINGS}
+    off = client.post(f"/api/datasets/{ds['id']}/segment", json=body).json()
+    assert not calls and "sam_s" not in off["timing"]
+    on = client.post(f"/api/datasets/{ds['id']}/segment", json={**body, "settings": {**SETTINGS, "sam_refine": "agree"}}).json()
+    assert calls == [((ds["id"], 0, 1, 1.0, 99.5), len(centers), 6)] and "sam_s" in on["timing"]
+    assert 0 < on["stats"]["area_fraction"] < off["stats"]["area_fraction"]
+    assert set(client.get("/api/health").json()["sam"]) == {"available", "weights_cached"}
+
+
+def test_finetune_job(client, monkeypatch):
+    import boneseg.finetune as fmod
+
+    ds, gt, centers = upload_stack(client)
+    client.patch(f"/api/datasets/{ds['id']}", json={"reference_channel": 1})
+    url = f"/api/datasets/{ds['id']}/finetune"
+    assert client.post(url, json={"channel": 0}).status_code == 400   # No labels yet
+    client.post(f"/api/datasets/{ds['id']}/labels/from-reference", json={"channel": 0, "n": 3})
+    seen = {}
+
+    class Fake:
+        info = {"best_val_dice": 0.9, "best_step": 50}
+
+        def save(self, path):
+            path.write_bytes(b"x")
+
+    def fake_finetune(train, val, train_blocks, steps, progress, cancelled):
+        seen.update(n_train=len(train), n_val=len(val), blocks=train_blocks, steps=steps)
+        progress(1.0, "done")
+        return Fake()
+
+    monkeypatch.setattr(fmod, "finetune", fake_finetune)
+    job = client.post(url, json={"channel": 0, "steps": 50, "settings": {"vit_size": 252, "shift_passes": 1}}).json()
+    for _ in range(600):
+        job = client.get(f"/api/jobs/{job['id']}").json()
+        if job["status"] not in ("queued", "running"):
+            break
+        time.sleep(0.1)
+    assert job["status"] == "done", job
+    assert seen == {"n_train": 2, "n_val": 1, "blocks": 4, "steps": 50}
+    r = job["result"]
+    assert r["val_dice_finetuned"] == 0.9 and 0 <= r["val_dice_frozen"] <= 1
+    assert r["backbone"] in [b["id"] for b in client.get("/api/health").json()["backbones"]]

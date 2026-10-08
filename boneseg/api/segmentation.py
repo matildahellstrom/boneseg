@@ -46,6 +46,16 @@ def router(ctx: AppContext) -> APIRouter:
                 res = segment_with_prototypes(emb, pos, neg, settings, ds.volume.pixel_um, raw_threshold=prof_thr,
                                               pos_points=req.pos, neg_points=req.neg)
                 u = uncertainty_map(emb, pos, neg, settings, threshold=res.threshold) if req.uncertainty and pos.shape[0] > 0 else None
+        t_sam = None
+        if settings.sam_refine == "agree" and req.method == "clicks" and profile_head is None and req.pos:
+            # A second opinion from SAM on the same clicks: keep only what both call the structure
+            from .. import sam
+
+            t1 = time.time()
+            img = store.color_plane(ds_id, req.channel, req.z, settings.clip_low, settings.clip_high)
+            res.extra["before_sam"] = res.mask
+            res.mask = sam.agree(res.mask, (ds_id, req.channel, req.z, settings.clip_low, settings.clip_high), img, req.pos, req.neg)
+            t_sam = round(time.time() - t1, 3)
         roi = store.roi_mask(ds_id)
         if roi is not None:
             # Keep the unclipped mask for histomorphometry, where the region's edge is not a bone surface
@@ -77,6 +87,8 @@ def router(ctx: AppContext) -> APIRouter:
             out["uncertain_fraction"] = float((u > 0.05).mean())
             sug = suggest_click(u, list(req.pos) + list(req.neg))
             out["suggestion"] = list(sug) if sug else None
+        if t_sam is not None:
+            out["timing"]["sam_s"] = t_sam
         out["timing"]["total_s"] = round(time.time() - t0, 3)
         # Neighbouring slices next, so stepping through the stack stays fast
         store.prefetch(ds_id, req.channel, [req.z + 1, req.z - 1, req.z + 2, req.z - 2], settings)
