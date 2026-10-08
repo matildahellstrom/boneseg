@@ -1,8 +1,6 @@
 {
-  "id": "matildahellstrom/boneseg-sam-finetune-smoke",
+  "id": "matildahellstrom/boneseg-sam-fine-tuning-smoke-test",
   "title": "boneseg SAM fine-tuning smoke test",
-  "code_file": "notebook.ipynb",
-  "language": "python",
   "kernel_type": "notebook",
   "is_private": "true",
   "enable_gpu": "true",
