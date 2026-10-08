@@ -30,6 +30,7 @@ from PIL import Image, ImageDraw
 SETUP = json.loads(open("/tmp/setup.json").read())
 DATA, OUT, REPO, W = Path("/tmp/fsam/datasets"), Path("/kaggle/working"), Path("/tmp/finetune-SAM"), Path("/tmp/weights")
 for d in (DATA, W): d.mkdir(parents=True, exist_ok=True)
+os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"   # Less memory lost to fragmentation in the training subprocesses
 T0 = time.time()
 def log(m): print(f"[{time.time() - T0:7.0f}s] {m}", flush=True)
 def sh(cmd, cwd=None):
@@ -129,6 +130,9 @@ CONFIGS = {
     "b_ende_lora": ("vit_b", "sam_vit_b_01ec64.pth", "lora", "noprompt", "-if_update_encoder True -if_encoder_lora_layer True -if_decoder_lora_layer True"),
     "t_ende_adapter_box": ("vit_t", "mobile_sam.pt", "adapter", "box", "-if_update_encoder True -if_encoder_adapter True -if_mask_decoder_adapter True"),
 }
+# Batch size: the paper's 2, except where updating the ViT-B encoder at batch 2 needs more than the T4's 15 GB
+# (the smoke test ran out of memory in the backward pass); gradients are then averaged over single images
+BATCH = {"b_ende_adapter": 1, "b_ende_lora": 1}
 def write_list(path, ds, stems):
     path.write_text("\n".join(f"{ds}/images/{s}.png,{ds}/masks/{s}.png" for s in stems))
 def train(tag, cfg, ds, train_stems, val_stems, epochs=200):
@@ -139,7 +143,7 @@ def train(tag, cfg, ds, train_stems, val_stems, epochs=200):
     py = "SingleGPU_train_finetune_noprompt.py" if script == "noprompt" else "SingleGPU_train_finetune_box.py"
     t = time.time()
     code = sh(f"python {py} -if_warmup True -finetune_type {ft} -arch {arch} -img_folder {DATA} -mask_folder {DATA} -sam_ckpt {W / ckpt} "
-              f"-targets combine_all -dataset_name {tag} -dir_checkpoint {run} -train_img_list {tr} -val_img_list {va} -epochs {epochs} -b 2 {flags}", cwd=REPO)
+              f"-targets combine_all -dataset_name {tag} -dir_checkpoint {run} -train_img_list {tr} -val_img_list {va} -epochs {epochs} -b {BATCH.get(cfg, 2)} {flags}", cwd=REPO)
     log(f"  {tag} {cfg}: exit {code}, {time.time() - t:.0f}s")
     return run if (run / "checkpoint_best.pth").exists() else None
 def load_model(run, cfg):
@@ -263,13 +267,13 @@ log("kernel B done")
 
 
 KERNEL_SMOKE = r'''
-# Smoke test: one Liu fold, two configurations, 2 epochs; checks building, training, loading and predicting
+# Smoke test: one Liu fold, every configuration, 2 epochs; checks building, training (incl. GPU memory), loading and predicting
 info = dict(list(SETUP["liu"].items())[:1])
 SETUP["liu"] = info
 build_liu()
 s, info = next(iter(info.items()))
 stems = lambda zs: [f"{s}_{z}" for z in zs]
-for cfg in ("b_ende_adapter", "t_ende_adapter_box"):
+for cfg in CONFIGS:
     run = train(f"smoke_{s}", cfg, "liu", stems(info["dev"][:5]), stems(info["dev"][5:]), epochs=2)
     print(cfg, "trained" if run else "FAILED")
     if run: predict_fold(run, cfg, "liu", "liu", stems(info["test"][:2]))
