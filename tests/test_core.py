@@ -508,3 +508,15 @@ def test_missed_candidates_find_an_unclicked_piece():
     assert len(c) == 1 and 120 <= c[0]["point"][0] < 150 and 120 <= c[0]["point"][1] < 150
     # A background click on it removes it from the suggestions
     assert segment.missed_candidates(raw, mask, 2.0, [(40, 40)], [(100, 10), (135, 135)]) == []
+
+
+def test_nsd():
+    a = np.zeros((100, 100), bool); a[20:60, 20:60] = True
+    assert metrics.nsd(a, a, 1.0) == 1.0
+    b = np.roll(a, 3, axis=1)
+    assert metrics.nsd(a, b, 5.0) == 1.0          # A 3 px shift is within a 5 px tolerance
+    assert metrics.nsd(a, b, 1.0) < 0.7           # but not within 1 px
+    assert metrics.nsd(a, np.zeros_like(a), 1.0) == 0.0
+    assert metrics.nsd(np.zeros_like(a), np.zeros_like(a), 1.0) == 1.0
+    # Spacing: a 3 px shift at 2 um per pixel is 6 um
+    assert metrics.nsd(a, b, 5.0, spacing=(2.0, 2.0)) < metrics.nsd(a, b, 7.0, spacing=(2.0, 2.0))
