@@ -34,9 +34,14 @@ def sh(cmd, cwd=None):
     r = subprocess.run(cmd, shell=True, cwd=cwd, capture_output=True, text=True)
     if r.returncode: print(r.stdout[-3000:], r.stderr[-3000:])
     return r.returncode
-sh("pip install -q monai einops icecream segment-anything stream-unzip")
+# finetune-SAM's training scripts also import tensorboardX, torchio, slicerio and pynrrd (utils/dataset.py)
+sh("pip install -q monai einops icecream segment-anything stream-unzip tensorboardX torchio slicerio pynrrd nibabel seaborn")
 if not REPO.exists():
     sh(f"git clone -q https://github.com/mazurowski-lab/finetune-SAM {REPO} && cd {REPO} && git checkout -q COMMIT")
+# Fail within a minute, not after hours, if the training code cannot be imported
+_chk = subprocess.run([sys.executable, "-c", "import tensorboardX, cfg, monai, cv2; from utils.dataset import Public_dataset; "
+                       "from models.sam import sam_model_registry; from models.sam_LoRa import LoRA_Sam"], cwd=REPO, capture_output=True, text=True)
+if _chk.returncode: raise RuntimeError("finetune-SAM cannot be imported:\n" + _chk.stderr[-3000:])
 for url, name in (("https://dl.fbaipublicfiles.com/segment_anything/sam_vit_b_01ec64.pth", "sam_vit_b_01ec64.pth"),
                   ("https://github.com/ChaoningZhang/MobileSAM/raw/master/weights/mobile_sam.pt", "mobile_sam.pt")):
     if not (W / name).exists(): sh(f"curl -sL -o {W / name} {url}")
