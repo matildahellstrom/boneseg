@@ -1,0 +1,112 @@
+[
+ {
+  "sample": "A",
+  "z": 87,
+  "kind": "median",
+  "tag": "A_87",
+  "dice": {
+   "boneseg": 0.667,
+   "sam": 0.604,
+   "learned": 0.69
+  }
+ },
+ {
+  "sample": "A",
+  "z": 216,
+  "kind": "worst",
+  "tag": "A_216",
+  "dice": {
+   "boneseg": 0.581,
+   "sam": 0.635,
+   "learned": 0.651
+  }
+ },
+ {
+  "sample": "C",
+  "z": 63,
+  "kind": "worst",
+  "tag": "C_63",
+  "dice": {
+   "boneseg": 0.687,
+   "sam": 0.837,
+   "learned": 0.845
+  }
+ },
+ {
+  "sample": "C",
+  "z": 541,
+  "kind": "median",
+  "tag": "C_541",
+  "dice": {
+   "boneseg": 0.818,
+   "sam": 0.794,
+   "learned": 0.829
+  }
+ },
+ {
+  "sample": "D",
+  "z": 264,
+  "kind": "median",
+  "tag": "D_264",
+  "dice": {
+   "boneseg": 0.762,
+   "sam": 0.8,
+   "learned": 0.692
+  }
+ },
+ {
+  "sample": "D",
+  "z": 328,
+  "kind": "worst",
+  "tag": "D_328",
+  "dice": {
+   "boneseg": 0.667,
+   "sam": 0.76,
+   "learned": 0.633
+  }
+ },
+ {
+  "sample": "E",
+  "z": 128,
+  "kind": "median",
+  "tag": "E_128",
+  "dice": {
+   "boneseg": 0.808,
+   "sam": 0.867,
+   "learned": 0.885
+  }
+ },
+ {
+  "sample": "E",
+  "z": 417,
+  "kind": "worst",
+  "tag": "E_417",
+  "dice": {
+   "boneseg": 0.679,
+   "sam": 0.728,
+   "learned": 0.644
+  }
+ },
+ {
+  "sample": "F",
+  "z": 178,
+  "kind": "median",
+  "tag": "F_178",
+  "dice": {
+   "boneseg": 0.781,
+   "sam": 0.658,
+   "learned": 0.79
+  }
+ },
+ {
+  "sample": "F",
+  "z": 225,
+  "kind": "worst",
+  "tag": "F_225",
+  "dice": {
+   "boneseg": 0.706,
+   "sam": 0.705,
+   "learned": 0.758
+  }
+ }
+]
