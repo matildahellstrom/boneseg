@@ -1,6 +1,8 @@
 {
   "id": "matildahellstrom/boneseg-sam-fine-tuning-b-osteoclasts-full-segpc-vit-h",
   "title": "boneseg SAM fine-tuning B (osteoclasts, full SegPC, ViT-H)",
+  "code_file": "notebook.ipynb",
+  "language": "python",
   "kernel_type": "notebook",
   "is_private": "true",
   "enable_gpu": "true",
