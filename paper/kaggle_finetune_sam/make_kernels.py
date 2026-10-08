@@ -74,14 +74,30 @@ def build_segpc(names):
             m |= np.asarray(Image.open(y).convert("L").resize((1440, 1080), Image.NEAREST)) > 0
         save_pair("segpc", n, np.asarray(img), m)
     log(f"SegPC: {len(names)} images")
+def drive_stream(file_id):
+    """Streams a large Google Drive file. From cloud machines Drive often answers with an HTML page (a virus-scan
+    warning or confirmation form) instead of the file; its form fields are then sent back to get the file itself."""
+    import requests, re as _re
+    s = requests.Session()
+    url = "https://drive.usercontent.google.com/download"
+    params = {"id": file_id, "export": "download", "confirm": "t"}
+    for attempt in range(4):
+        r = s.get(url, params=params, stream=True, timeout=120)
+        if "text/html" not in r.headers.get("Content-Type", ""):
+            return r
+        page = r.text
+        fields = dict(_re.findall(r'name="([^"]+)" value="([^"]*)"', page))
+        action = _re.search(r'action="([^"]+)"', page)
+        print("Drive answered with a page; resubmitting its form", sorted(fields), flush=True)
+        if action: url = action.group(1).replace("&amp;", "&")
+        params = {**params, **fields}
+    raise RuntimeError("Google Drive did not return the file: " + page[:300])
 def build_noise():
-    import requests
     from stream_unzip import stream_unzip
-    URL = "https://drive.usercontent.google.com/download?id=1WgIKqd346BtTpU_N5lBzIFw0zPHOXNOP&export=download&confirm=t"
     want = {f"Mouse/{b}/{k}/{n}.{e}": (b, n, k) for b, d in SETUP["noise"].items() for sp in ("dev", "test") for n in d[sp] for k, e in (("images", "png"), ("labels", "txt"))}
     got = {}
     def chunks():
-        with requests.get(URL, stream=True, timeout=120) as r:
+        with drive_stream("1WgIKqd346BtTpU_N5lBzIFw0zPHOXNOP") as r:
             for c in r.iter_content(1 << 20): yield c
     for name, _, data in stream_unzip(chunks()):
         name = name.decode()

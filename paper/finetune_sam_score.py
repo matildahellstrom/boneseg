@@ -2,7 +2,7 @@
 
 preds.zip holds <dataset>/<method>__<prompt>[_d<draw>|_full]/<image>.png. Writes paper/results/finetune_sam.csv
 (one row per dataset, image, method, prompt, prompt draw and few-shot draw; Dice, NSD, area bias).
-Usage: kaggle kernels output matildahellstrom/boneseg-sam-finetune-a -p ft_a   (and -b)
+Usage: kaggle kernels output matildahellstrom/boneseg-sam-fine-tuning-a-bone-plasma-cells -p ft_a   (and kernel B)
        python paper/finetune_sam_score.py ft_a/preds.zip ft_b/preds.zip
 """
 from __future__ import annotations
