@@ -59,6 +59,7 @@ def router(ctx: AppContext) -> APIRouter:
             "threshold": res.threshold,
             "raw_threshold": res.raw_threshold,
             "threshold_source": res.threshold_source,
+            "missed": res.extra.get("missed", []),   # Bone-like regions with no click that the mask leaves out
             "stats": quantify.summarize_mask(res.mask, img, ds.volume.pixel_um, roi),
             "timing": {"embed_s": round(t_embed, 3), "total_s": 0.0},
         }

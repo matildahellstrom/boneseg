@@ -497,3 +497,14 @@ def test_train_refiner_cli(tmp_path):
           "--settings", '{"backbone": "classic", "vit_size": 252}'])
     ref = Refiner.load(out)
     assert ref.info["files"] == ["s.tif"] and ref.info["examples"] == 12 and ref.info["settings"]["backbone"] == "classic"
+
+
+def test_missed_candidates_find_an_unclicked_piece():
+    raw = np.zeros((200, 200), np.float32)
+    raw[20:60, 20:60] = 3.0      # Clicked and in the mask
+    raw[120:150, 120:150] = 1.5  # Bone-like, below the threshold, no click
+    mask = raw >= 2.0
+    c = segment.missed_candidates(raw, mask, 2.0, [(40, 40)], [(100, 10), (190, 190)])
+    assert len(c) == 1 and 120 <= c[0]["point"][0] < 150 and 120 <= c[0]["point"][1] < 150
+    # A background click on it removes it from the suggestions
+    assert segment.missed_candidates(raw, mask, 2.0, [(40, 40)], [(100, 10), (135, 135)]) == []

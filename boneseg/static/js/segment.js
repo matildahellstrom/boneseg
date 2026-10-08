@@ -67,6 +67,16 @@ function showResults(out) {
   if (ev) $("evalBox").innerHTML = `<b>Against ${ev.against === "your saved label" ? "your saved label" : "the reference mask"}</b><br>Dice ${ev.dice.toFixed(3)} · IoU ${ev.iou.toFixed(3)} · HD95 ${fmt(ev.hd95_um)} µm`
     + `<br><span class="small">Extra ${fmt(ev.false_positive_um2)} µm² · missed ${fmt(ev.false_negative_um2)} µm² · <a href="#" id="errLink">show errors</a></span>`;
   if (ev) $("errLink").onclick = (e) => { e.preventDefault(); $("showErr").checked = !$("showErr").checked; draw(); };
+  // Bone-like regions left out of the mask with no click on them: small separate pieces are found only when clicked
+  const missed = out.missed || [];
+  $("missedBox").classList.toggle("hidden", !missed.length);
+  if (missed.length) {
+    const top = missed[0];
+    $("missedBox").innerHTML = `<b>${missed.length} region${missed.length > 1 ? "s" : ""}</b> look${missed.length > 1 ? "" : "s"} like the structure but ${missed.length > 1 ? "are" : "is"} not in the mask (purple rings). Is the one marked 1 part of it?
+       <div class="row" style="margin-top:6px"><button class="ghost" id="missPos"><span class="dot pos"></span> Yes, add it</button><button class="ghost" id="missNeg"><span class="dot neg"></span> No, background</button></div>`;
+    $("missPos").onclick = () => addPoint("pos", top.point[0], top.point[1]);
+    $("missNeg").onclick = () => addPoint("neg", top.point[0], top.point[1]);
+  }
   const sug = out.suggestion;
   $("suggestionBox").classList.toggle("hidden", !(out.uncertainty_png));
   if (out.uncertainty_png) {
@@ -115,6 +125,7 @@ function showMultiResults(out) {
     <div class="v">${(100 * st.area_fraction).toFixed(1)}%</div><div class="k">${st.n_objects} objects · ${fmt(st.area_um2)} µm²</div></div>`).join("");
   $("evalBox").classList.add("hidden");
   $("suggestionBox").classList.add("hidden");
+  $("missedBox").classList.add("hidden");
   $("labelsExport").classList.remove("hidden");
   $("editBtn").classList.remove("hidden");
   $("saveLabelBtn").classList.remove("hidden");

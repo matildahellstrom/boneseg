@@ -109,6 +109,19 @@ function draw() {
     ctx.beginPath(); ctx.moveTo(ox, sy); ctx.lineTo(ox + w, sy); ctx.stroke();
     ctx.restore();
   }
+  (S.result?.missed || []).forEach((m, i) => {
+    const [mx, my] = toScreen(m.point);
+    ctx.setLineDash([4, 3]);
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = "#c78bff";
+    ctx.beginPath();
+    ctx.arc(mx, my, 12, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = "#c78bff";
+    ctx.font = "bold 12px system-ui";
+    ctx.fillText(String(i + 1), mx + 14, my - 10);
+  });
   const sug = S.result?.suggestion;
   if (sug && $("uncToggle").checked) {
     const [sx, sy] = toScreen(sug);
