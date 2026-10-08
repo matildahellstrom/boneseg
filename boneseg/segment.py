@@ -39,6 +39,8 @@ class SegmentationSettings:
     guided_eps: float = 0.01         # Guided-filter edge sensitivity: smaller follows weaker edges
     shift_passes: int = 2            # Feature extraction at n x n sub-patch shifts, giving an n times finer feature grid
     refiner: str = ""                # Learned full-resolution refiner after the click threshold: "", "bundled" or a file path
+    suggest_missed: bool = False     # Point out bone-like regions with no click; off, since on the Liu test slices clicks
+                                     # guided this way did worse than random extra clicks (paper/results/guided_clicks_summary.md)
     clip_low: float = 1.0
     clip_high: float = 99.5
 
@@ -370,7 +372,7 @@ def segment_with_prototypes(emb: Embedding, pos: torch.Tensor, neg: torch.Tensor
     mask = postprocess(mask, settings, pixel_um)
     res = SegmentationResult(heat=heat, mask=mask, threshold=float(thr), raw_threshold=float(raw_threshold),
                              raw_score_range=(lo, hi), threshold_source=source)
-    if pos_points is not None and len(pos_points):
+    if settings.suggest_missed and pos_points is not None and len(pos_points):
         res.extra["missed"] = missed_candidates(raw, mask, float(raw_threshold), pos_points, neg_points)
     return res
 
