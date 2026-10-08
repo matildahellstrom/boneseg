@@ -294,7 +294,8 @@ def main():
         d.mkdir(exist_ok=True)
         (d / "notebook.ipynb").write_text(json.dumps(notebook([write_setup, COMMON, body]), indent=1))
         (d / "kernel-metadata.json").write_text(json.dumps({
-            "id": "matildahellstrom/" + re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-"), "title": title,   # Kaggle names a notebook after its title "code_file": "notebook.ipynb", "language": "python",
+            "id": "matildahellstrom/" + re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-"),   # Kaggle names a notebook after its title
+            "title": title, "code_file": "notebook.ipynb", "language": "python",
             "kernel_type": "notebook", "is_private": "true", "enable_gpu": "true", "enable_tpu": "false", "enable_internet": "true",
             "machine_shape": "NvidiaTeslaT4", "dataset_sources": sources, "competition_sources": [], "kernel_sources": [], "model_sources": []}, indent=2))
         print("wrote", d)
