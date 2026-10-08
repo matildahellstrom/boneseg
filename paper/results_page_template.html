@@ -83,6 +83,11 @@ figcaption .dv { font: 600 15px/1 var(--mono); color: var(--accent) }
 .crops { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 8px }
 .crops figure img { aspect-ratio: 1; object-fit: cover; background: var(--panel) }
 .crops figcaption { font-size: 12px }
+.vwrap { position: relative; width: 100%; max-width: 760px; margin: 0 auto }
+.vwrap img { display: block; width: 100%; border-radius: 4px }
+.vwrap .top { position: absolute; inset: 0; clip-path: inset(0 0 0 var(--cut, 50%)) }
+.vwrap .bar { position: absolute; top: 0; bottom: 0; left: var(--cut, 50%); width: 2px; background: #fff; box-shadow: 0 0 4px #000 }
+input[type=range] { width: 100%; accent-color: var(--accent) }
 .facts { display: flex; flex-wrap: wrap; gap: 8px }
 @media (prefers-reduced-motion: no-preference) { svg .bar { transition: width .25s ease } }
 </style>
@@ -124,6 +129,28 @@ figcaption .dv { font: 600 15px/1 var(--mono); color: var(--accent) }
     <div class="key"><span><i style="background:#28d2cd"></i>Both boneseg and the expert</span><span><i style="background:#ffaa1e"></i>boneseg only (extra)</span><span><i style="background:#eb3c8c"></i>Expert only (missed)</span><span><i style="background:#fff;border:1px solid var(--line)"></i>Expert outline</span><span><i style="background:#3cff5a"></i>Bone click</span><span><i style="background:#ff3c3c"></i>Background click</span></div>
     <div class="cases" id="cases"></div>
     <p class="note" id="caseNote"></p>
+  </div>
+</section>
+
+<section id="curve">
+  <h2>Dice against the number of clicks</h2>
+  <p>Every test slice of the five Liu samples, with careful clicks from 1 + 2 to 50 + 50 (two click sets each). boneseg uses the app's default settings, SAM and micro-SAM the clicks as point prompts.</p>
+  <div class="panel">
+    <div id="curveChart"></div>
+    <div class="legend" id="curveLegend"></div>
+    <p class="note">boneseg is ahead with few clicks, level with SAM from 10 + 10, and neither improves beyond 25 + 25. Combining them is better than either: keeping only the pixels both call bone reached 0.784 with 25 + 25 clicks (boneseg 0.755, SAM 0.757; gain +0.029, 95% CI +0.013 to +0.047) with almost no bone-area bias (−0.3 points).</p>
+  </div>
+</section>
+
+<section id="viewer">
+  <h2>Side by side</h2>
+  <p>The median and worst test slice of each sample. Drag the slider to compare the image with a method's mask; the pink line is the expert's outline. boneseg and SAM got the same 25 + 25 clicks; the learned model was trained on 5 labelled slices of the same sample.</p>
+  <div class="panel">
+    <div class="controls"><span class="lab">Slice</span><div class="seg" id="vSlice"></div></div>
+    <div class="controls"><span class="lab">Method</span><div class="seg" id="vMethod"><button data-v="expert" aria-pressed="false">Expert</button><button data-v="boneseg" aria-pressed="true">boneseg</button><button data-v="sam" aria-pressed="false">SAM</button><button data-v="learned" aria-pressed="false">Learned model</button></div></div>
+    <div class="vwrap" id="vWrap"><img id="vBase" alt="The slice"><img id="vTop" class="top" alt="The selected method's mask over the slice"><div class="bar"></div></div>
+    <input type="range" id="vCut" min="0" max="100" value="50" aria-label="Compare image and mask">
+    <div class="facts" id="vFacts"></div>
   </div>
 </section>
 
@@ -554,7 +581,39 @@ document.getElementById("stackImg").src = IMAGES["stack3d_profiles.png"];
   document.getElementById("stackTable").innerHTML = `<thead><tr><th>Sample</th><th>Method</th>${keys.map((k) => `<th>${k[1]}</th>`).join("")}</tr></thead><tbody>` +
     rows.map((r) => `<tr class="${r.method === "expert" ? "hl" : ""}"><td>${esc(r.sample)}</td><td>${esc(M3[r.method])}</td>${keys.map(([k, , dp]) => `<td class="num">${r[k] == null || r[k] === "" || isNaN(r[k]) ? "–" : (+r[k]).toFixed(dp)}</td>`).join("")}</tr>`).join("") + "</tbody>";
 })();
-drawSegpc(); drawNoise(); drawNoiseStatic(); document.getElementById("cvGrid").src = IMAGES["clicks_grid_C.jpg"];
+drawSegpc(); drawNoise(); drawNoiseStatic(); (function () {
+  const methods = [["boneseg", "boneseg", "--accent"], ["sam", "SAM ViT-B", "--amber"], ["microsam", "micro-SAM ViT-B LM", "--violet"], ["rf_clicks", "Random forest", "--earth"]];
+  const budgets = [...new Set(DATA.curve.map((r) => r.p + "+" + r.n))].sort((a, b) => +a.split("+")[0] - +b.split("+")[0]);
+  const W = 760, H = 300, L = 46, R = 20, T = 12, B = 40;
+  const X = (i) => L + i / (budgets.length - 1) * (W - L - R), Y = (v) => T + (1 - v / 0.8) * (H - T - B);
+  let s = `<svg viewBox="0 0 ${W} ${H}" role="img">`;
+  for (let v = 0; v <= 0.8001; v += 0.2) s += `<line class="gridl" x1="${L}" x2="${W - R}" y1="${Y(v)}" y2="${Y(v)}"/><text class="tick" x="${L - 8}" y="${Y(v) + 4}" text-anchor="end">${v.toFixed(1)}</text>`;
+  budgets.forEach((b, i) => { s += `<text class="tick" x="${X(i)}" y="${H - 18}" text-anchor="middle">${b.replace("+", " + ")}</text>`; });
+  s += `<text class="tick" x="${(L + W - R) / 2}" y="${H - 2}" text-anchor="middle">object + background clicks</text>`;
+  methods.forEach(([m, , c]) => {
+    const pts = budgets.map((b, i) => { const r = DATA.curve.find((q) => q.m === m && q.p + "+" + q.n === b); return [X(i), Y(r.d), r.d]; });
+    s += `<polyline fill="none" stroke="var(${c})" stroke-width="${m === "boneseg" ? 3 : 2}" points="${pts.map((p) => p[0] + "," + p[1]).join(" ")}"/>`;
+    pts.forEach((p) => { s += `<circle cx="${p[0]}" cy="${p[1]}" r="${m === "boneseg" ? 4.5 : 3.5}" fill="var(${c})" stroke="var(--panel)" stroke-width="1.5"><title>${p[2].toFixed(3)}</title></circle>`; });
+  });
+  document.getElementById("curveChart").innerHTML = s + "</svg>";
+  document.getElementById("curveLegend").innerHTML = methods.map(([, n, c]) => `<span><i style="background:var(${c})"></i>${n}</span>`).join("");
+})();
+(function () {
+  const V = DATA.viewer;
+  document.getElementById("vSlice").innerHTML = V.map((v, i) => `<button data-v="${i}" aria-pressed="${i === 0}">${v.sample} ${v.kind}</button>`).join("");
+  const sliceSel = seg("vSlice", draw), methodSel = seg("vMethod", draw);
+  const wrap = document.getElementById("vWrap");
+  document.getElementById("vCut").addEventListener("input", (e) => wrap.style.setProperty("--cut", e.target.value + "%"));
+  function draw() {
+    const v = V[+sliceSel()], m = methodSel();
+    document.getElementById("vBase").src = IMAGES[`viewer_${v.tag}_image.jpg`];
+    document.getElementById("vTop").src = IMAGES[`viewer_${v.tag}_${m}.jpg`];
+    document.getElementById("vFacts").innerHTML = [`Sample ${v.sample}, slice ${v.z}`, `boneseg Dice ${v.dice.boneseg.toFixed(3)}`, `SAM Dice ${v.dice.sam.toFixed(3)}`, `Learned model Dice ${v.dice.learned.toFixed(3)}`]
+      .map((x) => `<span class="chip">${esc(x)}</span>`).join("");
+  }
+  draw();
+})();
+document.getElementById("cvGrid").src = IMAGES["clicks_grid_C.jpg"];
 document.getElementById("cvAgreeC").src = IMAGES["clicks_agree_C.jpg"];
 document.getElementById("cvAgreeE").src = IMAGES["clicks_agree_E.jpg"];
 (function () {
