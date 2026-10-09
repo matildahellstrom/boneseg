@@ -5,7 +5,7 @@ import numpy as np
 from fastapi import HTTPException
 
 from ..backbone import BACKBONE_LABELS
-from ..head import Head, head_from_profile, segment_with_head
+from ..head import Head, head_from_profile, head_input, segment_with_head
 from ..segment import SegmentationSettings, prototypes, segment_with_prototypes
 from ..store import Store
 from .models import MaskSpec
@@ -89,6 +89,11 @@ class AppContext:
                              f"{head.vit_size} px, block {head.layer_from_end} from the end. Switch back or retrain it")
         return head
 
+    def head_embedding(self, ds_id: str, c: int, z: int, settings: SegmentationSettings, head: Head):
+        """The embedding the learned model expects for slice z, with its neighbours' features for a z-context model.
+        Call with compute_lock held."""
+        return head_input(head, lambda zz: self.store.embedding(ds_id, c, zz, settings), z, self.store.get(ds_id).volume.n_z)
+
     def last_result(self, ds_id, c, z):
         res = self.store.get(ds_id).results.get((c, z))
         if res is None:
@@ -124,13 +129,14 @@ class AppContext:
         with self.store.compute_lock:
             emb = self.store.embedding(ds_id, spec.channel, z, settings)
             if spec.source == "learned":
-                return segment_with_head(self.load_head(ds_id, spec.channel, settings), emb, settings, ds.volume.pixel_um).mask
+                h = self.load_head(ds_id, spec.channel, settings)
+                return segment_with_head(h, self.head_embedding(ds_id, spec.channel, z, settings, h), settings, ds.volume.pixel_um).mask
             if spec.source == "profile":
                 if not spec.profile_id:
                     raise ValueError("Pick a profile")
                 ph = self.learned_profile_head(spec.profile_id, settings)
                 if ph is not None:
-                    return segment_with_head(ph, emb, settings, ds.volume.pixel_um).mask
+                    return segment_with_head(ph, self.head_embedding(ds_id, spec.channel, z, settings, ph), settings, ds.volume.pixel_um).mask
                 pos, neg, thr = self.prototypes_for(ds_id, spec.channel, z, [], [], spec.profile_id, settings)
                 return segment_with_prototypes(emb, pos, neg, settings, ds.volume.pixel_um, raw_threshold=thr).mask
         raise ValueError(f"Unknown mask source {spec.source}")

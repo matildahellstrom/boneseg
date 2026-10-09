@@ -1,8 +1,9 @@
 """boneseg's few-shot arms on exactly the folds, few-shot images and prompts of the fine-tuned-SAM kernels
 (paper/kaggle_finetune_sam/setup.json), for the comparison with Gu et al. (2025):
 
-  learned            boneseg's learned model from the 5 labelled images (no prompt)
+  learned            boneseg's learned model from the 5 labelled images (no prompt; calibrated threshold)
   ftlayer            DINOv2 fine-tuned on the 5 images (5 more for early stopping), its own output layer (no prompt)
+  ftlearned          the learned model on the fine-tuned DINOv2's features (both from the same 5 images)
   ftclicks           clicks on the fine-tuned DINOv2 with the paper-style prompts: object + background points,
                      and box mode (as boneseg in sam_zeroshot.py)
 Folds: Liu, each held-out sample with its first 5 development slices; NOISe, each held-out batch with its first 5
@@ -75,11 +76,13 @@ def main():
         ft.save(path)
         net = build(ft, dino=copy.deepcopy(dino), device=device)
         bb_ft = get_backbone(f"dinov2_s14@{path}")
+        head_ft = train_head([(embed_image(bb_ft, img, st), g) for img, g in train], st, [(0, i) for i in range(len(train))])
         for key, img, gt, px, tol in test:
             emb = embed_image(bb, img, st)
             add(ds, draw, key, "boneseg_learned", "none", 0, segment_with_head(head, emb, st, px).mask, gt, px, tol)
             add(ds, draw, key, "boneseg_ftlayer", "none", 0, predict(net, prepare(img, gt, 980), device) >= 0.5, gt, px, tol)
             emb_ft = embed_image(bb_ft, img, st)
+            add(ds, draw, key, "boneseg_ftlearned", "none", 0, segment_with_head(head_ft, emb_ft, st, px).mask, gt, px, tol)
             for seed, p in enumerate(SETUP["prompts"][key]):
                 add(ds, draw, key, "boneseg_ftclicks", "points_bg", seed, segment(emb_ft, p["points"], p["background"], st, px).mask, gt, px, tol)
                 add(ds, draw, key, "boneseg_ftclicks", "boxes", seed, Z.boneseg_boxes(emb_ft, p["boxes"], p["box_background"], st, px), gt, px, tol)
