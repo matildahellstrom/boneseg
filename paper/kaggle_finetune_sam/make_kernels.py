@@ -309,7 +309,8 @@ def main():
     write_setup = f"open('/tmp/setup.json', 'w').write(r'''{setup}''')"
     for name, body, sources, title in (("kernel_a", KERNEL_A, ["matildahellstrom/liudata", "sbilab/segpc2021dataset"], "boneseg SAM fine-tuning A (bone, plasma cells)"),
                                        ("kernel_smoke", KERNEL_SMOKE, ["matildahellstrom/liudata"], "boneseg SAM fine-tuning smoke test"),
-                                       ("kernel_b", KERNEL_B, ["matildahellstrom/liudata", "sbilab/segpc2021dataset"], "boneseg SAM fine-tuning B (osteoclasts, full SegPC, ViT-H)")):
+                                       ("kernel_b", KERNEL_B, ["matildahellstrom/liudata", "sbilab/segpc2021dataset"], "boneseg SAM fine-tuning B (osteoclasts, ViT-H)")):
+        assert len(title) <= 50, f"Kaggle refuses titles over 50 characters (400 Bad Request): {title}"
         d = HERE / name
         d.mkdir(exist_ok=True)
         (d / "notebook.ipynb").write_text(json.dumps(notebook([write_setup, COMMON, body]), indent=1))
