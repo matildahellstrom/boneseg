@@ -126,13 +126,24 @@ def build_noise():
     log(f"NOISe: {sum(1 for k in got if k[2] == 'images')} patches")
 CONFIGS = {
     "b_ende_adapter": ("vit_b", "sam_vit_b_01ec64.pth", "adapter", "noprompt", "-if_update_encoder True -if_encoder_adapter True -if_mask_decoder_adapter True"),
+    "t_ende_adapter_box": ("vit_t", "mobile_sam.pt", "adapter", "box", "-if_update_encoder True -if_encoder_adapter True -if_mask_decoder_adapter True"),
     "b_dec_adapter": ("vit_b", "sam_vit_b_01ec64.pth", "adapter", "noprompt", "-if_mask_decoder_adapter True"),
     "b_ende_lora": ("vit_b", "sam_vit_b_01ec64.pth", "lora", "noprompt", "-if_update_encoder True -if_encoder_lora_layer True -if_decoder_lora_layer True"),
-    "t_ende_adapter_box": ("vit_t", "mobile_sam.pt", "adapter", "box", "-if_update_encoder True -if_encoder_adapter True -if_mask_decoder_adapter True"),
 }
 # Batch size: the paper's 2, except where updating the ViT-B encoder at batch 2 needs more than the T4's 15 GB
 # (the smoke test ran out of memory in the backward pass); gradients are then averaged over single images
 BATCH = {"b_ende_adapter": 1, "b_ende_lora": 1}
+# Kaggle stops a session at 12 hours and keeps only what is in /kaggle/working. No new training starts after
+# BUDGET_S, and the predictions zip is rewritten after every run, so a cut-off session keeps everything done so far.
+BUDGET_S = 11 * 3600
+SKIPPED = []
+def time_up(what):
+    if time.time() - T0 < BUDGET_S: return False
+    SKIPPED.append(what); log(f"  time budget reached, skipping {what}")
+    (OUT / "skipped.json").write_text(json.dumps(SKIPPED))
+    return True
+def save_zip():
+    if (OUT / "preds").exists(): shutil.make_archive(str(OUT / "preds"), "zip", OUT / "preds")
 def write_list(path, ds, stems):
     path.write_text("\n".join(f"{ds}/images/{s}.png,{ds}/masks/{s}.png" for s in stems))
 def train(tag, cfg, ds, train_stems, val_stems, epochs=200):
@@ -210,37 +221,29 @@ def predict_fold(run, cfg, ds, key_prefix, test_stems):
 KERNEL_A = r'''
 build_liu()
 build_segpc(SETUP["segpc"]["val"] + sorted({n for d in SETUP["segpc"]["draws"] for k in ("train", "val") for n in d[k]}))
-for s, info in SETUP["liu"].items():
-    stems = lambda zs: [f"{s}_{z}" for z in zs]
-    for cfg in CONFIGS:
+# One configuration at a time over every fold, the paper's recommended recipes first, so a time cut drops whole
+# lesser configurations rather than the last folds of all of them
+for cfg in CONFIGS:
+    for s, info in SETUP["liu"].items():
+        stems = lambda zs: [f"{s}_{z}" for z in zs]
+        if time_up(f"liu_{s} {cfg}"): continue
         run = train(f"liu_{s}", cfg, "liu", stems(info["dev"][:5]), stems(info["dev"][5:]))
-        if run: predict_fold(run, cfg, "liu", "liu", stems(info["test"]))
-for i, d in enumerate(SETUP["segpc"]["draws"]):
-    for cfg in CONFIGS:
+        if run: predict_fold(run, cfg, "liu", "liu", stems(info["test"])); save_zip()
+    for i, d in enumerate(SETUP["segpc"]["draws"]):
+        if time_up(f"segpc_d{i} {cfg}"): continue
         run = train(f"segpc_d{i}", cfg, "segpc", d["train"], d["val"])
         if run:
             predict_fold(run, cfg, "segpc", "segpc", SETUP["segpc"]["val"])
-            tag_new("segpc", f"_d{i}")
-shutil.make_archive(str(OUT / "preds"), "zip", OUT / "preds")
-log("kernel A done")
+            tag_new("segpc", f"_d{i}"); save_zip()
+save_zip()
+log(f"kernel A done; skipped {SKIPPED}")
 '''
 
 KERNEL_B = r'''
 build_noise()
 build_segpc(SETUP["segpc"]["val"] + SETUP["segpc"]["train_all"])
 build_liu()
-for b, d in SETUP["noise"].items():
-    stems = lambda ns: [f"{b}_{n}" for n in ns]
-    for cfg in CONFIGS:
-        run = train(f"noise_{b}", cfg, "noise", stems(d["dev"][:5]), stems(d["dev"][5:10]))
-        if run: predict_fold(run, cfg, "noise", "noise", stems(d["test"]))
-# SegPC with all training images (20 held back for early stopping), the paper's few-shot recipe configuration
-tr = SETUP["segpc"]["train_all"]
-run = train("segpc_full", "b_ende_adapter", "segpc", tr[20:], tr[:20], epochs=40)
-if run:
-    predict_fold(run, "b_ende_adapter", "segpc", "segpc", SETUP["segpc"]["val"])
-    tag_new("segpc", "_full")
-# Zero-shot SAM ViT-H with the paper-style prompts
+# Zero-shot SAM ViT-H with the paper-style prompts, first: inference only, and it should not be cut by the time budget
 import torch
 from segment_anything import SamPredictor, sam_model_registry
 if not (W / "sam_vit_h.pth").exists(): sh(f"curl -sL -o {W / 'sam_vit_h.pth'} https://dl.fbaipublicfiles.com/segment_anything/sam_vit_h_4b8939.pth")
@@ -260,9 +263,22 @@ for key, draws in SETUP["prompts"].items():
         for bx in p["boxes"]:
             m |= pred.predict(box=np.array(bx, np.float32), multimask_output=False)[0][0]
         save_pred(ds, "samh", f"boxes_s{seed}", stem, m)
+del pred; torch.cuda.empty_cache(); save_zip()   # Free the GPU for the training subprocesses
 log("ViT-H zero-shot done")
-shutil.make_archive(str(OUT / "preds"), "zip", OUT / "preds")
-log("kernel B done")
+# SegPC with all training images (20 held back for early stopping), the paper's few-shot recipe configuration
+tr = SETUP["segpc"]["train_all"]
+run = None if time_up("segpc_full b_ende_adapter") else train("segpc_full", "b_ende_adapter", "segpc", tr[20:], tr[:20], epochs=40)
+if run:
+    predict_fold(run, "b_ende_adapter", "segpc", "segpc", SETUP["segpc"]["val"])
+    tag_new("segpc", "_full"); save_zip()
+for cfg in CONFIGS:
+    for b, d in SETUP["noise"].items():
+        stems = lambda ns: [f"{b}_{n}" for n in ns]
+        if time_up(f"noise_{b} {cfg}"): continue
+        run = train(f"noise_{b}", cfg, "noise", stems(d["dev"][:5]), stems(d["dev"][5:10]))
+        if run: predict_fold(run, cfg, "noise", "noise", stems(d["test"])); save_zip()
+save_zip()
+log(f"kernel B done; skipped {SKIPPED}")
 '''
 
 
