@@ -80,7 +80,7 @@ def router(ctx: AppContext) -> APIRouter:
                     return run_stack(StackRequest(z_list=zs, ref_z=None), pos, neg, settings, prof.raw_threshold, get_embedding=emb,
                                      get_image=img, get_reference=lambda z: store.reference_mask(did, z, c), voxel_um=ds.volume.voxel_um,
                                      out_dir=out_dir, progress=prog, cancelled=job.cancel.is_set, lock=store.compute_lock, head=head,
-                                     roi=store.roi_mask(did))
+                                     roi=store.roi_mask(did), n_z=ds.volume.n_z)
 
                 child = store.record_job("stack", {"dataset_id": did, "channel": c, "method": "profile", "profile": prof.name,
                                                    "batch": job.id, "n_slices": len(zs)}, run)

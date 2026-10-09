@@ -13,7 +13,7 @@ import tifffile
 import torch
 
 from . import metrics, quantify
-from .head import segment_with_head
+from .head import head_input, segment_with_head
 from .segment import Embedding, SegmentationSettings, segment_with_prototypes
 
 
@@ -44,27 +44,30 @@ def run_stack(req: StackRequest, pos: torch.Tensor, neg: torch.Tensor, settings:
               get_embedding: Callable[[int], Embedding], get_image: Callable[[int], np.ndarray],
               get_reference: Callable[[int], np.ndarray | None], voxel_um, out_dir: Path,
               progress: Callable[[float, str], None] = lambda p, m: None, cancelled: Callable[[], bool] = lambda: False,
-              lock=None, head=None, roi: np.ndarray | None = None, read_ahead: Callable[[int], object] | None = None) -> dict:
-    """Segments every slice in req.z_list. Writes a mask stack, per-slice stats and a summary to out_dir."""
+              lock=None, head=None, roi: np.ndarray | None = None, read_ahead: Callable[[int], object] | None = None,
+              n_z: int | None = None) -> dict:
+    """Segments every slice in req.z_list. Writes a mask stack, per-slice stats and a summary to out_dir. A learned
+    model with z context also gets the features of its neighbouring slices (n_z is the stack's depth)."""
     out_dir = Path(out_dir)
     pixel_um = (voxel_um[1], voxel_um[2])
     order = processing_order(req.z_list, req.ref_z)
     masks: dict[int, np.ndarray] = {}
     rows = []
     ahead = _ReadAhead(read_ahead)
+    n_z = n_z or max(req.z_list, default=0) + 1
+    embed_at = _recent(get_embedding, 2 * getattr(head, "z_context", 0) + 3)
     for i, z in enumerate(order):
         if cancelled():
             break
         progress(i / max(1, len(order)), f"Slice {z} ({i + 1}/{len(order)})")
         ahead.next(order[i + 1] if i + 1 < len(order) else None)
         with (lock or contextlib.nullcontext()):
-            emb = get_embedding(z)
             # Scores are standardized per slice (score_norm), so the threshold calibrated on the
             # annotated slice stays meaningful when contrast fades with depth
             if head is not None:
-                res = segment_with_head(head, emb, settings, pixel_um)
+                res = segment_with_head(head, head_input(head, embed_at, z, n_z), settings, pixel_um)
             else:
-                res = segment_with_prototypes(emb, pos, neg, settings, pixel_um, raw_threshold=raw_threshold)
+                res = segment_with_prototypes(embed_at(z), pos, neg, settings, pixel_um, raw_threshold=raw_threshold)
             masks[z] = res.mask & roi if roi is not None else res.mask
         img = get_image(z)
         row = {"z": z, "z_um": z * voxel_um[0], "threshold": res.threshold, **quantify.summarize_mask(masks[z], img, pixel_um, roi)}
@@ -103,6 +106,23 @@ def run_stack(req: StackRequest, pos: torch.Tensor, neg: torch.Tensor, settings:
     summary["z_processed"] = zs
     (out_dir / "summary.json").write_text(json.dumps(summary, indent=1))
     return {"summary": summary, "slices": json.loads(df.to_json(orient="records")) if len(df) else []}
+
+
+def _recent(fn: Callable[[int], Embedding], size: int) -> Callable[[int], Embedding]:
+    """fn with its last few results kept, so a z-context model does not recompute its neighbours' features."""
+    from collections import OrderedDict
+
+    cache: OrderedDict = OrderedDict()
+
+    def get(z):
+        if z in cache:
+            cache.move_to_end(z)
+        else:
+            cache[z] = fn(z)
+            if len(cache) > size:
+                cache.popitem(last=False)
+        return cache[z]
+    return get
 
 
 class _ReadAhead:

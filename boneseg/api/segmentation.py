@@ -33,7 +33,7 @@ def router(ctx: AppContext) -> APIRouter:
                 head = profile_head or ctx.load_head(ds_id, req.channel, settings)
                 if head.names:
                     raise ValueError("This learned model predicts several structures; add the structures to use it")
-                emb = store.embedding(ds_id, req.channel, req.z, settings)
+                emb = ctx.head_embedding(ds_id, req.channel, req.z, settings, head)
                 t_embed = time.time() - t0
                 res = segment_with_head(head, emb, settings, ds.volume.pixel_um)
                 # Uncertain where the probability is near one half
@@ -272,7 +272,7 @@ def router(ctx: AppContext) -> APIRouter:
                 get_reference=lambda z: store.reference_mask(ds_id, z, c),
                 voxel_um=ds.volume.voxel_um, out_dir=job.out_dir,
                 progress=lambda p, m: (setattr(job, "progress", p), setattr(job, "message", m)),
-                cancelled=job.cancel.is_set,
+                cancelled=job.cancel.is_set, n_z=ds.volume.n_z,
                 read_ahead=lambda z: store.plane(ds_id, c, z, settings.clip_low, settings.clip_high),
             )
 

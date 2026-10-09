@@ -9,7 +9,7 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import Response
 
 from .. import render
-from ..head import Head, head_to_profile_dict, train_head
+from ..head import Head, head_to_profile_dict, train_head, z_context_slices
 from ..segment import Profile, SegmentationSettings
 from .context import AppContext
 from .models import AnnotationRequest, FinetuneRequest, HeadRequest, LabelRequest, ProfileFromHeadRequest, ReferenceLabelRequest
@@ -115,8 +115,13 @@ def router(ctx: AppContext) -> APIRouter:
                 samples = [(store.embedding(ds_id, req.channel, l["z"], settings), store.load_label_map(ds_id, req.channel, l["z"])) for l in labels]
                 head = train_head_multi(samples, names, settings, [(req.channel, l["z"]) for l in labels], pixel_um=store.get(ds_id).volume.pixel_um)
             else:
-                samples = [(store.embedding(ds_id, req.channel, l["z"], settings), store.load_label(ds_id, req.channel, l["z"])) for l in labels]
-                head = train_head(samples, settings, [(req.channel, l["z"]) for l in labels], kind=req.kind, pixel_um=store.get(ds_id).volume.pixel_um)
+                # In a stack, the model also sees the features of the slices about 4 um below and above
+                vol = store.get(ds_id).volume
+                d = z_context_slices(vol.voxel_um[0], vol.n_z)
+                probe = Head(settings.backbone, settings.layer_from_end, settings.vit_size, "linear", {}, 0, z_context=d)
+                samples = [(ctx.head_embedding(ds_id, req.channel, l["z"], settings, probe), store.load_label(ds_id, req.channel, l["z"])) for l in labels]
+                head = train_head(samples, settings, [(req.channel, l["z"]) for l in labels], kind=req.kind, pixel_um=vol.pixel_um)
+                head.z_context = d
         head.save(store.head_path(ds_id, req.channel))
         out = {**head.info(), "seconds": round(time.time() - t0, 2)}
         ds = store.get(ds_id)
@@ -135,7 +140,7 @@ def router(ctx: AppContext) -> APIRouter:
                     ref = store.reference_mask(ds_id, z, req.channel)
                     if ref is None or not ref.any():
                         continue
-                    res = segment_with_head(head, store.embedding(ds_id, req.channel, z, settings), settings, ds.volume.pixel_um)
+                    res = segment_with_head(head, ctx.head_embedding(ds_id, req.channel, z, settings, head), settings, ds.volume.pixel_um)
                     scores.append(dice(res.mask, ref))
             if scores:
                 out["reference_check"] = {"mean_dice": float(np.mean(scores)), "n_slices": len(scores)}

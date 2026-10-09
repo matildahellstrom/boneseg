@@ -44,6 +44,27 @@ def with_z_context(emb: Embedding, below: Embedding, above: Embedding) -> Embedd
     return replace(emb, grid=torch.cat([emb.grid.float(), nb.to(emb.grid.device)], -1))
 
 
+Z_CONTEXT_UM = 4.0   # Neighbours this far below and above; on the five Liu stacks (2 um slices, so 2 slices) this
+                     # raised 3D Dice of the learned model on every sample (mean 0.804 -> 0.810) and brought
+                     # Tb.N and Tb.Sp within 1% of the experts' (paper/results/stack3d_summary.md)
+
+
+def z_context_slices(z_um: float, n_z: int) -> int:
+    """How many slices away the z-context neighbours sit for a stack with this slice spacing; 0 for single images."""
+    d = max(1, min(3, int(round(Z_CONTEXT_UM / z_um)))) if z_um > 0 else 1
+    return d if n_z >= 2 * d + 1 else 0
+
+
+def head_input(head: "Head", embed_at, z: int, n_z: int) -> Embedding:
+    """The embedding a head expects for slice z: its own, or with the neighbours' features for a z-context model.
+    embed_at(z) returns a slice's embedding; neighbours beyond the stack ends are clamped to the end slices."""
+    emb = embed_at(z)
+    d = getattr(head, "z_context", 0)
+    if not d:
+        return emb
+    return with_z_context(emb, embed_at(max(z - d, 0)), embed_at(min(z + d, n_z - 1)))
+
+
 def smooth_z(probs: list[np.ndarray], sigma: float) -> list[np.ndarray]:
     """Gaussian smoothing of a stack of probability maps along z (sigma in slices), before thresholding. The stack
     ends are mirrored."""
@@ -75,6 +96,7 @@ class Head:
     context: int = 1                # Models saved before context was added use their patch features only
     names: list = field(default_factory=list)  # Structure names for a model of several structures; empty for one
     threshold: float = 0.5          # Probability threshold, calibrated on held-out labelled slices (0.5 for older models)
+    z_context: int = 0              # Slices between a slice and the neighbours whose features it also sees; 0 for none
 
     @property
     def n_out(self) -> int:
@@ -105,7 +127,7 @@ class Head:
     def info(self) -> dict:
         return {"backbone": self.backbone, "layer_from_end": self.layer_from_end, "vit_size": self.vit_size,
                 "kind": self.kind, "trained_on": self.trained_on, "cv": self.cv, "context": self.context, "names": self.names,
-                "threshold": self.threshold}
+                "threshold": self.threshold, "z_context": self.z_context}
 
 
 def _make_module(kind: str, dim: int, n_out: int = 1) -> torch.nn.Module:
@@ -223,6 +245,7 @@ def train_head(samples: list[tuple[Embedding, np.ndarray]], settings: Segmentati
 
 def head_to_profile_dict(head: Head) -> dict:
     return {"kind": head.kind, "dim": head.dim, "vit_size": head.vit_size, "context": head.context, "names": head.names, "threshold": head.threshold,
+            "z_context": head.z_context,
             "state": {k: v.detach().cpu().numpy() for k, v in head.state.items()}, "cv": head.cv,
             "n_trained_on": len(head.trained_on)}
 
@@ -231,7 +254,8 @@ def head_from_profile(profile) -> Head:
     h = profile.head
     state = {k: torch.from_numpy(np.asarray(v)) for k, v in h["state"].items()}
     return Head(profile.backbone, profile.layer_from_end, h["vit_size"], h["kind"], state, h["dim"], cv=h.get("cv", {}),
-                context=int(h.get("context", 1)), names=list(h.get("names", [])), threshold=float(h.get("threshold", 0.5)))
+                context=int(h.get("context", 1)), names=list(h.get("names", [])), threshold=float(h.get("threshold", 0.5)),
+                z_context=int(h.get("z_context", 0)))
 
 
 # Several structures ----------------------------------------------------------------------------------

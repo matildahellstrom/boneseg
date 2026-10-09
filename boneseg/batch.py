@@ -101,7 +101,7 @@ def run_batch(files: list[str | Path], profile: Profile, channel: int | None, ou
                             get_embedding=lambda z: embed_image(backbone, image(z), settings), get_image=lambda z: bio.luminance(image(z)),
                             get_reference=(lambda z: vol.get_plane(reference, z) > 0) if reference is not None else (lambda z: None),
                             voxel_um=vol.voxel_um, out_dir=target,
-                            progress=lambda p, m: None, head=head)
+                            progress=lambda p, m: None, head=head, n_z=vol.n_z)
             summary = out["summary"]
             row = {"file": f.name, "channel": channel_f, "status": "ok", "seconds": round(time.time() - t0, 1), **{k: v for k, v in summary.items() if k != "z_processed"}}
             log(f"{f.name}: {summary.get('n_slices', 0)} slices, volume {summary.get('volume_um3', 0):.0f} um3, "

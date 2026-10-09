@@ -855,3 +855,35 @@ def test_finetune_job(client, monkeypatch):
     r = job["result"]
     assert r["val_dice_finetuned"] == 0.9 and 0 <= r["val_dice_frozen"] <= 1
     assert r["backbone"] in [b["id"] for b in client.get("/api/health").json()["backbones"]]
+
+
+def test_learned_model_sees_neighbouring_slices(client):
+    from boneseg.head import Head, head_input
+
+    ds, gt, centers = upload_stack(client, n_z=7)   # 2 um slices: neighbours 2 slices away (4 um)
+    did = ds["id"]
+    client.patch(f"/api/datasets/{did}", json={"reference_channel": 1})
+    client.post(f"/api/datasets/{did}/labels/from-reference", json={"channel": 0, "n": 3})
+    info = client.post(f"/api/datasets/{did}/head", json={"channel": 0, "settings": SETTINGS}).json()
+    assert info["z_context"] == 2 and 0.2 <= info["threshold"] <= 0.9
+    # One slice, an edge slice (neighbours clamped to the stack) and a whole stack
+    for z in (3, 0):
+        r = client.post(f"/api/datasets/{did}/segment", json={"method": "learned", "channel": 0, "z": z, "settings": SETTINGS})
+        assert r.status_code == 200, r.text
+    job = client.post(f"/api/datasets/{did}/stack", json={"method": "learned", "channel": 0, "settings": SETTINGS}).json()
+    for _ in range(200):
+        job = client.get(f"/api/jobs/{job['id']}").json()
+        if job["status"] in ("done", "failed"):
+            break
+        time.sleep(0.1)
+    assert job["status"] == "done", job
+    assert job["result"]["summary"]["n_slices"] == 7 and job["result"]["summary"]["mean_dice_vs_reference"] > 0.5
+    # head_input: a z-context model gets twice the features, from the clamped neighbours
+    calls = []
+    import dataclasses
+    import torch
+    from boneseg.segment import Embedding
+    embed = lambda z: (calls.append(z), Embedding(torch.nn.functional.normalize(torch.rand(2, 2, 3), dim=-1), 28, 28))[1]  # noqa: E731
+    h = Head("classic", 1, 252, "linear", {}, 6, z_context=2)
+    assert head_input(h, embed, 0, 7).grid.shape[-1] == 6 and calls == [0, 0, 2]
+    assert head_input(dataclasses.replace(h, z_context=0), embed, 5, 7).grid.shape[-1] == 3

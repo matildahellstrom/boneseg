@@ -19,7 +19,7 @@ from analyze import hier_boot  # noqa: E402
 HERE = Path(__file__).resolve().parent
 RES, FIG = HERE / "results", HERE / "figures"
 NAMES = {"boneseg": "boneseg", "sam": "SAM ViT-B", "samh": "SAM ViT-H", "microsam": "micro-SAM ViT-B LM", "mobilesam": "MobileSAM ViT-T",
-         "boneseg_learned": "boneseg learned model", "boneseg_ftlayer": "boneseg, fine-tuned DINOv2 (own output)",
+         "boneseg_learned": "boneseg learned model", "boneseg_ftlearned": "boneseg, fine-tuned DINOv2 + learned model", "boneseg_ftlayer": "boneseg, fine-tuned DINOv2 (own output)",
          "boneseg_ftclicks": "boneseg, fine-tuned DINOv2 + prompts", "samft_b_ende_adapter": "SAM ViT-B, enc+dec Adapter (paper's few-shot recipe)",
          "samft_b_dec_adapter": "SAM ViT-B, decoder Adapter", "samft_b_ende_lora": "SAM ViT-B, enc+dec LoRA",
          "samft_t_ende_adapter_box": "MobileSAM ViT-T, enc+dec Adapter, boxes (paper's interactive recipe)"}
@@ -36,7 +36,8 @@ def load():
             frames.append(d.assign(source=f.split(".")[0]))
     df = pd.concat(frames, ignore_index=True)
     df["draw"] = df["draw"].astype(str)
-    df["setting"] = np.where(df["draw"] == "full", "full data", np.where(df["source"] == "sam_zeroshot", "zero-shot", "5-shot"))
+    zero = (df["source"] == "sam_zeroshot") | (df["method"] == "samh")   # ViT-H ran zero-shot in Kaggle kernel B
+    df["setting"] = np.where(df["draw"] == "full", "full data", np.where(zero, "zero-shot", "5-shot"))
     df["sample"] = np.where(df["dataset"] == "plasma", "segpc", df["image"].str.split("_").str[0])
     return df.groupby(["dataset", "setting", "method", "prompt", "sample", "image"], as_index=False)[["dice", "nsd", "area_bias"]].mean()
 
@@ -72,6 +73,7 @@ def main():
         for samft in ("samft_b_ende_adapter", "samft_b_dec_adapter", "samft_b_ende_lora"):
             paired(("boneseg_learned", "none", "5-shot"), (samft, "none", "5-shot"), f"boneseg learned model vs {NAMES[samft]}, 5-shot, no prompt")
             paired(("boneseg_ftlayer", "none", "5-shot"), (samft, "none", "5-shot"), f"boneseg fine-tuned DINOv2 vs {NAMES[samft]}, 5-shot, no prompt")
+            paired(("boneseg_ftlearned", "none", "5-shot"), (samft, "none", "5-shot"), f"boneseg fine-tuned DINOv2 + learned model vs {NAMES[samft]}, 5-shot, no prompt")
         paired(("boneseg_ftclicks", "boxes", "5-shot"), ("samft_t_ende_adapter_box", "boxes", "5-shot"), "boneseg fine-tuned + boxes vs MobileSAM fine-tuned + boxes, 5-shot")
     pd.DataFrame(rows).to_csv(RES / "sam_compare_summary.csv", index=False)
     (RES / "sam_compare_summary.md").write_text("\n".join(lines) + "\n")

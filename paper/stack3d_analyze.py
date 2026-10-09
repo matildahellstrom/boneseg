@@ -14,7 +14,9 @@ import pandas as pd  # noqa: E402
 HERE = Path(__file__).resolve().parent
 RES, FIG = HERE / "results", HERE / "figures"
 LABELS = {"clicks": "boneseg, 25 + 25 clicks on one slice", "labels_same": "boneseg learned model, 5 slices of the sample",
-          "labels_other": "boneseg learned model, slices of other samples"}
+          "labels_same_cal": "  + calibrated threshold", "labels_same_cal_zs": "  + calibrated, smoothed along z",
+          "labels_same_zf": "  + calibrated, features of neighbouring slices", "labels_same_zf_zs": "  + calibrated, neighbouring slices, smoothed",
+          "labels_other": "boneseg learned model, slices of other samples", "labels_other_cal": "  + calibrated threshold"}
 MEAS = ["BV/TV_%", "BS/BV_per_mm", "Tb.Th_um", "Tb.N_per_mm", "Tb.Sp_um"]
 
 
@@ -30,7 +32,7 @@ def main():
         e = df[(df["sample"] == s) & (df["method"] == "expert")].iloc[0]
         lines.append(f"| {s} ({int(e['n_slices'])} slices) | expert | – | " + " | ".join(f"{e[m]:.3g}" for m in MEAS) + " | – | – |")
         g = sl[sl["sample"] == s]
-        for meth in ("clicks", "labels_same", "labels_other"):
+        for meth in LABELS:
             r = df[(df["sample"] == s) & (df["method"] == meth)]
             if r.empty:
                 continue
@@ -51,8 +53,9 @@ def main():
     for ax, s in zip(np.atleast_1d(axes), samples):
         g = sl[sl["sample"] == s]
         ax.plot(g["z"], g["area_expert"], color="k", lw=1.6, label="Expert")
-        for meth, col in (("clicks", "#008a87"), ("labels_same", "#c27c0e")):
-            ax.plot(g["z"], g[f"area_{meth}"], color=col, lw=1.1, label=LABELS[meth].replace("boneseg, ", "").replace("boneseg ", ""))
+        for meth, col in (("clicks", "#008a87"), ("labels_same", "#c27c0e"), ("labels_same_zf", "#7a4fc9")):
+            if f"area_{meth}" in g:
+                ax.plot(g["z"], g[f"area_{meth}"], color=col, lw=1.1, label=LABELS[meth].strip(" +").replace("boneseg, ", "").replace("boneseg ", ""))
         ax.set_title(f"Sample {s}", fontsize=9)
         ax.set_xlabel("Slice", fontsize=8)
         ax.spines[["top", "right"]].set_visible(False)
