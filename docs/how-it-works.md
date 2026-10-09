@@ -1,6 +1,6 @@
 # How boneseg segments bone, and what each part adds
 
-This page explains the three building blocks behind boneseg's masks: the DINOv2 model, the U-Net additions, and fine-tuning. It says what each does to the masks, how much it helps, and when to use it. The numbers come from four expert-annotated Liu samples (A, C, E and F), always scored on slices and samples that were not used for training or tuning. Details are in `paper/README.md`.
+This page explains the building blocks behind boneseg's masks: the DINOv2 model, the learned model, the U-Net additions, and fine-tuning. It says what each does to the masks, how much it helps, and when to use it. The numbers come from five expert-annotated Liu samples (A, C, D, E and F; some older numbers from four), always scored on slices and samples that were not used for training or tuning. Details are in `paper/README.md`.
 
 Dice measures how well a mask overlaps the expert's mask: 1 is a perfect match and 0 is no overlap. B.Ar/T.Ar is the bone area fraction, and its bias says how far the masks over- or underestimate it.
 
@@ -8,12 +8,14 @@ Dice measures how well a mask overlaps the expert's mask: 1 is a perfect match a
 
 | What you do | Mean Dice | B.Ar/T.Ar bias | Use it when |
 |---|---|---|---|
-| 3 bone + 6 background clicks | 0.67 | +0.9 points | You want a quick mask with no labelling |
+| 3 bone + 6 background clicks | 0.66 | +0.5 points | You want a quick mask with no labelling |
 | 25 + 25 clicks | 0.76 | +2.0 points | You want a good mask without labelling |
-| 3 + 6 clicks on a fine-tuned DINOv2 | 0.75 | +1.7 points | You have a fine-tuned model for your kind of images |
-| A learned model from 5 labelled slices of the same sample | 0.78 | +2.9 points | You will segment many slices of one sample |
+| 25 + 25 clicks with "Agree with SAM" | 0.78 | −0.3 points | You clicked a lot and want tighter edges |
+| 3 + 6 clicks on a fine-tuned DINOv2 | 0.79 | +1.1 points | You have a fine-tuned model for your kind of images |
+| A learned model from 5 labelled slices of the same sample | 0.79 | +0.3 points | You will segment many slices of one sample |
+| Fine-tuned DINOv2 + a learned model, from the same 5 slices | 0.82 | +0.1 points | You want the most accurate masks of one sample |
 
-For comparison, Segment Anything (SAM), a widely used general-purpose tool, scored 0.60 with 3 + 6 clicks and 0.74 with 25 + 25 clicks.
+For comparison, Segment Anything (SAM), a widely used general-purpose tool, scored 0.62 with 3 + 6 clicks and 0.76 with 25 + 25 clicks. Fine-tuned on 5 labelled slices with the recipe of Gu et al. (2025), on a datacentre GPU, SAM reached 0.84: better than boneseg on bone, mostly at the boundaries. On whole stacks, the learned model now measures bone volume fraction within 5% and trabecular number and separation within about 1% of the experts' (section 2).
 
 ## 1. DINOv2: the part that understands the image
 
@@ -43,7 +45,16 @@ Together, these raised Dice with 25 + 25 clicks from 0.68 to 0.76. They cut the 
 - **With 3 + 6 clicks it did not help** (−0.003), and bone area came out 2.4 points too low. Turn it on once you have clicked a fair amount.
 - **It costs** a one-time download of 375 MB and a few seconds on each new slice, since SAM runs on the CPU. It applies to clicks on one structure, not to learned models, several structures or stack runs.
 
-## 2. The U-Net additions: a second network that works pixel by pixel
+## 2. The learned model: a small classifier on DINOv2's features
+
+After you correct a few masks and save them as labels, "Train model" fits a small classifier that decides, for every patch, from DINOv2's description of it, whether it is bone. Cross-validation over your labelled slices picks a linear or a small two-layer classifier, with or without the features of the surrounding patches. Two recent changes matter for bone measurements:
+
+- **Its threshold is calibrated.** Training gives bone and background equal weight, because bone covers only about a tenth of a slice. That makes the classifier say "bone" too readily at the usual probability cut-off of 0.5: masks were about a third too large. The model now picks its cut-off (typically 0.6 to 0.75) on the labelled slices it did not train on, and the training summary shows the value. On the five Liu samples, Dice rose from 0.76 to 0.79 and the bone-area bias fell from +3.4 to +0.3 points.
+- **In a stack, it sees the neighbouring slices.** Bone continues through z, so the model also gets the averaged features of the slices about 4 µm below and above (2 slices in the Liu stacks). Nothing is 3D about DINOv2 itself; only the small classifier combines the slices, so the cost is two extra feature computations per labelled slice. Models trained before this change still work as they did.
+
+Models from other files or samples work too, a little less well (0.72 to 0.74). Learned models belong to the backbone they were trained with; DINOv2 Large made them a little better (0.81 against 0.79) at six times the time per slice.
+
+## 3. The U-Net additions: a second network that works pixel by pixel
 
 A U-Net is a neural network that looks at an image at full resolution and decides for every pixel whether it belongs to the object. It sees fine detail, but it has to be trained on labelled examples, and with few examples it learns little on its own.
 
@@ -72,7 +83,7 @@ python -m boneseg train-refiner your_stack.ims:3 --out my_refiner.pt
 
 The file needs a channel with an expert mask, which is the last channel unless you name it as `file:image_channel:mask_channel`.
 
-## 3. Fine-tuning: teaching DINOv2 about bone
+## 4. Fine-tuning: teaching DINOv2 about bone
 
 DINOv2 learned from photographs, not from microscopy. Fine-tuning continues its training on your expert-labelled slices, so that its descriptions separate bone from everything else more clearly. boneseg trains only DINOv2's last 4 of 12 layers, slowly, and keeps the version that scores best on separate validation slices. With so few labelled slices, retraining everything would make it memorise those slices.
 
@@ -97,6 +108,7 @@ Fine-tuning can make results worse, so it was tested like this:
 - **The clear gain is with few clicks.** After fine-tuning on other bone samples, 3 + 6 clicks on a new sample were almost as good as 25 + 25 clicks on the original DINOv2. This held on all four samples.
 - **With many clicks it makes no difference.** Enough clicks already pin down what you mean.
 - **Training on your own sample** helped on three of four samples but hurt on sample C, so the average gain is uncertain.
+- **Best of all: fine-tune, then train the learned model on the fine-tuned backbone.** On five samples, with the same 5 labelled slices for both, that reached 0.815, against 0.781 for the fine-tuned network on its own and 0.789 for the learned model on the original DINOv2. Fine-tuning on other samples first, then on the 5 slices, gave 0.823; that extra step is a small gain, not yet certain.
 - **It costs** about 5 minutes on an M-series Mac, and the file is 28 MB.
 
 ### How to use it

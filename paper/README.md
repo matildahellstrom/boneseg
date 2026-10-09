@@ -78,7 +78,7 @@ What this supports, and what not yet:
 - **v2 against v1.** With 25 clean clicks, v2 gains +0.060 Dice (CI +0.014 to +0.110, better on 78% of slices) and cuts the bone-area bias from +5.7 to +2.0 points (ICC 0.65 to 0.83). With 3 clean clicks the gain is +0.020 (CI −0.020 to +0.069); with noisy clicks v2 is level with v1. On sample D alone, v2 did not improve on v1.
 - **v2 against SAM.** With 25 clean clicks they are level (−0.001, CI −0.042 to +0.040). With 3 clean clicks boneseg is ahead (+0.042) but, with sample D added, the interval includes zero (−0.033 to +0.116); SAM does especially well on D (0.82 with 25 clicks). boneseg's bone-area bias is half of SAM's (+2.0 against +4.0 points).
 - **The learned refiner** helps with few or noisy clicks (+0.008 and +0.033) and costs with many (−0.046, CI −0.101 to +0.010); on sample D it cost 0.12. It stays optional.
-- **The learned model from 5 labelled slices** is the most accurate option: 0.77 with labels of the same sample, 0.73 with labels of other samples, against 0.44 to 0.59 for the random forest.
+- **The learned model from 5 labelled slices** is the most accurate option: 0.77 with labels of the same sample, 0.73 with labels of other samples, against 0.44 to 0.59 for the random forest. Since then it calibrates its probability threshold on held-out labelled slices (below, "Whole stacks in 3D"), which raised it to 0.789 on the same test slices (`results/finetune_adapt_summary.md`, frozen backbone).
 - **Not yet shown.** Agreement with a second human, and nnU-Net as the supervised reference.
 
 Development-only experiments that led to v2, never touching test slices: `refine_experiment.py` (`results/refine_dev.csv`) and `refiner_experiment.py` (`results/refiner_dev.csv`).
@@ -100,6 +100,20 @@ Fine-tuned features make few clicks almost as good as many (3 + 6 clicks: 0.674 
 python paper/finetune_experiment.py   # about 75 min for four samples on an M-series Mac
 python paper/finetune_analyze.py
 ```
+
+### Fine-tune on the other samples first, then adapt
+
+`finetune_adapt.py` (`results/finetune_adapt_summary.md`): leave-one-sample-out over all five samples, with only 5 labelled slices of the held-out sample (5 more for early stopping). Each backbone is scored three ways: the fine-tuned network's own output layer, boneseg's learned model (calibrated) on its features, and 3 + 6 clicks.
+
+| Test Dice, held-out sample | Own output | Learned model on the features | 3 + 6 clicks |
+|---|---|---|---|
+| Frozen DINOv2 | 0.744 | 0.789 | 0.664 |
+| Fine-tuned on the sample's 5 slices | 0.781 | 0.815 | 0.790 |
+| Fine-tuned on the other samples only | 0.705 | 0.812 | 0.755 |
+| Fine-tuned on the other samples, then the 5 slices | **0.788** | **0.823** | **0.799** |
+
+- **Two-stage fine-tuning is the best in every column, but by little:** +0.008 to +0.009 over the 5 slices alone, better on 56–72% of slices, intervals including zero.
+- **The learned model on fine-tuned features beats the fine-tuned network's own output layer** (0.815 against 0.781), and fine-tuning on the 5 slices beats the frozen backbone under every scoring (learned model +0.025, CI +0.010 to +0.039). The best bone result from 5 labelled slices is fine-tuned DINOv2 with the calibrated learned model (0.815 to 0.823).
 
 ## Osteoclasts: the NOISe mouse data
 
@@ -156,19 +170,81 @@ python paper/noise_analyze.py
 
 ## Whole stacks in 3D
 
-`stack3d_evaluate.py` and `stack3d_analyze.py` (`results/stack3d_summary.md`, `figures/stack3d_profiles.png`) segment the central 80% of each Liu stack (A 202, C 505, E 390 and F 233 slices; voxels 2 × 1.625 × 1.625 µm) and compare the bone volumes with the experts' 3D masks. Both volumes are reduced the same way to 4 × 6.5 × 6.5 µm voxels; Tb.Th, Tb.N and Tb.Sp follow the plate model (Tb.Th = 2 BV/BS), checked on a synthetic slab (63 µm measured for 65 µm).
+`stack3d_evaluate.py` and `stack3d_analyze.py` (`results/stack3d_summary.md`, `figures/stack3d_profiles.png`) segment the central 80% of each Liu stack (A 202, C 505, E 390 and F 233 slices, and a contiguous 64-slice block of D, z 224 to 287, read remotely; voxels 2 × 1.625 × 1.625 µm) and compare the bone volumes with the experts' 3D masks. Both volumes are reduced the same way to 4 × 6.5 × 6.5 µm voxels; Tb.Th, Tb.N and Tb.Sp follow the plate model (Tb.Th = 2 BV/BS), checked on a synthetic slab (63 µm measured for 65 µm).
 
-| Mean over the four stacks | 3D Dice | Bone area per slice vs expert (r) | BV/TV | BS/BV | Tb.Th | Tb.N | Tb.Sp |
+| Mean over the five stacks, error against the expert | 3D Dice | BV/TV | BS/BV | Tb.Th | Tb.N | Tb.Sp | Slice r |
 |---|---|---|---|---|---|---|---|
-| Learned model, 5 labelled slices of the sample | 0.778 | 0.90 | +36% | +4% | −1% | +40% | −30% |
-| Learned model, labelled slices of the other samples | 0.734 | 0.83 | +37% | +8% | −7% | +48% | −35% |
-| 25 + 25 clicks on the middle slice, carried through the stack | 0.605 | −0.27 | −23% | +49% | −27% | +4% | +6% |
+| Learned model, 5 labelled slices of the sample, threshold 0.5 | 0.767 | +39% | +3% | −1% | +42% | −32% | 0.59 |
+| + threshold calibrated on held-out labelled slices | 0.804 | +6% | +11% | −8% | +18% | −14% | 0.71 |
+| + calibrated, probabilities smoothed along z (σ 1 slice) | 0.806 | +5% | −1% | +3% | +4% | −3% | 0.72 |
+| **+ calibrated, features of the slices 4 µm below and above (the app)** | **0.810** | **+5%** | −4% | +5% | **+1%** | **0%** | 0.75 |
+| + calibrated, neighbouring slices and smoothing | 0.811 | +5% | −6% | +7% | −1% | +2% | 0.75 |
+| Learned model, labelled slices of the other samples, threshold 0.5 | 0.722 | +46% | +4% | −3% | +51% | −35% | 0.48 |
+| + calibrated threshold | 0.734 | +2% | +24% | −18% | +26% | −16% | 0.50 |
+| 25 + 25 clicks on the middle slice, carried through the stack | 0.636 | −18% | +36% | −18% | +0% | +8% | −0.06 |
 
-- **For whole stacks, label a few slices.** The learned model follows the expert through every stack (r 0.85 to 0.97 on C, E and F, 0.83 on A) and gets bone surface and trabecular thickness close: Tb.Th within 1% on average (within 16% per sample) with labels of the same sample, within 7% with labels of other samples.
-- **Bone volume is overestimated by about a third** (BV/TV +36%), the 3D form of the boundary spill-over seen in 2D, and Tb.N and Tb.Sp, which are derived from BV/TV, inherit it.
-- **Clicks on one slice do not carry through hundreds of slices.** Prototypes and threshold from the middle slice drift as the image changes with depth (3D Dice 0.61; on sample E the mask falls to almost no bone at the far end). The app's stack mode from one annotated slice is fine for short stacks but should be used with clicks on several slices, or with a learned model, for long ones.
+Slice r is the correlation of the bone area per slice with the expert's; it is not meaningful on D's short, nearly constant block (all methods have negative r there), which pulls the means down.
+
+- **The volume overestimate came from the threshold.** The learned model weights both classes equally in training, which pushes the probabilities of a structure covering ~10% of the image up; at 0.5 it called about a third too much bone in every stack. Calibrated on its own cross-validation predictions (`boneseg.head.calibrate_threshold`, it chose 0.60 to 0.75), BV/TV is within 6% on average, and within 6% on four of five samples (D +19%).
+- **Neighbouring slices fix the structure measures.** Giving the model the mean features of the slices 4 µm below and above (`with_z_context`) raised 3D Dice on every sample and per slice on every sample, and brought Tb.N and Tb.Sp, which derive from BV/TV and BS, to within 1% of the experts on average. Smoothing the probabilities along z does most of the same, and adds nothing on top. The 4 µm distance was fixed before the run, not tuned.
+- **Labels from other samples** also calibrate well for BV/TV (+2%), but their structure measures stay off by 16 to 26%, and per sample they vary more.
+- **Clicks on one slice do not carry through hundreds of slices.** Prototypes and threshold from the middle slice drift as the image changes with depth (3D Dice 0.64; on sample E the mask falls to almost no bone at the far end). Over D's 64-slice block they reach 0.76: clicks carry over tens of slices, not hundreds.
 - One percent of the slices in the same-sample condition were the labelled training slices, so that volume is not fully independent of training.
-- **Sample D** (read remotely; a contiguous 64-slice block, z 224 to 287): learned models 3D Dice 0.72 (same sample) and 0.73 (other samples), Tb.Th +2% and +6%; clicks on the middle slice reach 0.76 over this short block, consistent with clicks carrying well over tens of slices but not hundreds. Including D, the mean over five samples is 0.767 / 0.734 / 0.636 (3D Dice) and Tb.Th −1% / −4% / −18%. The per-slice correlation is not meaningful on D's short, nearly constant block, so the r values above are for the four long stacks.
+
+## boneseg against SAM, following Gu et al. (2025)
+
+`prompts.py`, `sam_zeroshot.py`, `boneseg_fewshot.py`, `kaggle_finetune_sam/` and `sam_compare_analyze.py` (`results/sam_compare_summary.md`) repeat the protocol of Gu et al., "How to build the best medical image segmentation algorithm using foundation models" (MELBA 2025, arXiv 2404.09957), on the three datasets: the paper's prompts (a point at the most interior pixel of each object, or a box widened by up to 10% per side), its fine-tuning code (mazurowski-lab/finetune-SAM, commit e41f732) and its two recommended recipes, and Dice with surface Dice (NSD; bone 5 µm, cells 2 px). 5-shot means 5 labelled images of the target: the held-out Liu sample or NOISe batch, or three draws of 5 SegPC training images. SAM was fine-tuned on Kaggle T4 GPUs; ViT-B configurations that update the encoder needed batch size 1 instead of the paper's 2 to fit in 15 GB.
+
+| Dice on the test images, 5 labelled images, no prompt | Bone | Osteoclasts | Plasma cells |
+|---|---|---|---|
+| SAM ViT-B, encoder + decoder adapters (the paper's few-shot recipe) | **0.841** | 0.704 | 0.613 |
+| SAM ViT-B, encoder + decoder LoRA | 0.833 | 0.674 | 0.610 |
+| SAM ViT-B, decoder adapter | 0.660 | 0.264 | 0.504 |
+| boneseg, learned model (calibrated) | 0.789 | 0.662 | 0.584 |
+| boneseg, fine-tuned DINOv2 (own output layer) | 0.781 | 0.652 | **0.730** |
+| boneseg, fine-tuned DINOv2 + learned model | 0.815 | **0.721** | 0.716 |
+| SAM ViT-B, the paper's recipe, all 278 SegPC training images | | | 0.806 |
+
+- **Bone: fine-tuned SAM is ahead.** boneseg's best 5-shot model is 0.026 behind (CI −0.043 to −0.011, SAM better on 66% of slices), and SAM's boundaries are better (NSD 0.31 against 0.27). With two-stage fine-tuning boneseg reaches 0.823 on the same slices (previous section).
+- **Osteoclasts: level** (+0.018, CI −0.018 to +0.054). **Plasma cells: boneseg ahead** (+0.103, CI +0.087 to +0.118); SAM needed all training images to pass boneseg's 5-shot result.
+- **Cost.** Each SAM fine-tuning took about 10 minutes on a T4 (the 32 runs of the bone and plasma kernel 6.8 hours); boneseg's fine-tuning runs in minutes on a laptop, and its click mode needs no training.
+
+| Dice, prompts | Bone | Osteoclasts | Plasma cells |
+|---|---|---|---|
+| Zero-shot, object + background points: boneseg / SAM ViT-B | 0.687 / 0.653 | **0.570** / 0.325 | 0.466 / 0.583 |
+| Zero-shot, object points only (the paper's setting): SAM ViT-B | 0.548 | 0.551 | 0.644 |
+| Zero-shot, boxes: boneseg / SAM ViT-B / micro-SAM | 0.461 / 0.676 / **0.714** | 0.752 / 0.884 / 0.884 | 0.589 / 0.782 / **0.904** |
+| 5-shot, boxes: boneseg fine-tuned / MobileSAM fine-tuned (the paper's interactive recipe) | **0.781** / 0.740 | **0.825** / 0.191 | **0.827** / 0.448 |
+
+- **Boxes suit SAM:** with a box per object, zero-shot SAM beats boneseg's box mode (an adaptation: points from the box centres, background outside all boxes) on all three datasets. The paper's interactive recipe, MobileSAM fine-tuned with boxes, collapsed on the cell datasets, where boneseg fine-tuned with boxes reaches 0.83.
+- **With object and background points boneseg is ahead on bone and osteoclasts**, where SAM, made to outline one object, merges or misses the many separate objects.
+- SAM ViT-H (zero-shot, Kaggle) does not change the picture (bone with boxes 0.71, osteoclasts 0.88, plasma cells 0.79).
+
+### SAM 2 and "Agree with SAM"
+
+`combine_sam.py` and `sam2_evaluate.py` (`results/combine_sam_summary.md`, `results/sam2_summary.md`), Liu test slices, the same clean clicks:
+
+| Dice | 3 + 6 clicks | 25 + 25 clicks |
+|---|---|---|
+| boneseg | 0.664 | 0.755 |
+| SAM ViT-B / SAM 2.1 Base+ / SAM 2.1 Large | 0.617 / 0.663 / 0.583 | 0.757 / 0.480 / 0.714 |
+| boneseg ∩ SAM ViT-B (the app's "Agree with SAM") | 0.661 | **0.784** |
+| boneseg ∩ SAM 2.1 Base+ / Large | 0.687 / 0.580 | 0.633 / 0.719 |
+
+Keeping the pixels both boneseg and SAM ViT-B call bone gives +0.029 with 25 + 25 clicks (CI +0.013 to +0.047, better on 84% of slices) and removes the area bias (−0.3 points). SAM 2 does not help on these images: Base+ often collapses with many points, and Large is weaker than SAM ViT-B. The app keeps SAM ViT-B.
+
+## Larger backbones
+
+`backbones_evaluate.py` (`results/backbones_summary.md`), app defaults (chosen for Small), the five samples:
+
+| Dice | Small | Base | Large |
+|---|---|---|---|
+| 3 + 6 clicks | **0.664** | 0.625 | 0.654 |
+| 25 + 25 clicks | 0.755 | 0.745 | 0.770 |
+| Learned model, 5 labelled slices | 0.789 | 0.790 | **0.810** |
+| Seconds per slice (features, M-series Mac) | 1.0 | 2.0 | 6.4 |
+
+Large helps the learned model (+0.020, CI +0.006 to +0.034) and possibly many clicks (+0.015, CI −0.009 to +0.034) at six times the cost; Base helps nowhere. Small stays the default. DINOv3 is waiting for its weights (gated by Meta's licence).
 
 ## Running it
 
@@ -204,7 +280,8 @@ python paper/analyze.py
 
 ## What is still missing for a paper
 
-- **More samples.** D, and ideally samples from another lab or stain.
-- **A second annotator** on a subset of test slices, to know how well two people agree.
+- **More samples**, ideally from another lab or stain.
+- **A second annotator** on a subset of test slices, to know how well two people agree. Several methods now reach 0.80 to 0.84 on bone; whether that is near the ceiling set by the annotation is the open question.
 - **A small user study** with real clicks and timing, since simulated clicks are only a proxy.
 - **Osteoclast-level agreement** (Oc.Pm/B.Pm, N.Oc/B.Pm), which needs expert osteoclast masks; the current expert masks are bone only.
+- **Sharper boundaries.** Fine-tuned SAM's lead on bone is in the boundaries (NSD), where DINOv2's 14-pixel patches limit boneseg.
