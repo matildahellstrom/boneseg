@@ -354,6 +354,29 @@ def test_head_context_and_old_models(tmp_path):
     assert loaded.context == 1 and segment_with_head(loaded, emb, s).mask.shape == gt.shape
 
 
+def test_head_threshold_calibration(tmp_path):
+    from boneseg.head import Head, calibrate_threshold, head_prob, segment_with_head, train_head
+
+    # Probabilities that are too high everywhere: the best threshold sits above 0.5
+    gt = np.zeros((40, 40), bool)
+    gt[10:20, 10:20] = True
+    prob = np.where(gt, 0.95, 0.6)
+    t, scores = calibrate_threshold([(prob, gt)])
+    assert 0.6 <= t < 0.95 and scores[t] == 1.0 and scores[0.5] < 1.0
+    # A trained model stores its threshold, uses it, and keeps it through saving
+    s = classic_settings()
+    bb = get_backbone("classic")
+    samples = [(segment.embed_image(bb, img, s), g) for img, g, _ in (make_blobs(seed=k) for k in (1, 2, 3))]
+    head = train_head(samples, s, [(0, k) for k in range(3)])
+    assert head.threshold in [float(x) for x in np.round(np.arange(0.2, 0.91, 0.05), 2)]
+    assert head.cv["threshold"]["mean_dice_at_chosen"] >= head.cv["threshold"]["mean_dice_at_0.5"]
+    res = segment_with_head(head, samples[0][0], s)
+    assert res.threshold == head.threshold and np.array_equal(res.mask, head_prob(head, samples[0][0]) >= head.threshold)
+    head.save(tmp_path / "h.pt")
+    assert Head.load(tmp_path / "h.pt").threshold == head.threshold
+    assert train_head(samples, s, [(0, k) for k in range(3)], calibrate=False).threshold == 0.5
+
+
 def test_friendly_errors(monkeypatch):
     import torch
 

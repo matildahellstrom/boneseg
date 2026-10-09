@@ -161,6 +161,7 @@ function showHeadInfo() {
   const cv = h.cv[h.cv.chosen];
   $("trainResult").innerHTML = `Model trained on ${h.trained_on.length} slice${h.trained_on.length > 1 ? "s" : ""} (${h.kind === "mlp" ? "small neural network" : "linear"}${h.context > 1 ? ", with neighbourhood features" : ""}).`
     + (cv ? ` Dice on held-out labelled slices: <b>${cv.mean_dice.toFixed(3)}</b>, measured against your labels.` : " Label a second slice to estimate how well it generalizes.")
+    + (h.threshold != null && h.threshold !== 0.5 && h.cv.threshold ? ` Its threshold was set to ${h.threshold.toFixed(2)} on the held-out slices (Dice ${h.cv.threshold.mean_dice_at_chosen.toFixed(3)} against ${h.cv.threshold["mean_dice_at_0.5"].toFixed(3)} at 0.5).` : "")
     + (h.reference_check ? ` Against the reference mask on ${h.reference_check.n_slices} unlabelled slices: <b>${h.reference_check.mean_dice.toFixed(3)}</b>.` : "");
 }
 
