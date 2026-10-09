@@ -165,16 +165,24 @@ def build(ft: FineTuned, dino: nn.Module | None = None, device=None) -> SegNet:
 def finetune(train: list[tuple[np.ndarray, np.ndarray]], val: list[tuple[np.ndarray, np.ndarray]], base: str = "dinov2_s14",
              train_blocks: int = 4, vit_size: int = 980, steps: int = 1000, batch: int = 4, crop: int = 448,
              lr_backbone: float = 2e-5, lr_head: float = 1e-3, eval_every: int = 100, seed: int = 0,
-             pretrained: nn.Module | None = None, device=None, log=None, progress=None, cancelled=None) -> FineTuned:
+             pretrained: nn.Module | None = None, device=None, log=None, progress=None, cancelled=None,
+             init: "FineTuned | None" = None) -> FineTuned:
     """Fine-tunes on (image, mask) pairs of [0, 1] images and boolean masks; keeps the step with the best mean
     Dice on the validation pairs. Pass a pretrained backbone to reuse one download across runs (it is copied).
     progress(fraction, message) is called after every step; when cancelled() turns true, training stops and the
-    best step so far is kept."""
+    best step so far is kept. init continues from an earlier fine-tuning (same base and blocks), for example one on
+    other samples, before adapting to a few slices of a new one."""
     device = device or pick_device()
     torch.manual_seed(seed)
     rng = np.random.default_rng(seed)
     dino = copy.deepcopy(pretrained) if pretrained is not None else load_dino(base)
+    if init is not None:
+        if (init.base, init.train_blocks) != (base, train_blocks):
+            raise ValueError(f"init was fine-tuned from {init.base} with {init.train_blocks} blocks, not {base} with {train_blocks}")
+        dino.load_state_dict(init.backbone_state, strict=False)
     net = SegNet(dino, train_blocks).to(device)
+    if init is not None:
+        net.head.load_state_dict(init.head_state)
     patch = net.patch
     tr = [prepare(i, g, vit_size, patch) for i, g in train]
     va = [prepare(i, g, vit_size, patch) for i, g in val]
