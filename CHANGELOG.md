@@ -90,3 +90,16 @@ How boneseg grew from the research notebook, grouped by theme. Hashes point to t
 ### Two measured improvements move into the app
 - "Agree with SAM" (`boneseg/sam.py`, under "Clean-up and advanced"): SAM ViT-B gets the same clicks and the mask keeps only what both call the structure. With 25 + 25 clicks on the five Liu samples, Dice 0.784 against 0.755 (+0.029, CI +0.013 to +0.047) and a bone-area bias of −0.3 points instead of +2.0; with 3 + 6 clicks no gain. Off by default; the SAM weights (375 MB) download on first use.
 - "Fine-tune DINOv2 on these labels" in section 6 runs `boneseg/finetune.py` as a background job with progress and cancel, saves the result in the models folder, and reports Dice on the held-out labels for the fine-tuned model and for the learned model on the unchanged DINOv2.
+
+## 9 October 2026
+
+### Learned models measure whole stacks correctly
+- `569cfb6` The learned model calibrates its probability threshold on held-out labelled slices instead of using 0.5. Bone's area was overestimated by about a third, because training weights the rare class up. On whole stacks of the five Liu samples, BV/TV error fell from +39% to +6% and 3D Dice rose from 0.767 to 0.804.
+- `1942b44` In stacks, the learned model also sees the features of the slices about 4 µm below and above (`with_z_context`), wherever it is applied. 3D Dice 0.810, better on every sample; Tb.N and Tb.Sp within about 1% of the experts.
+
+### Comparisons
+- `0cd6337` boneseg against SAM fine-tuned with the protocol of Gu et al. (2025), on Kaggle: from 5 labelled images, fine-tuned SAM ViT-B is ahead on bone (0.841 against boneseg's 0.815, fine-tuned DINOv2 with the learned model), level on osteoclasts (0.704 against 0.721), and behind on plasma cells (0.613 against 0.730). Zero-shot SAM with a box per object beats boneseg's box mode.
+- `1942b44` Fine-tuning on other samples before the 5 slices of a new one: 0.823, a small gain (+0.008, not established). SAM 2.1 Base+ and Large do not beat SAM ViT-B on bone, alone or in "Agree with SAM".
+- `0cd6337` DINOv2 Large helps learned models (0.810 against 0.789 for Small) at six times the time per slice; Base does not help.
+- Kaggle notebooks: Google Drive's confirmation page, the packages finetune-SAM imports, batch size 1 for the ViT-B encoder on a T4, a 12-hour time budget with results saved after every run, and titles within Kaggle's 50 characters.
+

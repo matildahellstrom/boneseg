@@ -11,7 +11,7 @@ Segment structures in bone microscopy images with a few clicks. boneseg turns th
 - **Several structures at once.** Segment, for example, cells and bone matrix together, each with its own clicks and colour.
 - **Whole stacks.** Run every slice from one annotated slice, with measurements per slice, objects counted in 3D, and a side view through the stack.
 - **A second opinion from SAM.** Optionally, Segment Anything gets the same clicks and the mask keeps only what both agree on: with 25 + 25 clicks on bone, Dice rose by 0.03 and the bone-area overestimate disappeared.
-- **Learn from corrections.** Fix a mask with a brush, save it as a label, and train a small model in seconds. It reports its accuracy on slices it has not seen.
+- **Learn from corrections.** Fix a mask with a brush, save it as a label, and train a small model in seconds. It reports its accuracy on slices it has not seen, sets its own threshold on them, and in a stack also looks at the neighbouring slices. From 5 labelled slices it measured whole Liu stacks within 5% of the experts' bone volume fraction and within about 1% of their trabecular number and separation.
 - **Bone histomorphometry.** B.Ar/T.Ar, B.Pm, Oc.Pm/B.Pm and N.Oc/B.Pm per slice or across a stack, following the ASBMR nomenclature.
 - **Compare samples.** Run a profile on every sample, put samples in groups, and compare them with a dot plot and a rank test.
 - **Check against experts.** Pick an expert mask channel to score every result with Dice, IoU and HD95, and see where the mask is wrong.
@@ -147,6 +147,8 @@ Across files, measured on Liu files A, E and F, whose last channel is the expert
 A few expert slices of the same file beat clicking every slice on all three files. A model from other files is about as good as clicking without any clicks, and far better than a carried-over click profile. Pooling files did not beat the best single file, but it removes the need to pick one.
 
 On real data most of the error is the mask spilling over the expert's boundary, which "Errors" makes visible. The learned model is the most effective way to reduce it.
+
+The paper evaluation (`paper/README.md`) has since moved to five samples and stricter protocols. Its main results: from 5 labelled slices, fine-tuned DINOv2 with the learned model reaches Dice 0.82 on bone, against 0.84 for SAM fine-tuned with the recipe of Gu et al. (2025) on a datacentre GPU; on whole stacks the learned model's bone volume fraction is within 5% of the experts'. DINOv2 Large (in the backbone menu) makes learned models a little better (0.81 against 0.79 for Small) at six times the time per slice; Base does not help.
 
 ### Tried and left out
 
