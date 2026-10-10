@@ -103,3 +103,9 @@ How boneseg grew from the research notebook, grouped by theme. Hashes point to t
 - `0cd6337` DINOv2 Large helps learned models (0.810 against 0.789 for Small) at six times the time per slice; Base does not help.
 - Kaggle notebooks: Google Drive's confirmation page, the packages finetune-SAM imports, batch size 1 for the ViT-B encoder on a T4, a 12-hour time budget with results saved after every run, and titles within Kaggle's 50 characters.
 
+## 10 October 2026
+
+### Simple mode
+- `/simple` (or `python -m boneseg serve --simple`): one page for lab researchers who do not code. Open an image, click bone and background (the mask updates after each click, with area measurements), run all slices and download the mask stack and per-slice CSV. Default settings, no settings panel, plain-language hints, comments in the code aimed at students. Clicks are shared with the full app.
+- The segment endpoint takes `clicks_z`, so a slice can be segmented with the clicks from another slice exactly as a stack run does; simple mode uses it to let users check any slice after a run.
+

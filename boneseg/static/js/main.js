@@ -264,15 +264,6 @@ function bindCollapsibleSections() {
 }
 
 // A shared access link carries ?token=…; it is kept as a cookie for the API and removed from the address bar
-function takeTokenFromUrl() {
-  const u = new URL(window.location.href);
-  const t = u.searchParams.get("token");
-  if (!t) return;
-  document.cookie = `boneseg_token=${encodeURIComponent(t)}; path=/; SameSite=Strict; max-age=${60 * 60 * 24 * 30}`;
-  u.searchParams.delete("token");
-  window.history.replaceState(null, "", u.pathname + (u.search || "") + u.hash);
-}
-
 async function init() {
   takeTokenFromUrl();
   bindCollapsibleSections();

@@ -14,6 +14,7 @@ class SegmentRequest(BaseModel):
     settings: dict = Field(default_factory=dict)
     uncertainty: bool = False
     max_side: int = 1600
+    clicks_z: int | None = None   # Slice the clicks were made on, if not this one: segment z as a stack run would
 
 
 class StackJobRequest(BaseModel):

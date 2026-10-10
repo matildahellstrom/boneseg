@@ -398,3 +398,57 @@ def test_sam_setting_and_finetune_panel(page, server, monkeypatch):
     assert "fine-tuned 0.800" in page.inner_text("#finetuneText")
     assert page.evaluate("[...document.querySelectorAll('#backboneSelect option')].some(o => o.value.includes('dinov2_s14_demo'))")
     assert not page.errors, page.errors
+
+
+def test_simple_mode(page, server):
+    import urllib.request
+
+    url, data = server
+    page.goto(url + "/simple")
+    page.wait_for_selector("#demoBtn")
+    page.click("#demoBtn")
+    page.wait_for_function("P.ds && P.img && P.ds.name === 'demo_bone_stack.tif'", timeout=20000)
+    ds_id = page.evaluate("P.ds.id")
+    stack = tifffile.imread(glob.glob(str(data / "datasets" / ds_id / "*.tif"))[0])
+    page.locator("#stage").scroll_into_view_if_needed()   # Mouse clicks only land inside the visible window
+    page.evaluate("P.z = 6; document.getElementById('slice').value = 6; loadSlice(true)")
+    page.wait_for_timeout(500)
+    assert page.is_hidden("#drop") and "demo_bone_stack" in page.inner_text("#openedName")   # Step 1 collapsed
+
+    def click(y, x, button="left"):
+        pos = page.evaluate(f"(() => {{ const r = canvas.getBoundingClientRect(); const f = fullPerImg(); "
+                            f"return [r.left + (P.view.ox + {x} / f * P.view.scale) / devicePixelRatio, r.top + (P.view.oy + {y} / f * P.view.scale) / devicePixelRatio]; }})()")
+        page.mouse.click(*pos, button=button)
+
+    gt = stack[6, 2] > 0
+    lab, k = ndi.label(gt)
+    for cy, cx in ndi.center_of_mass(gt, lab, range(1, k + 1))[:3]:
+        click(cy, cx)
+    page.keyboard.press("2")
+    for y, x in [(20, 20), (360, 40), (30, 480), (200, 15)]:
+        click(y, x)
+    page.wait_for_function("P.mask !== null", timeout=30000)
+    assert "Bone area" in page.inner_text("#numbers") and "mask is wrong" in page.inner_text("#hint")
+    # Right-click removes the nearest click, Ctrl+Z the last one
+    click(200, 15, "right")
+    page.keyboard.press("Control+z")
+    page.wait_for_timeout(300)
+    assert page.evaluate("[P.clicks['1:6'].pos.length, P.clicks['1:6'].neg.length]") == [3, 2]
+    # Another slice is segmented with the clicked slice's clicks
+    page.evaluate("P.z = 3; document.getElementById('slice').value = 3; loadSlice()")
+    page.wait_for_function("P.mask !== null && document.getElementById('numbers').textContent.includes('slice 7')", timeout=30000)
+    # Whole stack, then both downloads work
+    page.click("#stackBtn")
+    page.wait_for_selector("#downloads a", timeout=60000)
+    assert "12" in page.inner_text("#stackNumbers")
+    for href in page.eval_on_selector_all("#downloads a", "as => as.map(a => a.href)"):
+        assert urllib.request.urlopen(href).status == 200
+    # The full app finds the same clicks; the phone layout has no sideways scrolling
+    page.set_viewport_size({"width": 390, "height": 800})
+    assert not page.evaluate("document.documentElement.scrollWidth > document.documentElement.clientWidth")
+    page.set_viewport_size({"width": 1440, "height": 900})
+    page.wait_for_timeout(600)   # The clicks are saved 400 ms after the last change
+    page.goto(url + "/")
+    page.wait_for_function("S.ds && S.base", timeout=20000)
+    assert page.evaluate("S.points['1:6'].pos.length") == 3
+    assert not page.errors, page.errors
