@@ -70,9 +70,11 @@ class Prepared:
     gt_small: np.ndarray  # [in_h, in_w] float in [0, 1]
     gt: np.ndarray        # Full-resolution boolean mask
     shape: tuple
+    valid_small: np.ndarray | None = None   # Where the label is valid, at input size (None: everywhere)
+    valid: np.ndarray | None = None         # The same at full resolution
 
 
-def prepare(img: np.ndarray, gt: np.ndarray, vit_size: int, patch: int = 14) -> Prepared:
+def prepare(img: np.ndarray, gt: np.ndarray, vit_size: int, patch: int = 14, valid: np.ndarray | None = None) -> Prepared:
     h, w = img.shape[:2]
     in_h, in_w = vit_input_size(h, w, vit_size, patch)
     t = _to3(torch.from_numpy(np.ascontiguousarray(img, np.float32))[None]) if img.ndim == 3 else torch.from_numpy(np.ascontiguousarray(img, np.float32))[None, None]
@@ -80,11 +82,14 @@ def prepare(img: np.ndarray, gt: np.ndarray, vit_size: int, patch: int = 14) -> 
     small = small.permute(1, 2, 0).numpy() if img.ndim == 3 else small[0].numpy()
     g = torch.from_numpy(gt.astype(np.float32))[None, None]
     gs = F.interpolate(g, (in_h, in_w), mode="area")[0, 0].numpy()
-    return Prepared(small, gs, gt.astype(bool), (h, w))
+    vs = None
+    if valid is not None:
+        vs = F.interpolate(torch.from_numpy(valid.astype(np.float32))[None, None], (in_h, in_w), mode="area")[0, 0].numpy() >= 0.5
+    return Prepared(small, gs, gt.astype(bool), (h, w), vs, None if valid is None else valid.astype(bool))
 
 
 def _batch(items: list[Prepared], size: int, n: int, rng):
-    xs, ys = [], []
+    xs, ys, vs = [], [], []
     for _ in range(n):
         it = items[rng.integers(len(items))]
         h, w = it.img.shape[:2]
@@ -99,20 +104,23 @@ def _batch(items: list[Prepared], size: int, n: int, rng):
             r0, c0 = int(rng.integers(0, h - s_h + 1)), int(rng.integers(0, w - s_w + 1))
         x = it.img[r0:r0 + s_h, c0:c0 + s_w]
         y = it.gt_small[r0:r0 + s_h, c0:c0 + s_w]
+        v = np.ones(y.shape, np.float32) if it.valid_small is None else it.valid_small[r0:r0 + s_h, c0:c0 + s_w].astype(np.float32)
         k = int(rng.integers(4))
-        x, y = np.rot90(x, k), np.rot90(y, k)
+        x, y, v = np.rot90(x, k), np.rot90(y, k), np.rot90(v, k)
         if rng.random() < 0.5:
-            x, y = x[:, ::-1], y[:, ::-1]
+            x, y, v = x[:, ::-1], y[:, ::-1], v[:, ::-1]
         x = np.clip(np.clip(x, 0, 1) ** rng.uniform(0.7, 1.4) * rng.uniform(0.8, 1.2), 0, 1)   # Gamma and gain
         xs.append(np.ascontiguousarray(x))
         ys.append(np.ascontiguousarray(y))
+        vs.append(np.ascontiguousarray(v))
     # Crops of one batch share a size only if every slice was large enough; pad the rest
     H, W = max(a.shape[0] for a in xs), max(a.shape[1] for a in xs)
     X = np.zeros((n, H, W) + xs[0].shape[2:], np.float32)
     Y = np.zeros((n, H, W), np.float32)
     M = np.zeros((n, H, W), np.float32)
-    for i, (a, b) in enumerate(zip(xs, ys)):
-        X[i, :a.shape[0], :a.shape[1]], Y[i, :b.shape[0], :b.shape[1]], M[i, :a.shape[0], :a.shape[1]] = a, b, 1
+    for i, (a, b, v) in enumerate(zip(xs, ys, vs)):
+        # M: pixels the loss counts; padding and pixels outside the label's valid region do not
+        X[i, :a.shape[0], :a.shape[1]], Y[i, :b.shape[0], :b.shape[1]], M[i, :a.shape[0], :a.shape[1]] = a, b, v
     return X, Y, M
 
 
@@ -184,8 +192,9 @@ def finetune(train: list[tuple[np.ndarray, np.ndarray]], val: list[tuple[np.ndar
     if init is not None:
         net.head.load_state_dict(init.head_state)
     patch = net.patch
-    tr = [prepare(i, g, vit_size, patch) for i, g in train]
-    va = [prepare(i, g, vit_size, patch) for i, g in val]
+    # Pairs (image, mask) or triples (image, mask, valid region)
+    tr = [prepare(t[0], t[1], vit_size, patch, t[2] if len(t) > 2 else None) for t in train]
+    va = [prepare(t[0], t[1], vit_size, patch, t[2] if len(t) > 2 else None) for t in val]
     groups = [{"params": net.head.parameters(), "lr": lr_head}]
     bb_params = [p for p in net.dino.parameters() if p.requires_grad]
     if bb_params:
@@ -201,8 +210,10 @@ def finetune(train: list[tuple[np.ndarray, np.ndarray]], val: list[tuple[np.ndar
                 {k: v.detach().cpu().clone() for k, v in net.head.state_dict().items()})
 
     for step in range(1, steps + 1):
-        if cancelled is not None and cancelled() and best is not None:
-            break
+        if cancelled is not None and cancelled():
+            if best is not None:
+                break
+            eval_every = step   # Cancelled before the first check: check at this step, keep it and stop after it
         net.train()
         net.dino.eval() if train_blocks == 0 else None   # Frozen backbone: no dropout or other train-time behaviour
         X, Y, M = _batch(tr, crop, batch, rng)
@@ -218,7 +229,8 @@ def finetune(train: list[tuple[np.ndarray, np.ndarray]], val: list[tuple[np.ndar
         opt.step()
         sched.step()
         if step % eval_every == 0 or step == steps:
-            vd = float(np.mean([_dice(predict(net, v, device) >= 0.5, v.gt) for v in va])) if va else -float(loss.item())
+            vd = float(np.mean([_dice((predict(net, v, device) >= 0.5) & (True if v.valid is None else v.valid), v.gt if v.valid is None else v.gt & v.valid)
+                                for v in va])) if va else -float(loss.item())
             history.append({"step": step, "loss": float(loss.item()), "val_dice": vd})
             if vd > best_dice:
                 best_dice, best = vd, snapshot()

@@ -106,7 +106,11 @@ async function loadLabelLayer() {
   delete S.layers.label;
   delete S.layers.labelFill;
   if (!S.ds || !S.labels.some((l) => l.channel === S.c && l.z === S.z)) return;
-  try { S.layers.label = await loadImage(`/api/datasets/${S.ds.id}/labels/png?c=${S.c}&z=${S.z}&t=${Date.now()}`); S.layers.labelFill = S.layers.label; } catch (_) { /* none */ }
+  const c = S.c, z = S.z, ds = S.ds.id;
+  let img;
+  try { img = await loadImage(`/api/datasets/${ds}/labels/png?c=${c}&z=${z}&t=${Date.now()}`); } catch (_) { return; }
+  if (S.c !== c || S.z !== z || S.ds?.id !== ds) return;   // Another slice is shown by now
+  S.layers.label = S.layers.labelFill = img;
 }
 
 async function refreshLabels() {
@@ -165,17 +169,28 @@ function showHeadInfo() {
     + (h.reference_check ? ` Against the reference mask on ${h.reference_check.n_slices} unlabelled slices: <b>${h.reference_check.mean_dice.toFixed(3)}</b>.` : "");
 }
 
+// Training runs as a background job: on a real stack, computing the labelled slices' features takes minutes, and the
+// page stays usable meanwhile. The progress text replaces the result line until the model is ready.
 async function trainHead() {
   $("trainBtn").disabled = true;
-  busy(true, "Training…");
+  const dsId = S.ds.id;
   try {
-    S.head = await api(`/api/datasets/${S.ds.id}/head`, { method: "POST", body: { channel: S.c, settings: settings() } });
+    const job = await api(`/api/datasets/${dsId}/head`, { method: "POST", body: { channel: S.c, settings: settings(), background: true } });
+    let j = job;
+    while (j.status === "queued" || j.status === "running") {
+      $("trainResult").textContent = `Training: ${j.message || "starting…"}`;
+      await new Promise((r) => setTimeout(r, 700));
+      j = await api(`/api/jobs/${job.id}`);
+    }
+    if (j.status !== "done") throw new Error(j.error || "Training stopped");
+    if (S.ds?.id !== dsId) return;   // The user opened another image meanwhile
+    S.head = j.result;
     $("methodLearned").disabled = false;
     showHeadInfo();
     toast(`Trained in ${S.head.seconds} s`);
     setMethod("learned");
     scheduleSegment(0);
-  } catch (e) { toast(e.message, true); } finally { busy(false); renderLabels(); }
+  } catch (e) { toast(e.message, true); showHeadInfo(); } finally { renderLabels(); }
 }
 
 function setMethod(m) {

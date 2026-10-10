@@ -38,6 +38,10 @@ def router(ctx: AppContext) -> APIRouter:
 
         def channel_of(ds):
             c = req.channel if req.channel is not None else ds.meta.get("default_channel")
+            if c is None and ds.volume.rgb_channel is not None:
+                c = ds.volume.rgb_channel   # Colour images: their colour channel, as the app opens them
+            if c is None and ds.volume.n_channels == 1:
+                c = 0                       # A single channel needs no choice
             return c if c is not None and 0 <= c < ds.volume.n_channels else None
 
         # Samples without the channel (or without a chosen channel) are skipped and reported, not fatal
@@ -83,7 +87,7 @@ def router(ctx: AppContext) -> APIRouter:
                                      roi=store.roi_mask(did), n_z=ds.volume.n_z)
 
                 child = store.record_job("stack", {"dataset_id": did, "channel": c, "method": "profile", "profile": prof.name,
-                                                   "batch": job.id, "n_slices": len(zs)}, run)
+                                                   "batch": job.id, "n_slices": len(zs)}, run, cancelled=job.cancel.is_set)
                 rows.append({"dataset_id": did, "name": ds.volume.name, "job_id": child.id, "status": child.status, "error": child.error})
             rows += [{"dataset_id": ds.id, "name": ds.volume.name, "job_id": None, "status": "skipped",
                       "error": f"no channel {req.channel}" if req.channel is not None else "no channel chosen"} for ds in skipped]

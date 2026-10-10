@@ -97,15 +97,19 @@ def main(argv=None):
 
         local = args.host in ("127.0.0.1", "localhost", "::1")
         app = create_app(args.data_dir, allow_paths=local or args.allow_paths, token=args.token)
+        from urllib.parse import quote
+
         page = "/simple" if args.simple else "/"
+        link = f"{page}?token={quote(args.token)}" if args.token else page   # The token survives & or # in it
         if args.token:
-            print(f"Access link: http://{args.host if local else '<this-computer>'}:{args.port}{page}?token={args.token}", flush=True)
+            print(f"Access link: http://{args.host if local else '<this-computer>'}:{args.port}{link}", flush=True)
         elif not local:
             print("Listening on the network without a token: anyone who can reach this port can use the app. Consider --token.", flush=True)
         if not local and not args.allow_paths:
             print("Listening on the network: opening files by path is off. Users can still upload files.", flush=True)
         if args.open:
-            webbrowser.open(f"http://{args.host}:{args.port}{page}")
+            host = "127.0.0.1" if args.host in ("0.0.0.0", "::") else args.host   # A browser cannot open 0.0.0.0
+            webbrowser.open(f"http://{host}:{args.port}{link}")
         uvicorn.run(app, host=args.host, port=args.port)
 
 

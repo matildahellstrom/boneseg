@@ -199,9 +199,21 @@ def router(ctx: AppContext) -> APIRouter:
         stem = f"{Path(ds.volume.name).stem}_c{c}_z{z}_objects"
         return Response(table.to_csv(index=False), media_type="text/csv", headers=attachment(f"{stem}.csv"))
 
+    @r.get("/api/datasets/{ds_id}/jobs")
+    def dataset_jobs(ds_id: str, status: str | None = None):
+        """This dataset's jobs, newest first; with status=running, the ones still going, so a reloaded page can
+        show their progress and cancel them."""
+        store.get(ds_id)
+        jobs = [j for j in store.jobs.values() if j.meta.get("dataset_id") == ds_id and (status is None or
+                (j.status in ("queued", "running") if status == "running" else j.status == status))]
+        return [j.info() for j in sorted(jobs, key=lambda j: -j.created)]
+
     @r.post("/api/datasets/{ds_id}/stack")
     def stack_job(ds_id: str, req: StackJobRequest):
         ds = store.get(ds_id)
+        # One stack run per dataset at a time: a second would compete for the same model and finish both later
+        if any(j.kind == "stack" and j.status in ("queued", "running") and j.meta.get("dataset_id") == ds_id for j in store.jobs.values()):
+            raise HTTPException(409, "A stack run on this image is already going; wait for it or cancel it")
         settings = SegmentationSettings.from_dict(req.settings)
         z_end = ds.volume.n_z - 1 if req.z_end is None else min(req.z_end, ds.volume.n_z - 1)
         z_list = list(range(max(0, req.z_start), z_end + 1, max(1, req.z_step)))
@@ -303,6 +315,8 @@ def router(ctx: AppContext) -> APIRouter:
         path = job.out_dir / name
         if not path.exists():
             raise HTTPException(404, "Not ready yet")
-        return FileResponse(path, filename=f"{job_id}_{name}")
+        ds = store.datasets.get(job.meta.get("dataset_id"))
+        stem = Path(ds.volume.name).stem if ds else job_id   # e.g. "sample_A_masks.tif" rather than "4ab244acc0_masks.tif"
+        return FileResponse(path, headers=attachment(f"{stem}_{name}"))
 
     return r

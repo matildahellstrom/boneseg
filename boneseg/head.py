@@ -140,10 +140,19 @@ def _make_module(kind: str, dim: int, n_out: int = 1) -> torch.nn.Module:
 
 def fit(samples: list[tuple[Embedding, np.ndarray]], kind: str = "linear", l2: float = 1e-3, epochs: int = 150, seed: int = 0,
         context: int = 1):
-    """Fits a head on (embedding, mask) pairs. Patches are weighted so both classes count equally."""
+    """Fits a head on (embedding, mask) pairs, or (embedding, mask, valid) triples where valid marks the pixels the
+    label speaks for (patches mostly outside it are left out). Patches are weighted so both classes count equally."""
     torch.manual_seed(seed)
-    X = torch.cat([features(e, context) for e, _ in samples])
-    y = torch.cat([patch_targets(m, e) for e, m in samples])
+    Xs, ys = [], []
+    for s in samples:
+        e, m = s[0], s[1]
+        x, t = features(e, context), patch_targets(m, e)
+        if len(s) > 2 and s[2] is not None:
+            keep = patch_targets(s[2], e) >= 0.5   # Patches at least half inside the valid region
+            x, t = x[keep], t[keep]
+        Xs.append(x)
+        ys.append(t)
+    X, y = torch.cat(Xs), torch.cat(ys)
     pos_share = float(y.mean().clamp(1e-3, 1 - 1e-3))
     w = torch.where(y > 0.5, 0.5 / pos_share, 0.5 / (1 - pos_share))
     model = _make_module(kind, X.shape[1])
@@ -225,9 +234,13 @@ def train_head(samples: list[tuple[Embedding, np.ndarray]], settings: Segmentati
                 model, dim = fit([s for j, s in enumerate(samples) if j not in fold], k, context=c)
                 h = Head(settings.backbone, settings.layer_from_end, settings.vit_size, k, model.state_dict(), dim, context=c)
                 for i in fold:
-                    e, m = samples[i]
+                    e, m = samples[i][0], samples[i][1]
+                    v = samples[i][2] if len(samples[i]) > 2 else None
                     prob = head_prob(h, e)
-                    dices.append(metrics.dice(mask_from_prob(prob, h, settings, pixel_um).mask, m))
+                    pred = mask_from_prob(prob, h, settings, pixel_um).mask
+                    if v is not None:   # Only score inside the region the label is valid for
+                        pred, m, prob = pred & v, m & v, np.where(v, prob, 0)
+                    dices.append(metrics.dice(pred, m))
                     held[key].append((_small(prob), _small(m)))
             cv[key] = {"mean_dice": float(np.mean(dices)), "per_slice": [float(d) for d in dices], "kind": k, "context": c}
         best_key = max(cv, key=lambda key: cv[key]["mean_dice"])

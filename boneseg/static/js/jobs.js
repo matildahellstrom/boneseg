@@ -77,7 +77,7 @@ async function pollJob(id) {
     // Several structures: one line per structure
     const colorOf = (name) => safeColor(S.structures.find((st) => st.name === name)?.color);
     $("jobText").innerHTML = `${job.status === "cancelled" ? "Cancelled after" : "Done:"} ${s.n_slices || 0} slices`
-      + Object.entries(s.structures).map(([name, st]) => `<br><span style="color:${colorOf(name)}">●</span> ${esc(name)}: volume ${fmt(st.volume_um3)} µm³ · mean area ${(100 * (st.mean_area_fraction || 0)).toFixed(1)}% · ${st.n_objects_3d} objects in 3D`).join("")
+      + Object.entries(s.structures).map(([name, st]) => `<br><span style="color:${colorOf(name)}">●</span> ${esc(name)}: volume ${fmt(st.volume_um3)} ${volumeUnit()} · mean area ${(100 * (st.mean_area_fraction || 0)).toFixed(1)}% · ${st.n_objects_3d} objects in 3D`).join("")
       + (s.histomorphometry ? `<br><b>Histomorphometry</b> (${esc(s.histomorphometry.bone)} and ${esc(s.histomorphometry.cells)}): B.Ar/T.Ar ${fmt(s.histomorphometry["B.Ar/T.Ar_%"])}% · Oc.Pm/B.Pm ${fmt(s.histomorphometry["Oc.Pm/B.Pm_%"])}% · N.Oc/B.Pm ${fmt(s.histomorphometry["N.Oc/B.Pm_per_mm"], 2)} /mm` : "");
     drawChart(job.result.slices || [], colorOf);
     if (job.status === "done") { S.lastJob = { id, ds: job.meta.dataset_id, c: job.meta.channel }; if ($("showSide").checked) loadSide(); }
@@ -85,8 +85,8 @@ async function pollJob(id) {
       .map((f) => `<a class="small" href="/api/jobs/${id}/files/${f}" download><button class="ghost">${f}</button></a>`).join("");
     return;
   }
-  $("jobText").innerHTML = `${job.status === "cancelled" ? "Cancelled after" : "Done:"} ${s.n_slices || 0} slices · volume ${fmt(s.volume_um3)} µm³ · mean area ${(100 * (s.mean_area_fraction || 0)).toFixed(1)}%`
-    + (s.n_objects_3d != null ? ` · ${s.n_objects_3d} objects in 3D (${s.n_objects_3d_inside} not cut by the stack ends), median ${fmt(s.median_object_volume_um3)} µm³` : "")
+  $("jobText").innerHTML = `${job.status === "cancelled" ? "Cancelled after" : "Done:"} ${s.n_slices || 0} slices · volume ${fmt(s.volume_um3)} ${volumeUnit()} · mean area ${(100 * (s.mean_area_fraction || 0)).toFixed(1)}%`
+    + (s.n_objects_3d != null ? ` · ${s.n_objects_3d} objects in 3D (${s.n_objects_3d_inside} not cut by the stack ends), median ${fmt(s.median_object_volume_um3)} ${volumeUnit()}` : "")
     + (s.mean_dice_vs_reference != null ? ` · mean Dice ${s.mean_dice_vs_reference.toFixed(3)}` : "");
   drawChart(job.result.slices || []);
   if (job.status === "done") { S.lastJob = { id, ds: job.meta.dataset_id, c: job.meta.channel }; if ($("showSide").checked) loadSide(); }
