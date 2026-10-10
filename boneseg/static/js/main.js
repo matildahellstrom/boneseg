@@ -74,7 +74,7 @@ function bind() {
   $("modePos").onclick = () => setMode("pos");
   $("modeNeg").onclick = () => setMode("neg");
   $("undoBtn").onclick = undo;
-  $("clearBtn").onclick = () => { S.points[key()] = { pos: [], neg: [] }; persistClicks(); S.layers.mask = S.layers.heat = S.layers.unc = null; S.result = null; $("resultsSection").classList.add("hidden"); updateCounts(); draw(); };
+  $("clearBtn").onclick = () => { S.points[key()] = { pos: [], neg: [] }; S.history = forgetHistory(S.history, key()); persistClicks(); S.layers.mask = S.layers.heat = S.layers.unc = S.layers.err = null; S.result = null; $("resultsSection").classList.add("hidden"); updateCounts(); draw(); };
   $("autoNegBtn").onclick = autoBackground;
   $("copyNextBtn").onclick = () => {
     if (!S.ds || S.z >= S.ds.n_z - 1) return;
@@ -82,6 +82,7 @@ function bind() {
     const nextKey = `${S.c}:${S.z + 1}`;
     if ((S.points[nextKey]?.pos.length || S.points[nextKey]?.neg.length) && !confirm("The next slice already has clicks. Replace them?")) return;
     S.points[nextKey] = from;
+    S.history = forgetHistory(S.history, nextKey);
     persistClicks(nextKey);
     S.z += 1;
     loadPlane();
@@ -176,7 +177,9 @@ function bind() {
   $("showHisto").addEventListener("input", draw);
   $("showSide").addEventListener("input", loadSide);
   $("sideImg").onload = placeSideZ;
+  $("simpleLink").onclick = (e) => { if (S.ds) { e.preventDefault(); window.location.href = `/simple?ds=${S.ds.id}&c=${S.c}&z=${S.z}`; } };
   $("sideImg").parentElement.onclick = (ev) => {
+    if (!S.ds) return;
     const r = $("sideImg").getBoundingClientRect();
     const z = Math.floor(((ev.clientY - r.top) / r.height) * S.ds.n_z);
     S.z = Math.max(0, Math.min(S.ds.n_z - 1, z));
@@ -199,7 +202,7 @@ function bind() {
   $("batchRun").onclick = runBatch;
   $("batchChannelMode").onchange = () => $("batchChannelRow").classList.toggle("hidden", $("batchChannelMode").value === "own");
   $("reportBtn").onclick = () => window.open(`/api/datasets/${S.ds.id}/report?c=${S.c}&z=${S.z}`, "_blank");
-  $("hContact").oninput = () => { $("hContactValue").textContent = `${$("hContact").value} µm`; };
+  $("hContact").oninput = () => { $("hContactValue").textContent = `${$("hContact").value} ${lengthUnit()}`; };
   $("histoCsv").onclick = () => { window.location = `/api/datasets/${S.ds.id}/histomorphometry/cells.csv?z=${S.histoZ ?? S.z}`; };
   $("cancelBtn").onclick = () => S.job && api(`/api/jobs/${S.job}/cancel`, { method: "POST" });
   $("helpBtn").onclick = () => $("helpDialog").showModal();
@@ -283,7 +286,9 @@ async function init() {
     $("lambda").value = d.neg_weight;
     syncSettingLabels();
     await Promise.all([refreshDatasets(), refreshProfiles()]);
-    if (S.datasets.length) openDataset(S.datasets[0].id);
+    const view = wantedView(S.datasets);
+    if (view) openDataset(view.id, view);
+    else if (S.datasets.length) openDataset(S.datasets[0].id);
   } catch (e) {
     toast(`Could not reach the server: ${e.message}`, true);
   }

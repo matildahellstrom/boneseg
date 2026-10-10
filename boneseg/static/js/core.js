@@ -101,24 +101,46 @@ function clickBody(k) {
 }
 
 function persistClicks(k = key()) {
-  if (!S.ds) return;
-  clearTimeout(saveTimers[k]?.timer);
-  const dsId = S.ds.id;
-  const timer = setTimeout(() => {
-    delete saveTimers[k];
-    api(`/api/datasets/${dsId}/annotations`, { method: "PUT", body: clickBody(k) }).catch((e) => toast(`Could not save clicks: ${e.message}`, true));
-  }, 400);
-  saveTimers[k] = { timer, dsId };
+  if (S.ds) scheduleSave(S.ds.id, clickBody(k));
 }
 
-// Saves still waiting on their timer are sent when the page closes, so the last clicks are not lost
-window.addEventListener("pagehide", () => {
-  for (const [k, { timer, dsId }] of Object.entries(saveTimers)) {
-    clearTimeout(timer);
-    navigator.sendBeacon(`/api/datasets/${dsId}/annotations`, new Blob([JSON.stringify(clickBody(k))], { type: "application/json" }));
-    delete saveTimers[k];
+// Saving is delayed by 400 ms so quick clicking sends one request. Each dataset and slice has its own timer, and the
+// request body is copied now: switching dataset or slice before the timer fires cannot change what gets saved.
+// Both pages (index.html and simple.html) use these helpers.
+function scheduleSave(dsId, body) {
+  const id = `${dsId}|${body.channel}:${body.z}`;
+  clearTimeout(saveTimers[id]?.timer);
+  saveTimers[id] = { dsId, body: JSON.parse(JSON.stringify(body)), timer: setTimeout(() => sendSave(id), 400) };
+}
+
+function sendSave(id, beacon = false) {
+  const s = saveTimers[id];
+  if (!s) return Promise.resolve();
+  clearTimeout(s.timer);
+  delete saveTimers[id];
+  const url = `/api/datasets/${s.dsId}/annotations`;
+  if (beacon) return Promise.resolve(navigator.sendBeacon(url, new Blob([JSON.stringify(s.body)], { type: "application/json" })));
+  return api(url, { method: "PUT", body: s.body }).catch((e) => toast(`Could not save clicks: ${e.message}`, true));
+}
+
+// Sends every waiting save now, for example before opening another dataset
+function flushSaves() { return Promise.all(Object.keys(saveTimers).map((id) => sendSave(id))); }
+
+// When the page closes or navigates away, waiting saves go out as beacons, which the browser delivers after unload
+window.addEventListener("pagehide", () => { for (const id of Object.keys(saveTimers)) sendSave(id, true); });
+
+// Reverses one undo-history entry on the click lists p. An added point is removed (the last copy of exactly that
+// point, wherever it is now), a removed point goes back where it was. Shared by both pages.
+function undoEntry(p, h, listOf) {
+  const list = listOf(p);
+  if (h.op === "remove") { list.splice(Math.min(h.index, list.length), 0, h.pt); return; }
+  for (let i = list.length - 1; i >= 0; i--) {
+    if (list[i][0] === h.pt[0] && list[i][1] === h.pt[1]) { list.splice(i, 1); return; }
   }
-});
+}
+
+// Drops undo entries for one slice, after its clicks were replaced wholesale (Clear, Copy to next slice)
+function forgetHistory(history, k) { return history.filter((h) => h.key !== k); }
 
 function loadImage(src) {
   return new Promise((resolve, reject) => {
@@ -128,6 +150,29 @@ function loadImage(src) {
     img.src = src;
   });
 }
+
+// Which image to open when a page loads: the one named in the link (?ds=, from the other page's switch button),
+// else the last one opened in this browser, else none. Both pages remember the image they open.
+function rememberDataset(id) { try { localStorage.setItem("boneseg-last-ds", id); } catch (_) { /* storage blocked */ } }
+function wantedView(datasets) {
+  const q = new URL(window.location.href).searchParams;
+  let id = q.get("ds");
+  try { if (!id) id = localStorage.getItem("boneseg-last-ds"); } catch (_) { /* storage blocked */ }
+  if (!datasets.some((d) => d.id === id)) return null;
+  const num = (k) => (q.get(k) == null || q.get(k) === "" ? null : +q.get(k));
+  return { id, c: num("c"), z: num("z") };
+}
+// The first slice of channel c with object clicks, or null
+function firstClickedSlice(points, c, nZ = Infinity) {
+  const zs = Object.keys(points).filter((k) => k.startsWith(`${c}:`) && points[k].pos?.length).map((k) => +k.split(":")[1]).filter((z) => z < nZ);
+  return zs.length ? Math.min(...zs) : null;
+}
+
+// Units for measurements: files without a pixel size are measured with a 1 um placeholder, so they are pixels
+const areaUnit = () => (S.ds?.voxel_size_known === false ? "px²" : "µm²");
+const lengthUnit = () => (S.ds?.voxel_size_known === false ? "px" : "µm");
+const volumeUnit = () => (S.ds?.voxel_size_known === false ? "voxels" : "µm³");
+const perArea = () => (S.ds?.voxel_size_known === false ? "per Mpx" : "per mm²");
 
 function fmt(v, digits = 1) {
   if (v === null || v === undefined || Number.isNaN(v)) return "–";
@@ -193,8 +238,8 @@ function syncSettingLabels() {
   $("topPercentValue").textContent = `${$("topPercent").value}%`;
   $("manualValue").textContent = (+$("manualThr").value).toFixed(2);
   $("lambdaValue").textContent = (+$("lambda").value).toFixed(2);
-  $("minObjValue").textContent = `${$("minObj").value} µm²`;
-  $("fillValue").textContent = `${$("fillHoles").value} µm²`;
+  $("minObjValue").textContent = `${$("minObj").value} ${areaUnit()}`;
+  $("fillValue").textContent = `${$("fillHoles").value} ${areaUnit()}`;
   $("smoothValue").textContent = `${$("smooth").value} px`;
   const sam = S.health?.sam;
   $("samHint").classList.toggle("hidden", !sam || $("samRefine").value === "off");

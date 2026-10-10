@@ -31,12 +31,17 @@ function showEmpty(on) {
   if (on) {
     $("datasetTitle").textContent = "No image loaded";
     $("resultsSection").classList.add("hidden");
+    // Panels that belonged to the closed image
+    for (const el of ["sidePanel", "jobBox", "histoCards", "histoDownloads"]) $(el)?.classList.add("hidden");
+    S.lastJob = null;
+    S.job = null;
     S.base = null;
     draw();
   }
 }
 
-async function openDataset(id) {
+async function openDataset(id, view = {}) {
+  await flushSaves();   // Clicks on the previous dataset are saved before its state is replaced
   const d = await api(`/api/datasets/${id}`);
   S.ds = d;
   S.points = {};
@@ -69,6 +74,13 @@ async function openDataset(id) {
   $("resultsSection").classList.add("hidden");
   stopEditing();
   try { S.points = await api(`/api/datasets/${id}/annotations`); } catch (_) { S.points = {}; }
+  // Channel and slice: from the link if given, else the first slice that has clicks, else the middle
+  if (view.c != null && view.c >= 0 && view.c < d.n_channels) { S.c = view.c; cs.value = S.c; }
+  const clicked = firstClickedSlice(S.points, S.c, d.n_z);
+  S.z = view.z != null && view.z >= 0 && view.z < d.n_z ? view.z : clicked ?? Math.floor(d.n_z / 2);
+  rememberDataset(id);
+  $("jobBox").classList.add("hidden");   // A stack run of the previous dataset is not this one's
+  S.job = null;
   applySettings(d.settings);
   S.structures = structuresFromAnnotations(S.points);
   S.active = 0;
@@ -86,10 +98,40 @@ async function openDataset(id) {
   $("histoCards").classList.add("hidden");
   $("histoDownloads").classList.add("hidden");
   await loadPlane(true);
+  resumeJobs(id);
 }
 
+// After a reload or in a second tab, a stack run or fine-tune still going on this image is shown again,
+// with its progress and Cancel button
+async function resumeJobs(id) {
+  let running = [];
+  try { running = await api(`/api/datasets/${id}/jobs?status=running`); } catch (_) { return; }
+  if (S.ds?.id !== id) return;
+  const stack = running.find((j) => j.kind === "stack" && !j.meta.batch);
+  if (stack) {
+    S.job = stack.id;
+    $("jobBox").classList.remove("hidden");
+    $("cancelBtn").classList.remove("hidden");
+    $("stackBtn").disabled = true;
+    pollJob(stack.id);
+  }
+  const ft = running.find((j) => j.kind === "finetune");
+  if (ft) {
+    S.finetuneJob = ft.id;
+    $("finetuneBox").open = true;
+    $("finetuneJob").classList.remove("hidden");
+    $("finetuneBtn").disabled = true;
+    $("finetuneCancel").classList.remove("hidden");
+    pollFinetune(ft.id);
+  }
+}
+
+// Each slice request gets a number; a response that is not the newest is dropped, so stepping quickly through
+// slices cannot leave an older slice on screen (cached images can arrive before newer, slower ones)
+let planeSeq = 0;
 async function loadPlane(fit = false) {
   if (!S.ds) return;
+  const seq = ++planeSeq;
   $("zSlider").value = S.z;
   $("zValue").textContent = `${S.z} / ${S.ds.n_z - 1}${S.ds.voxel_size_known ? ` · ${(S.z * S.ds.voxel_um[0]).toFixed(1)} µm` : ""}`;
   $("contrastValue").textContent = `${S.low}–${S.high}%`;
@@ -98,14 +140,18 @@ async function loadPlane(fit = false) {
     + (ov !== "" && +ov !== S.c ? `&overlay=${ov}&color=${$("overlayColor").value.slice(1)}` : "");
   canvas.setAttribute("aria-label", `${S.ds.name}, channel ${S.c} (${S.ds.channel_names[S.c]}), slice ${S.z} of ${S.ds.n_z - 1}. Click to add points.`);
   busy(true, "Loading slice…");
+  let img;
   try {
-    S.base = await loadImage(url);
-  } catch (e) { toast(e.message, true); return; } finally { busy(false); }
+    img = await loadImage(url);
+  } catch (e) { if (seq === planeSeq) toast(e.message, true); return; } finally { if (seq === planeSeq) busy(false); }
+  if (seq !== planeSeq) return;
+  S.base = img;
   S.layers = {};
   S.result = null;
   $("resultsSection").classList.add("hidden");
   await loadReference();
   await loadLabelLayer();
+  if (seq !== planeSeq) return;   // A newer slice was requested while the overlays loaded
   stopEditing();
   if (fit) fitView();
   updateCounts();
@@ -117,7 +163,11 @@ async function loadPlane(fit = false) {
 
 async function loadReference() {
   if (!S.ds || S.ds.reference_channel == null) { delete S.layers.ref; return; }
-  try { S.layers.ref = await loadImage(`/api/datasets/${S.ds.id}/reference?z=${S.z}`); } catch (_) { delete S.layers.ref; }
+  const z = S.z, ds = S.ds.id;
+  let img = null;
+  try { img = await loadImage(`/api/datasets/${ds}/reference?z=${z}`); } catch (_) { /* no reference on this slice */ }
+  if (S.z !== z || S.ds?.id !== ds) return;   // The user moved to another slice meanwhile
+  if (img) S.layers.ref = img; else delete S.layers.ref;
 }
 
 function uploadFile(file) {

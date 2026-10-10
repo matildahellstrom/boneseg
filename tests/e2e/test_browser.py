@@ -429,11 +429,15 @@ def test_simple_mode(page, server):
         click(y, x)
     page.wait_for_function("P.mask !== null", timeout=30000)
     assert "Bone area" in page.inner_text("#numbers") and "mask is wrong" in page.inner_text("#hint")
-    # Right-click removes the nearest click, Ctrl+Z the last one
+    # Right-click removes the nearest click; Ctrl+Z brings exactly that click back; the next Ctrl+Z undoes the last added
+    count = lambda: page.evaluate("[P.clicks['1:6'].pos.length, P.clicks['1:6'].neg.length]")  # noqa: E731
     click(200, 15, "right")
+    assert count() == [3, 3]
+    page.keyboard.press("Control+z")
+    assert count() == [3, 4] and page.evaluate("P.clicks['1:6'].neg.some(([y, x]) => Math.abs(y - 200) < 3 && Math.abs(x - 15) < 3)")
     page.keyboard.press("Control+z")
     page.wait_for_timeout(300)
-    assert page.evaluate("[P.clicks['1:6'].pos.length, P.clicks['1:6'].neg.length]") == [3, 2]
+    assert count() == [3, 3]
     # Another slice is segmented with the clicked slice's clicks
     page.evaluate("P.z = 3; document.getElementById('slice').value = 3; loadSlice()")
     page.wait_for_function("P.mask !== null && document.getElementById('numbers').textContent.includes('slice 7')", timeout=30000)
@@ -451,4 +455,80 @@ def test_simple_mode(page, server):
     page.goto(url + "/")
     page.wait_for_function("S.ds && S.base", timeout=20000)
     assert page.evaluate("S.points['1:6'].pos.length") == 3
+    assert not page.errors, page.errors
+
+
+def _open_path(pg, path):
+    """Opens a file on disk through the API from inside the page, then selects it in the full app."""
+    return pg.evaluate(f"api('/api/datasets/from-path', {{method: 'POST', body: {{path: {str(path)!r}}}}}).then(d => d.id)")
+
+
+def test_bugfixes_full_app_clicks_undo_and_slices(page, server, tmp_path):
+    from PIL import Image as PILImage
+
+    url, data = server
+    stack = open_demo(page, url, data)
+    demo_id = page.evaluate("S.ds.id")
+    # BUG-07: right-click removes a point, undo brings back exactly that point
+    page.evaluate("S.z = 6; loadPlane()")
+    page.wait_for_timeout(400)
+    for y, x in [(20, 20), (360, 40), (30, 480)]:
+        click_full(page, y, x, shift=True)
+    pos = page.evaluate("(() => { const r = canvas.getBoundingClientRect(); const f = fullToDisp(); return [r.left + S.view.ox + 480 * f * S.view.scale, r.top + S.view.oy + 30 * f * S.view.scale]; })()")
+    page.mouse.click(*pos, button="right")
+    assert page.evaluate("pts().neg.length") == 2
+    page.keyboard.press("Control+z")
+    assert page.evaluate("JSON.stringify(pts().neg)") == "[[20,20],[360,40],[30,480]]"
+    # BUG-01: a click followed at once by opening another image is still saved on the first image
+    grey = tmp_path / "grey.png"
+    PILImage.fromarray((np.random.default_rng(0).random((200, 300)) * 255).astype(np.uint8)).save(grey)
+    other = _open_path(page, grey)
+    click_full(page, 200, 15, shift=True)
+    page.evaluate(f"openDataset('{other}')")
+    page.wait_for_function(f"S.ds && S.ds.id === '{other}' && S.base", timeout=20000)
+    page.wait_for_timeout(300)
+    saved = page.evaluate(f"api('/api/datasets/{demo_id}/annotations')")
+    assert len(saved["1:6"]["neg"]) == 4
+    # BUG-11: no pixel size, so areas are in pixels
+    for y, x in [(100, 100), (150, 200)]:
+        click_full(page, y, x)
+    click_full(page, 10, 10, shift=True)
+    page.wait_for_function("S.result && document.querySelector('#busy').classList.contains('hidden')", timeout=30000)
+    assert "px²" in page.inner_text("#statCards") and "µm²" not in page.inner_text("#statCards")
+    # BUG-02: stepping quickly through slices ends with the image of the slice the app shows
+    page.evaluate(f"openDataset('{demo_id}')")
+    page.wait_for_function(f"S.ds && S.ds.id === '{demo_id}' && S.base", timeout=20000)
+    page.evaluate("(async () => { for (const z of [7, 8, 7, 8, 9, 8]) { S.z = z; loadPlane(); await new Promise(r => setTimeout(r, 15)); } })()")
+    page.wait_for_timeout(1500)
+    assert page.evaluate("S.base.src.includes('z=' + S.z + '&')"), page.evaluate("[S.z, S.base.src]")
+    # BUG-15: removing the open image leaves no stale panels and no errors
+    page.on("dialog", lambda d: d.accept())
+    page.locator(".dataset-item.active button").click()
+    page.wait_for_function("S.ds === null", timeout=10000)
+    assert page.is_hidden("#jobBox") and page.is_hidden("#sidePanel")
+    page.evaluate("document.getElementById('sideImg').parentElement.click()")
+    assert not page.errors, page.errors
+
+
+def test_bugfixes_switching_pages_keeps_the_image(page, server):
+    url, data = server
+    page.goto(url + "/simple")
+    page.click("#demoBtn")
+    page.wait_for_function("P.ds && P.img", timeout=20000)
+    ds_id = page.evaluate("P.ds.id")
+    page.evaluate("P.z = 4; document.getElementById('slice').value = 4; loadSlice()")
+    page.wait_for_timeout(400)
+    # BUG-08: "Full app" opens the same image, channel and slice
+    page.click("#fullLink")
+    page.wait_for_function("S.ds && S.base", timeout=20000)
+    assert page.evaluate("[S.ds.id, S.c, S.z]") == [ds_id, page.evaluate("S.c"), 4] and page.evaluate("S.ds.id") == ds_id
+    # And back: simple mode opens it too, also on a plain reload
+    page.evaluate("S.z = 7; loadPlane()")
+    page.wait_for_timeout(300)
+    page.click("#simpleLink")
+    page.wait_for_function("P.ds && P.img", timeout=20000)
+    assert page.evaluate("[P.ds.id, P.z]") == [ds_id, 7]
+    page.goto(url + "/simple")
+    page.wait_for_function("P.ds && P.img", timeout=20000)
+    assert page.evaluate("P.ds.id") == ds_id
     assert not page.errors, page.errors

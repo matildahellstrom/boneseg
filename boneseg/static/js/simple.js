@@ -14,9 +14,11 @@ const P = {
   clicks: {},          // "c:z" -> {pos: [[y, x]], neg: [[y, x]], extra: [...]}, saved on the server
   clicksZ: null,       // Slice whose clicks are used; other slices are segmented with them, like a stack run
   mode: "pos",         // What the next click marks: "pos" (bone) or "neg" (background)
-  history: [],         // Undo stack of [key, kind]
+  history: [],         // Undo stack of {key, op: "add"|"remove", kind, pt, index}
   view: { scale: 1, ox: 0, oy: 0 },   // Canvas transform: screen = image * scale + offset
-  seq: 0,              // Increases with every request, so a slow old response cannot overwrite a newer one
+  sliceSeq: 0,         // Counters per request type: a slow old response must not overwrite a newer one,
+  segSeq: 0,           // and a mask request must not cancel a slice that is still loading
+  loading: false,      // A slice image is on its way; masks wait for it
   job: null,           // Id of the running stack job
 };
 const canvas = $("canvas");
@@ -24,11 +26,8 @@ const ctx2d = canvas.getContext("2d");
 const MIN_CLICKS = 3;  // The hint asks for at least this many of each kind
 
 const keyOf = (c, z) => `${c}:${z}`;
-// First slice of the current channel that has bone clicks, or null
-const clickedSlice = () => {
-  const zs = Object.keys(P.clicks).filter((k) => k.startsWith(`${P.c}:`) && P.clicks[k].pos?.length).map((k) => +k.split(":")[1]);
-  return zs.length ? Math.min(...zs) : null;
-};
+// First slice of the current channel that has bone clicks, or null (firstClickedSlice is in core.js)
+const clickedSlice = () => firstClickedSlice(P.clicks, P.c, P.ds.n_z);
 const here = () => (P.clicks[keyOf(P.c, P.z)] ||= { pos: [], neg: [] });
 // The clicks the mask is made from: this slice's own, or those of the clicked slice
 const activeClicks = () => {
@@ -79,7 +78,8 @@ async function showRecent() {
   }
 }
 
-async function openDataset(id) {
+async function openDataset(id, view = {}) {
+  await flushSaves();   // Clicks on the previous image are saved before its state is replaced
   const d = await api(`/api/datasets/${id}`);
   P.ds = d;
   P.history = [];
@@ -88,9 +88,11 @@ async function openDataset(id) {
   P.c = d.default_channel ?? d.rgb_channel ?? 0;
   if (P.c === d.reference_channel) P.c = d.reference_channel === 0 && d.n_channels > 1 ? 1 : 0;
   try { P.clicks = await api(`/api/datasets/${id}/annotations`); } catch (_) { P.clicks = {}; }
-  // Start on a slice that already has clicks, else in the middle of the stack
+  if (view.c != null && view.c >= 0 && view.c < d.n_channels) P.c = view.c;
+  // Start on the slice from the link, else one that already has clicks, else the middle of the stack
   P.clicksZ = clickedSlice();
-  P.z = P.clicksZ ?? Math.floor((d.n_z - 1) / 2);
+  P.z = view.z != null && view.z >= 0 && view.z < d.n_z ? view.z : P.clicksZ ?? Math.floor((d.n_z - 1) / 2);
+  rememberDataset(id);
 
   $("title").textContent = d.name;
   showOpenControls(false);   // Collapse step 1 to one line
@@ -113,6 +115,17 @@ async function openDataset(id) {
   $("downloads").innerHTML = "";
   await loadSlice(true);
   showRecent();
+  // A stack run still going on this image (after a reload, or started in the full app) is shown again
+  try {
+    const running = (await api(`/api/datasets/${id}/jobs?status=running`)).find((j) => j.kind === "stack" && !j.meta.batch);
+    if (running && P.ds?.id === id) {
+      P.job = running.id;
+      $("job").classList.remove("hidden");
+      $("stackBtn").disabled = true;
+      $("cancelBtn").classList.remove("hidden");
+      pollJob(running.id);
+    }
+  } catch (_) { /* older server without the jobs list */ }
 }
 
 // Step 1 is either the full set of open controls or, with an image open, a single line
@@ -125,9 +138,13 @@ function showOpenControls(on) {
 // Step 2: showing a slice, collecting clicks and segmenting
 
 async function loadSlice(fit = false) {
-  const seq = ++P.seq;
-  const img = await loadImage(`/api/datasets/${P.ds.id}/plane?c=${P.c}&z=${P.z}&max_side=1600`);
-  if (seq !== P.seq) return;   // The user moved on while this slice was loading
+  const seq = ++P.sliceSeq;
+  P.loading = true;
+  let img;
+  try { img = await loadImage(`/api/datasets/${P.ds.id}/plane?c=${P.c}&z=${P.z}&max_side=1600`); }
+  catch (e) { if (seq === P.sliceSeq) P.loading = false; toast(`Could not load slice ${P.z + 1}`, true); return; }
+  if (seq !== P.sliceSeq) return;   // The user moved on while this slice was loading
+  P.loading = false;
   P.img = img;
   P.mask = null;
   if (fit) fitView();
@@ -186,10 +203,12 @@ function toFull(ev) {
 }
 
 function addClick(ev) {
+  if (P.loading) return;   // The image on screen is still the previous slice
   const [y, x] = toFull(ev);
   if (y < 0 || x < 0 || y >= P.ds.height || x >= P.ds.width) return;   // Outside the image
-  here()[P.mode].push([Math.round(y), Math.round(x)]);
-  P.history.push([keyOf(P.c, P.z), P.mode]);
+  const pt = [Math.round(y), Math.round(x)];
+  here()[P.mode].push(pt);
+  P.history.push({ key: keyOf(P.c, P.z), op: "add", kind: P.mode, pt });
   P.clicksZ = P.z;   // Clicking on a slice makes it the clicked slice
   clicksChanged();
 }
@@ -208,26 +227,27 @@ function removeNearest(ev) {
     });
   }
   if (!best) return;
-  p[best.kind].splice(best.i, 1);
+  const [pt] = p[best.kind].splice(best.i, 1);
+  P.history.push({ key: keyOf(P.c, P.z), op: "remove", kind: best.kind, pt, index: best.i });   // So undo can put it back
   clicksChanged();
 }
 
+// Undo reverses the last change, on whichever slice it was made; it shows that slice so the change is visible
 function undo() {
-  const last = P.history.pop();
-  if (!last) return;
-  const [k, kind] = last;
-  P.clicks[k]?.[kind].pop();
-  clicksChanged();
+  const h = P.history.pop();
+  if (!h || !P.clicks[h.key]) return;
+  undoEntry(P.clicks[h.key], h, (q) => q[h.kind]);   // From core.js, shared with the full app
+  clicksChanged(h.key);
+  const [c, z] = h.key.split(":").map(Number);
+  if (c !== P.c || z !== P.z) { P.c = c; P.z = z; $("channel").value = c; $("slice").value = z; loadSlice(); }
 }
 
-// After any change to the clicks: save them, redraw, segment again
-let saveTimer = null;
-function clicksChanged() {
-  const p = here(), dsId = P.ds.id, c = P.c, z = P.z;
-  clearTimeout(saveTimer);
-  // Saved like the full app does, keeping any extra structures the full app added on this slice
-  saveTimer = setTimeout(() => api(`/api/datasets/${dsId}/annotations`, { method: "PUT", body: { channel: c, z, pos: p.pos, neg: p.neg, extra: p.extra || [] } })
-    .catch((e) => toast(`Could not save clicks: ${e.message}`, true)), 400);
+// After any change to the clicks of slice k: save them, redraw, segment again
+function clicksChanged(k = keyOf(P.c, P.z)) {
+  const [c, z] = k.split(":").map(Number);
+  const p = P.clicks[k] || { pos: [], neg: [] };
+  // scheduleSave (core.js) copies the clicks now and keeps one timer per slice; extra structures from the full app are kept
+  scheduleSave(P.ds.id, { channel: c, z, pos: p.pos, neg: p.neg, extra: p.extra || [] });
   draw();
   clearTimeout(segTimer);
   segTimer = setTimeout(segment, 150);   // Wait a moment, so quick clicking sends one request, not many
@@ -236,18 +256,19 @@ function clicksChanged() {
 // Asks the server for this slice's mask, made with the app's default settings
 let segTimer = null;
 async function segment() {
+  if (P.loading) return;   // loadSlice segments again once the image is in
   const a = activeClicks();
   updateHint(a);
   if (!a || !a.neg.length) { P.mask = null; $("numbers").innerHTML = ""; draw(); return; }
-  const seq = ++P.seq;
+  const seq = ++P.segSeq;
   try {
     const out = await api(`/api/datasets/${P.ds.id}/segment`, {
       method: "POST",
       body: { method: "clicks", channel: P.c, z: P.z, pos: a.pos, neg: a.neg, clicks_z: a.z, settings: {}, max_side: 1600 },
     });
-    if (seq !== P.seq) return;
+    if (seq !== P.segSeq || P.loading) return;
     P.mask = await loadImage(out.mask_png);
-    if (seq !== P.seq) return;
+    if (seq !== P.segSeq || P.loading) return;
     const st = out.stats;
     const unit = P.ds.voxel_size_known ? "µm²" : "px²";
     $("numbers").innerHTML = `<span>Bone area <b>${(100 * st.area_fraction).toFixed(1)}%</b> of the slice</span>`
@@ -291,6 +312,7 @@ async function runStack() {
     $("cancelBtn").classList.remove("hidden");
     $("downloads").innerHTML = "";
     $("stackNumbers").innerHTML = "";
+    $("jobText").textContent = "Starting…";
     pollJob(job.id);
   } catch (e) { toast(e.message, true); }
 }
@@ -327,14 +349,17 @@ function bind() {
   $("drop").addEventListener("drop", (e) => { e.preventDefault(); $("drop").classList.remove("over"); if (e.dataTransfer.files[0]) upload(e.dataTransfer.files[0]); });
   $("file").onchange = (e) => { if (e.target.files[0]) upload(e.target.files[0]); e.target.value = ""; };
   $("pathBtn").onclick = async () => {
+    if (!$("path").value.trim()) { toast("Paste the full path of a file first"); return; }
     try { openDataset((await api("/api/datasets/from-path", { method: "POST", body: { path: $("path").value.trim() } })).id); } catch (e) { toast(e.message, true); }
   };
   $("demoBtn").onclick = async () => { try { openDataset((await api("/api/datasets/demo", { method: "POST" })).id); } catch (e) { toast(e.message, true); } };
   $("changeBtn").onclick = () => showOpenControls(true);
+  // "Full app" opens the same image on the same channel and slice
+  $("fullLink").onclick = (e) => { if (P.ds) { e.preventDefault(); window.location.href = `/?ds=${P.ds.id}&c=${P.c}&z=${P.z}`; } };
   $("posBtn").onclick = () => setMode("pos");
   $("negBtn").onclick = () => setMode("neg");
   $("undoBtn").onclick = undo;
-  $("clearBtn").onclick = () => { const p = here(); p.pos = []; p.neg = []; clicksChanged(); };
+  $("clearBtn").onclick = () => { const p = here(); p.pos = []; p.neg = []; P.history = forgetHistory(P.history, keyOf(P.c, P.z)); clicksChanged(); };
   $("showMask").onchange = draw;
   $("channel").onchange = () => { P.c = +$("channel").value; P.clicksZ = clickedSlice(); loadSlice(); };
   $("toClicks").onclick = () => { P.z = P.clicksZ; $("slice").value = P.z; loadSlice(); };
@@ -386,6 +411,8 @@ async function init() {
     const health = await api("/api/health");
     $("pathRow").classList.toggle("hidden", !health.allow_paths);   // Opening by path is off on shared servers
     await showRecent();
+    const view = wantedView(await api("/api/datasets"));   // The image from the link or the last one opened here
+    if (view) await openDataset(view.id, view);
   } catch (e) { toast(`Could not reach the server: ${e.message}`, true); }
 }
 

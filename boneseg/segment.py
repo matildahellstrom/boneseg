@@ -48,9 +48,55 @@ class SegmentationSettings:
 
     @classmethod
     def from_dict(cls, d: dict | None) -> "SegmentationSettings":
-        d = d or {}
-        known = {k: v for k, v in d.items() if k in cls.__dataclass_fields__}
-        return cls(**known)
+        """Settings from a request or a saved profile. Unknown keys are ignored; values are converted to the field's
+        type and checked, so a bad value gives a clear error (HTTP 400) instead of failing deep inside a computation."""
+        out = {}
+        for k, v in (d or {}).items():
+            f = cls.__dataclass_fields__.get(k)
+            if f is None:
+                continue
+            kind = type(f.default)
+            try:
+                if kind is bool:
+                    if isinstance(v, str) and v.lower() not in ("true", "false", "0", "1"):
+                        raise ValueError
+                    v = v.lower() in ("true", "1") if isinstance(v, str) else bool(v)
+                elif kind is int:
+                    if float(v) != int(float(v)):
+                        raise ValueError
+                    v = int(float(v))
+                else:
+                    v = kind(v)
+            except (TypeError, ValueError):
+                raise ValueError(f"Setting {k} must be {'a whole number' if kind is int else 'a number' if kind is float else kind.__name__}, not {v!r}") from None
+            if kind is float and not np.isfinite(v):
+                raise ValueError(f"Setting {k} must be a finite number")
+            out[k] = v
+        s = cls(**out)
+        s.validate()
+        return s
+
+    def validate(self):
+        """Range checks for the settings a user or an API call can set."""
+        checks = [
+            (14 <= self.vit_size <= 4200, "vit_size must be between 14 and 4200 pixels"),
+            (1 <= self.layer_from_end <= 40, "layer_from_end must be between 1 and 40"),
+            (1 <= self.shift_passes <= 4, "shift_passes must be between 1 and 4"),
+            (0 <= self.neg_weight <= 10, "neg_weight must be between 0 and 10"),
+            (0 < self.top_percent <= 100, "top_percent must be between 0 and 100"),
+            (self.manual_threshold >= 0, "manual_threshold cannot be negative"),   # Above 1 is allowed: an empty mask
+            (0 <= self.clip_low < self.clip_high <= 100, "clip_low and clip_high must satisfy 0 <= low < high <= 100"),
+            (self.threshold_position == -1 or 0 <= self.threshold_position <= 1, "threshold_position must be -1 (auto) or between 0 and 1"),
+            (self.min_object_um2 >= 0 and self.fill_holes_um2 >= 0 and self.smooth_px >= 0, "Clean-up sizes cannot be negative"),
+            (self.guided_eps > 0, "guided_eps must be positive"),
+            (self.threshold_mode in ("clicks", "otsu", "top_percent", "manual"), f"Unknown threshold mode {self.threshold_mode}"),
+            (self.score_norm in ("robust", "none"), f"Unknown score normalisation {self.score_norm}"),
+            (self.edge_refine in ("guided", "none"), f"Unknown edge refinement {self.edge_refine}"),
+            (self.sam_refine in ("off", "agree"), f"Unknown sam_refine value {self.sam_refine}"),
+        ]
+        for ok, msg in checks:
+            if not ok:
+                raise ValueError(msg)
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -130,8 +176,11 @@ def get_refiner(spec: str):
     path = BUNDLED_REFINER if spec == "bundled" else Path(check_model_path(spec))
     if str(path) not in _REFINERS:
         if not path.exists():
-            raise ValueError(f"Refiner file not found: {path}")
-        _REFINERS[str(path)] = Refiner.load(path)
+            raise ValueError(f"Refiner file not found: {path.name}")
+        try:
+            _REFINERS[str(path)] = Refiner.load(path)
+        except Exception:   # Not a refiner file (or damaged): a clear 400 instead of an unpickling crash
+            raise ValueError(f"{path.name} is not a boneseg refiner file") from None
     return _REFINERS[str(path)]
 
 

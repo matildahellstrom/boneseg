@@ -59,7 +59,9 @@ async function runBatch() {
       const samples = j.result.samples || [];
       const failed = samples.filter((s) => s.status === "failed");
       const skipped = samples.filter((s) => s.status === "skipped");
-      $("batchText").textContent = `Done: ${samples.filter((s) => s.status === "done").length} samples`
+      const stopped = samples.filter((s) => s.status === "cancelled");
+      $("batchText").textContent = `${j.status === "cancelled" ? "Cancelled" : "Done"}: ${samples.filter((s) => s.status === "done").length} samples`
+        + (stopped.length ? `, ${stopped.length} stopped part-way (not used in the comparison)` : "")
         + (skipped.length ? `, ${skipped.length} skipped (${skipped.map((s) => s.error).filter((v, i, a) => a.indexOf(v) === i).join(", ")})` : "")
         + (failed.length ? `, ${failed.length} failed (${failed.map((f) => f.name).join(", ")})` : "");
       loadStudy();
@@ -83,7 +85,7 @@ async function loadStudy() {
   $("groupNames").innerHTML = groups.map((g) => `<option value="${esc(g)}">`).join("");
   $("studyRows").innerHTML = out.rows.map((r) => `<tr><td title="${esc(r.name)}">${esc(r.name.length > 34 ? r.name.slice(0, 32) + "…" : r.name)}</td>
       <td><input type="text" list="groupNames" value="${esc(r.group)}" data-id="${esc(r.dataset_id)}" placeholder="group" aria-label="Group of ${esc(r.name)}"></td>
-      <td class="num">${r.has_stack_run ? val(r[metric]) : '<span class="muted">no stack run</span>'}</td></tr>`).join("");
+      <td class="num">${r[metric] != null ? val(r[metric]) : `<span class="muted">${r.has_stack_run ? "–" : "no stack run"}</span>`}</td></tr>`).join("");
   $("studyRows").querySelectorAll("input").forEach((inp) => {
     inp.onchange = async () => {
       try { await api(`/api/datasets/${inp.dataset.id}`, { method: "PATCH", body: { group: inp.value.trim() || null } }); loadStudy(); }
@@ -268,7 +270,7 @@ async function runHisto() {
       ["Oc.Pm/B.Pm", `${m["Oc.Pm/B.Pm_%"].toFixed(1)}%`],
       ["N.Oc/B.Pm", `${m["N.Oc/B.Pm_per_mm"].toFixed(1)} /mm`],
       ["Cells on bone", `${m["N.Oc"]} of ${m.cells_total}`],
-      ["Median distance", `${fmt(m.median_distance_to_bone_um)} µm`],
+      ["Median distance", `${fmt(m.median_distance_to_bone_um)} ${lengthUnit()}`],
     ];
     $("histoCards").innerHTML = cards.map(([k, v]) => `<div class="card"><div class="k">${k}</div><div class="v">${v}</div></div>`).join("");
     $("histoCards").classList.remove("hidden");

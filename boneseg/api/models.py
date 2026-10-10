@@ -1,7 +1,9 @@
 """Request bodies of the web API."""
 from __future__ import annotations
 
-from pydantic import BaseModel, Field
+import math
+
+from pydantic import BaseModel, Field, field_validator
 
 
 class SegmentRequest(BaseModel):
@@ -90,6 +92,7 @@ class HeadRequest(BaseModel):
     channel: int
     settings: dict = Field(default_factory=dict)
     kind: str = "auto"
+    background: bool = False   # Run as a job with progress (GET /api/jobs/{id}); the result is the model's info
 
 
 class FinetuneRequest(BaseModel):
@@ -130,6 +133,13 @@ class PathRequest(BaseModel):
 
 class RoiRequest(BaseModel):
     polygon: list[tuple[float, float]] | None = None  # (y, x) vertices in full-resolution pixels
+
+    @field_validator("polygon")
+    @classmethod
+    def finite_corners(cls, v):
+        if v is not None and not all(math.isfinite(a) and math.isfinite(b) for a, b in v):
+            raise ValueError("Region corners must be finite numbers")
+        return v
 
 
 class MetaRequest(BaseModel):

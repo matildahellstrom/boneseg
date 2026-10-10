@@ -27,11 +27,17 @@ def _open_volume(path: Path) -> bio.Volume:
     except ValueError as e:
         if str(e).startswith(("Unsupported file type", "Expected a")):  # boneseg's own messages are already clear
             raise
-        raise ValueError(f"Could not read {path.name}. The file may be damaged or not what its extension says "
-                         f"({type(e).__name__}: {str(e)[:160]})") from None
+        raise ValueError(_read_error(path, e)) from None
     except Exception as e:
-        raise ValueError(f"Could not read {path.name}. The file may be damaged or not what its extension says "
-                         f"({type(e).__name__}: {str(e)[:160]})") from None
+        raise ValueError(_read_error(path, e)) from None
+
+
+def _read_error(path: Path, e: Exception) -> str:
+    """A read error for users: the file name only (no server folders), the detail shortened at a word."""
+    detail = str(e).replace(str(path), path.name).replace(str(path.parent) + "/", "")
+    if len(detail) > 160:
+        detail = detail[:160].rsplit(" ", 1)[0] + " …"
+    return f"Could not read {path.name}. The file may be damaged or not what its extension says ({type(e).__name__}: {detail})"
 
 
 class LRU:
@@ -283,7 +289,11 @@ class Store:
     def roi_mask(self, ds_id: str) -> np.ndarray | None:
         """The region of interest as a full-resolution mask, or None for the whole image."""
         ds = self.get(ds_id)
-        poly = ds.meta.get("roi")
+        return self.polygon_mask(ds_id, ds.meta.get("roi"))
+
+    def polygon_mask(self, ds_id: str, poly) -> np.ndarray | None:
+        """A polygon of (y, x) corners as a full-resolution mask (cached), or None without a polygon."""
+        ds = self.get(ds_id)
         if not poly or len(poly) < 3:
             return None
         key = (ds_id, "roi", tuple(map(tuple, poly)))
@@ -409,6 +419,21 @@ class Store:
 
     def delete_label(self, ds_id: str, c: int, z: int):
         self.label_path(ds_id, c, z).unlink(missing_ok=True)
+        self.set_label_region(ds_id, c, z, None)
+
+    # A label saved while a region of interest was set only says something inside that region: outside it, the mask
+    # was clipped away, not judged. The region is kept with the label, and training ignores pixels outside it.
+    def set_label_region(self, ds_id: str, c: int, z: int, poly):
+        regions = dict(self.get(ds_id).meta.get("label_regions") or {})
+        if poly:
+            regions[f"{int(c)}:{int(z)}"] = poly
+        else:
+            regions.pop(f"{int(c)}:{int(z)}", None)
+        self.update_meta(ds_id, label_regions=regions)
+
+    def label_region(self, ds_id: str, c: int, z: int) -> np.ndarray | None:
+        """Where the label on (c, z) is valid, as a mask; None when it covers the whole slice."""
+        return self.polygon_mask(ds_id, (self.get(ds_id).meta.get("label_regions") or {}).get(f"{int(c)}:{int(z)}"))
 
     def head_path(self, ds_id: str, c: int) -> Path:
         d = self.ds_dir(ds_id) / "heads"
@@ -471,16 +496,20 @@ class Store:
         threading.Thread(target=run, daemon=True).start()
         return job
 
-    def record_job(self, kind: str, meta: dict, run: Callable[[Path], dict]) -> Job:
+    def record_job(self, kind: str, meta: dict, run: Callable[[Path], dict], cancelled: Callable[[], bool] | None = None) -> Job:
         """Runs work synchronously in a new job folder and stores it as a finished job, for example one
-        sample of a batch run, so it shows up like any other stack run."""
+        sample of a batch run, so it shows up like any other stack run. If cancelled() is true when the work returns,
+        the job is stored as cancelled: its results cover only part of the stack."""
         job = Job(id=uuid.uuid4().hex[:10], kind=kind, meta=meta, status="running")
         job.out_dir = self.root / "jobs" / job.id
         job.out_dir.mkdir(parents=True, exist_ok=True)
         self.jobs[job.id] = job
         try:
             job.result = run(job.out_dir) or {}
-            job.status, job.progress = "done", 1.0
+            if cancelled is not None and cancelled():
+                job.status = "cancelled"
+            else:
+                job.status, job.progress = "done", 1.0
         except Exception as e:
             traceback.print_exc()
             job.status, job.error = "failed", f"{type(e).__name__}: {e}"

@@ -11,6 +11,7 @@ from fastapi.responses import Response
 
 from .. import render
 from ..io import normalize_plane as bio_normalize
+from ..segment import SegmentationResult
 from .context import AppContext
 from .models import PathRequest, RoiRequest, MetaRequest
 
@@ -65,6 +66,8 @@ def router(ctx: AppContext) -> APIRouter:
     def from_path(req: PathRequest):
         if not allow_paths:
             raise HTTPException(403, "Opening files by path is turned off on this server. Upload the file, or restart with --allow-paths")
+        if not req.path.strip():
+            raise HTTPException(400, "Enter the full path of a file")
         try:
             return store.add_dataset_path(req.path).info()
         except FileNotFoundError as e:
@@ -101,7 +104,8 @@ def router(ctx: AppContext) -> APIRouter:
         roi = store.roi_mask(ds_id)
         # Re-clip cached results to the new region, so masks on other channels stay usable
         for key, res in list(ds.results.items()):
-            if not hasattr(res, "mask"):
+            # Only segmentation results carry a mask; histomorphometry tables (pandas, whose .mask is a method) do not
+            if not isinstance(res, SegmentationResult):
                 continue
             full = res.extra.get("unclipped", res.mask)
             res.mask = full & roi if roi is not None else full

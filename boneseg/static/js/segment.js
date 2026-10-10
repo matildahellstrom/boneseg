@@ -54,18 +54,18 @@ function showResults(out) {
   $("saveLabelBtn").classList.remove("hidden");
   const s = out.stats;
   const cards = [
-    ["Area", `${fmt(s.area_um2)} µm²`],
+    ["Area", `${fmt(s.area_um2)} ${areaUnit()}`],
     ["Area fraction", `${(100 * s.area_fraction).toFixed(1)}%`],
     ["Objects", `${s.n_objects}`],
-    ["Objects per mm²", fmt(s.objects_per_mm2)],
-    ["Median object", `${fmt(s.median_object_area_um2)} µm²`],
+    [`Objects ${perArea()}`, fmt(s.objects_per_mm2)],
+    ["Median object", `${fmt(s.median_object_area_um2)} ${areaUnit()}`],
     ["Signal contrast", s.contrast_ratio ? `${s.contrast_ratio.toFixed(2)}×` : "–"],
   ];
   $("statCards").innerHTML = cards.map(([k, v]) => `<div class="card"><div class="k">${k}</div><div class="v">${v}</div></div>`).join("");
   const ev = out.evaluation;
   $("evalBox").classList.toggle("hidden", !ev);
-  if (ev) $("evalBox").innerHTML = `<b>Against ${ev.against === "your saved label" ? "your saved label" : "the reference mask"}</b><br>Dice ${ev.dice.toFixed(3)} · IoU ${ev.iou.toFixed(3)} · HD95 ${fmt(ev.hd95_um)} µm`
-    + `<br><span class="small">Extra ${fmt(ev.false_positive_um2)} µm² · missed ${fmt(ev.false_negative_um2)} µm² · <a href="#" id="errLink">show errors</a></span>`;
+  if (ev) $("evalBox").innerHTML = `<b>Against ${ev.against === "your saved label" ? "your saved label" : "the reference mask"}</b><br>Dice ${ev.dice.toFixed(3)} · IoU ${ev.iou.toFixed(3)} · HD95 ${fmt(ev.hd95_um)} ${lengthUnit()}`
+    + `<br><span class="small">Extra ${fmt(ev.false_positive_um2)} ${areaUnit()} · missed ${fmt(ev.false_negative_um2)} ${areaUnit()} · <a href="#" id="errLink">show errors</a></span>`;
   if (ev) $("errLink").onclick = (e) => { e.preventDefault(); $("showErr").checked = !$("showErr").checked; draw(); };
   // Bone-like regions left out of the mask with no click on them: small separate pieces are found only when clicked
   const missed = out.missed || [];
@@ -122,7 +122,7 @@ async function runMulti(profileId = null, method = "clicks") {
 function showMultiResults(out) {
   $("resultsSection").classList.remove("hidden");
   $("statCards").innerHTML = out.structures.map((st) => `<div class="card" style="border-left:3px solid ${safeColor(st.color)}"><div class="k">${esc(st.name)}</div>
-    <div class="v">${(100 * st.area_fraction).toFixed(1)}%</div><div class="k">${st.n_objects} objects · ${fmt(st.area_um2)} µm²</div></div>`).join("");
+    <div class="v">${(100 * st.area_fraction).toFixed(1)}%</div><div class="k">${st.n_objects} objects · ${fmt(st.area_um2)} ${areaUnit()}</div></div>`).join("");
   $("evalBox").classList.add("hidden");
   $("suggestionBox").classList.add("hidden");
   $("missedBox").classList.add("hidden");
@@ -136,8 +136,9 @@ function showMultiResults(out) {
 
 function addPoint(kind, y, x) {
   const list = kind === "pos" ? posList(pts(), S.active) : pts().neg;
-  list.push([Math.round(y), Math.round(x)]);
-  S.history.push({ key: key(), kind, struct: kind === "pos" ? S.active : null });
+  const pt = [Math.round(y), Math.round(x)];
+  list.push(pt);
+  S.history.push({ key: key(), op: "add", kind, struct: kind === "pos" ? S.active : null, pt });
   persistClicks();
   updateCounts();
   draw();
@@ -147,13 +148,15 @@ function addPoint(kind, y, x) {
 function removeNearest(y, x) {
   const p = pts();
   let best = null;
-  const lists = [p.neg, ...S.structures.map((_, k) => posList(p, k))];
-  lists.forEach((list) => list.forEach(([py, px], i) => {
+  // Candidates: background clicks, then each structure's object clicks; kind/struct say which list a point is in
+  const lists = [[p.neg, "neg", null], ...S.structures.map((_, k) => [posList(p, k), "pos", k])];
+  lists.forEach(([list, kind, struct]) => list.forEach(([py, px], i) => {
     const d = (py - y) ** 2 + (px - x) ** 2;
-    if (!best || d < best.d) best = { list, i, d };
+    if (!best || d < best.d) best = { list, kind, struct, i, d };
   }));
   if (!best) return;
-  best.list.splice(best.i, 1);
+  const [pt] = best.list.splice(best.i, 1);
+  S.history.push({ key: key(), op: "remove", kind: best.kind, struct: best.struct, pt, index: best.i });   // So undo can put it back
   persistClicks();
   updateCounts();
   draw();
@@ -164,7 +167,7 @@ function undo() {
   const h = S.history.pop();
   if (!h) return;
   const p = S.points[h.key];
-  if (p) (h.kind === "pos" ? posList(p, h.struct || 0) : p.neg).pop();
+  if (p) undoEntry(p, h, (q) => (h.kind === "pos" ? posList(q, h.struct || 0) : q.neg));
   persistClicks(h.key);
   updateCounts();
   draw();
@@ -198,8 +201,9 @@ function autoBackground() {
   const { height: h, width: w } = S.ds;
   const m = 0.02;
   for (const [fy, fx] of [[m, m], [m, 0.5], [m, 1 - m], [0.5, m], [0.5, 1 - m], [1 - m, m], [1 - m, 0.5], [1 - m, 1 - m]]) {
-    pts().neg.push([Math.round(fy * h), Math.round(fx * w)]);
-    S.history.push({ key: key(), kind: "neg" });
+    const pt = [Math.round(fy * h), Math.round(fx * w)];
+    pts().neg.push(pt);
+    S.history.push({ key: key(), op: "add", kind: "neg", pt });
   }
   persistClicks();
   updateCounts();
@@ -242,6 +246,7 @@ function renderStructures() {
 function removeStructure(k) {
   if (!confirm(`Remove ${S.structures[k].name} and its clicks on every slice?`)) return;
   S.structures.splice(k, 1);
+  S.history = [];   // Structure numbers shift, so older undo entries would point at the wrong structure
   for (const [kk, p] of Object.entries(S.points)) {
     if (p.extra && p.extra.length >= k) { p.extra.splice(k - 1, 1); persistClicks(kk); }
   }
