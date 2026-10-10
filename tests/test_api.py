@@ -887,3 +887,15 @@ def test_learned_model_sees_neighbouring_slices(client):
     h = Head("classic", 1, 252, "linear", {}, 6, z_context=2)
     assert head_input(h, embed, 0, 7).grid.shape[-1] == 6 and calls == [0, 0, 2]
     assert head_input(dataclasses.replace(h, z_context=0), embed, 5, 7).grid.shape[-1] == 3
+
+
+def test_simple_page_and_clicks_from_another_slice(client):
+    assert "boneseg simple" in client.get("/simple").text
+    ds, gt, centers = upload_stack(client, n_z=4)
+    did = ds["id"]
+    body = {"channel": 0, "pos": [list(c) for c in centers[:3]], "neg": bg_points(gt), "settings": SETTINGS}
+    own = client.post(f"/api/datasets/{did}/segment", json={**body, "z": 2}).json()
+    # Clicks made on slice 1, applied to slice 2 as a stack run would: carried-over threshold, a similar mask
+    other = client.post(f"/api/datasets/{did}/segment", json={**body, "z": 2, "clicks_z": 1}).json()
+    assert other["threshold_source"] == "carried over" and own["threshold_source"] == "clicks"
+    assert abs(other["stats"]["area_fraction"] - own["stats"]["area_fraction"]) < 0.05

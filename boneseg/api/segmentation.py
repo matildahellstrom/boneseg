@@ -40,14 +40,20 @@ def router(ctx: AppContext) -> APIRouter:
                 u = np.clip(1 - 4 * np.abs(res.heat - 0.5), 0, 1).astype(np.float32) if req.uncertainty else None
             else:
                 # Prototypes first, so that a profile made with another backbone fails before any model is loaded
-                pos, neg, prof_thr = ctx.prototypes_for(ds_id, req.channel, req.z, req.pos, req.neg, req.profile_id, settings)
+                cz = req.z if req.clicks_z is None else req.clicks_z
+                pos, neg, prof_thr = ctx.prototypes_for(ds_id, req.channel, cz, req.pos, req.neg, req.profile_id, settings)
+                if cz != req.z and req.pos and req.neg and prof_thr is None:
+                    # Clicks from another slice: calibrate the threshold there and carry it over, as a stack run does
+                    prof_thr = segment_with_prototypes(store.embedding(ds_id, req.channel, cz, settings), pos, neg, settings,
+                                                       ds.volume.pixel_um, pos_points=req.pos, neg_points=req.neg).raw_threshold
                 emb = store.embedding(ds_id, req.channel, req.z, settings)
                 t_embed = time.time() - t0
+                on_slice = cz == req.z   # The click positions only mean something on the slice they were made on
                 res = segment_with_prototypes(emb, pos, neg, settings, ds.volume.pixel_um, raw_threshold=prof_thr,
-                                              pos_points=req.pos, neg_points=req.neg)
+                                              pos_points=req.pos if on_slice else None, neg_points=req.neg if on_slice else None)
                 u = uncertainty_map(emb, pos, neg, settings, threshold=res.threshold) if req.uncertainty and pos.shape[0] > 0 else None
         t_sam = None
-        if settings.sam_refine == "agree" and req.method == "clicks" and profile_head is None and req.pos:
+        if settings.sam_refine == "agree" and req.method == "clicks" and profile_head is None and req.pos and req.clicks_z in (None, req.z):
             # A second opinion from SAM on the same clicks: keep only what both call the structure
             from .. import sam
 

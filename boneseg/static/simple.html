@@ -1,0 +1,113 @@
+<!doctype html>
+<!-- Simple mode: open an image, click bone and background, run the stack, download.
+     Same server and API as the full app (index.html); the logic lives in js/simple.js. -->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>boneseg simple</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='14' fill='%2300c8f0'/%3E%3Ccircle cx='11' cy='13' r='4' fill='%230b1220'/%3E%3Ccircle cx='20' cy='19' r='5' fill='%230b1220'/%3E%3C/svg%3E">
+  <!-- style.css gives the colours, buttons and inputs; the rules below only lay out this page -->
+  <link rel="stylesheet" href="/static/style.css">
+  <style>
+    body { display: block; overflow: auto; }
+    .simple { max-width: 1100px; margin: 0 auto; padding: 16px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; }   /* minmax: a wide child cannot stretch the column */
+    .step { min-width: 0; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; display: grid; gap: 12px; }
+    .step h2 { margin: 0; font-size: 13px; }
+    .step > * { min-width: 0; }   /* Children may shrink to the step's width (grid items do not by default) */
+    .step select { max-width: 100%; }
+    .step.off { opacity: .45; pointer-events: none; }   /* Steps that need an image first */
+    .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+    .big { font-size: 16px; padding: 10px 18px; }
+    .mode button[aria-pressed="true"].pos { background: var(--pos); color: #04150c; border-color: var(--pos); }
+    .mode button[aria-pressed="true"].neg { background: var(--neg); color: #2a0409; border-color: var(--neg); }
+    .hint { font-size: 15px; }
+    .stage { position: relative; background: #000; border-radius: 8px; overflow: hidden; height: min(70vh, 720px); touch-action: none; }
+    .stage canvas { display: block; width: 100%; height: 100%; cursor: crosshair; }
+    .numbers { display: flex; flex-wrap: wrap; gap: 8px 24px; font-size: 15px; }
+    .numbers b { font-variant-numeric: tabular-nums; }
+    .recent { display: flex; flex-wrap: wrap; gap: 6px; }
+    .note { font-size: 13px; color: var(--muted); max-width: 80ch; }
+    /* style.css stacks labels above their control; here they sit beside it */
+    label.inline { display: flex; flex-direction: row; align-items: center; gap: 8px; margin: 0; }
+    .row > label.inline { flex: 0 0 auto; min-width: 0; }   /* style.css lets labels in a row grow; these keep their size */
+    #sliceRow input[type=range] { flex: 1; min-width: 120px; }
+    label.inline select { width: auto; }
+    /* The channel menu takes its own line when space is short and shrinks with it, so long names cannot widen the page */
+    #channelRow { flex: 1 1 240px; min-width: 0; max-width: 480px; }
+    #channelRow select { flex: 1; min-width: 0; }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><span class="logo"></span>boneseg <span class="muted small">simple</span></div>
+    <div class="dataset-title" id="title">No image open</div>
+    <div class="topbar-right"><a href="/" id="fullLink"><button class="ghost" title="All tools: learned model, histomorphometry, several structures and more">Full app</button></a></div>
+  </header>
+
+  <main class="simple">
+    <!-- Step 1: get an image into the app -->
+    <section class="step" id="step1">
+      <h2>1. Open an image</h2>
+      <!-- Shown instead of the open controls once an image is open, so the image moves up the page -->
+      <div class="row hidden" id="openedRow"><span id="openedName"></span><button class="ghost small" id="changeBtn">Open another image</button></div>
+      <div id="openControls">
+      <label class="dropzone" id="drop">
+        <input type="file" id="file" accept=".ims,.tif,.tiff,.png,.jpg,.jpeg,.npy" hidden>
+        <strong>Drop a microscopy file here, or click to choose one</strong>
+        <span class="muted small">Imaris .ims, TIFF stack, PNG or JPG</span>
+      </label>
+      <div class="upload-progress hidden" id="upload"><div class="bar"><span></span></div><span class="small" id="uploadText"></span></div>
+      <div class="row hidden" id="pathRow">
+        <input type="text" id="path" placeholder="Or paste the full path of a large file on this computer, e.g. /Users/me/data/stack.ims" aria-label="Full path of a file on this computer">
+        <button id="pathBtn">Open</button>
+      </div>
+      <div class="row"><button class="ghost" id="demoBtn">Try the demo image</button><div class="recent" id="recent"></div></div>
+      </div>
+      <p class="note" id="info"></p>
+    </section>
+
+    <!-- Step 2: clicks on one slice give the mask -->
+    <section class="step off" id="step2">
+      <h2>2. Click bone and background</h2>
+      <div class="row">
+        <div class="mode row" role="group" aria-label="What a click marks">
+          <button class="big pos" id="posBtn" aria-pressed="true">Bone (1)</button>
+          <button class="big neg" id="negBtn" aria-pressed="false">Background (2)</button>
+        </div>
+        <button id="undoBtn" title="Remove the last click (Ctrl+Z)">Undo</button>
+        <button id="clearBtn" title="Remove all clicks on this slice">Clear</button>
+        <label class="inline small"><input type="checkbox" id="showMask" checked> Show mask</label>
+        <label class="inline small hidden" id="channelRow">Channel <select id="channel"></select></label>
+      </div>
+      <p class="hint" id="hint"></p>
+      <div class="stage" id="stage"><canvas id="canvas" aria-label="The slice. Click to mark bone or background"></canvas></div>
+      <div class="row hidden" id="sliceRow">
+        <label class="inline small" for="slice">Slice</label>
+        <input type="range" id="slice" min="0" value="0" aria-label="Slice">
+        <span class="small" id="sliceText"></span>
+        <button class="ghost small hidden" id="toClicks">Go to the clicked slice</button>
+      </div>
+      <div class="numbers" id="numbers"></div>
+      <p class="note">Right-click removes the nearest click. Scroll to zoom, drag to move the image, double-click to fit it again.</p>
+    </section>
+
+    <!-- Step 3: the clicks segment every slice; results as files -->
+    <section class="step off" id="step3">
+      <h2>3. Whole stack and download</h2>
+      <div class="row">
+        <button class="primary big" id="stackBtn">Run all slices</button>
+        <button class="hidden" id="cancelBtn">Cancel</button>
+      </div>
+      <div class="upload-progress hidden" id="job"><div class="bar"><span></span></div><span class="small" id="jobText"></span></div>
+      <div class="numbers" id="stackNumbers"></div>
+      <div class="row" id="downloads"></div>
+      <p class="note" id="stackNote">Uses the clicks on one slice for every slice. For long stacks, check slices far from the clicked one with the slider above; for the most accurate whole-stack results, label a few slices and use the learned model in the full app.</p>
+    </section>
+  </main>
+  <div class="toast hidden" id="toast" role="status"></div>
+
+  <script src="/static/js/core.js"></script>
+  <script src="/static/js/simple.js"></script>
+</body>
+</html>

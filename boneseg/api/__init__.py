@@ -81,6 +81,11 @@ def create_app(data_dir: str | Path | None = None, allow_paths: bool = True, tok
     def index():
         return (STATIC / "index.html").read_text()
 
+    @app.get("/simple", response_class=HTMLResponse)
+    def simple():
+        """Simple mode: open, click, run the stack, download. Same API as the full app."""
+        return (STATIC / "simple.html").read_text()
+
     app.mount("/static", StaticFiles(directory=STATIC), name="static")
 
     @app.get("/api/health")

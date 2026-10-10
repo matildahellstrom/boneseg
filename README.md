@@ -29,6 +29,8 @@ python -m boneseg serve --open
 
 The app opens at http://127.0.0.1:8000. Click **Try a synthetic demo image** to explore it without your own data. The first time you pick a DINOv2 backbone, its weights download from Meta, about 85 MB for Small.
 
+**Simple mode** is a single page with only the essentials: open an image, click bone and background, run the whole stack, and download the masks (TIFF) and per-slice measurements (CSV). Start it with `python -m boneseg serve --simple --open`, or open http://127.0.0.1:8000/simple; "Full app" in its top bar switches to everything else, keeping your clicks. It uses the default settings and leaves out the learned model, several structures, histomorphometry and reports, so for long stacks, where clicks on one slice drift, the full app's learned model is the more accurate route.
+
 The app runs on an NVIDIA GPU, an Apple Silicon GPU or the CPU, whichever it finds. Small and Base are comfortable on a laptop. Giant needs a large GPU.
 
 To share the app on a lab network, start it with `--host 0.0.0.0 --token SOME-SECRET` and send colleagues the access link it prints. Without a token, anyone who can reach the port can use the app. Opening files by path on the server is turned off on the network unless you add `--allow-paths`, since it would let anyone read files the server can read.
