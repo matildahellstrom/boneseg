@@ -85,7 +85,7 @@ async function pollJob(id) {
       .map((f) => `<a class="small" href="/api/jobs/${id}/files/${f}" download><button class="ghost">${f}</button></a>`).join("");
     return;
   }
-  $("jobText").innerHTML = `${job.status === "cancelled" ? "Cancelled after" : "Done:"} ${s.n_slices || 0} slices · volume ${fmt(s.volume_um3)} ${volumeUnit()} · mean area ${(100 * (s.mean_area_fraction || 0)).toFixed(1)}%`
+  $("jobText").innerHTML = `${job.status === "cancelled" ? "Cancelled after" : "Done:"} ${s.n_slices || 0} slice${s.n_slices === 1 ? "" : "s"} · volume ${fmt(s.volume_um3)} ${volumeUnit()} · mean area ${(100 * (s.mean_area_fraction || 0)).toFixed(1)}%`
     + (s.n_objects_3d != null ? ` · ${s.n_objects_3d} objects in 3D (${s.n_objects_3d_inside} not cut by the stack ends), median ${fmt(s.median_object_volume_um3)} ${volumeUnit()}` : "")
     + (s.mean_dice_vs_reference != null ? ` · mean Dice ${s.mean_dice_vs_reference.toFixed(3)}` : "");
   drawChart(job.result.slices || []);

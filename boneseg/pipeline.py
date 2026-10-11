@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import contextlib
 import json
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
@@ -15,6 +16,25 @@ import torch
 from . import metrics, quantify
 from .head import head_input, segment_with_head
 from .segment import Embedding, SegmentationSettings, segment_with_prototypes
+
+
+# 3D object labelling holds one int32 per voxel; above this many voxels the stack is labelled at a reduced in-plane
+# resolution (every f-th pixel), so a full-resolution run of a large stack does not run out of memory
+VOXEL_BUDGET = int(float(os.environ.get("BONESEG_3D_VOXELS", 2e8)))
+
+
+def downsample_factor(n_z: int, h: int, w: int, budget: int | None = None) -> int:
+    """In-plane step that keeps n_z x (h / f) x (w / f) within the voxel budget (1 when it already fits)."""
+    budget = VOXEL_BUDGET if budget is None else budget   # Read at call time, so the setting can be changed at runtime
+    voxels = n_z * h * w
+    return 1 if voxels <= budget else int(np.ceil(np.sqrt(voxels / budget)))
+
+
+def write_stack(path: Path, pages, shape: tuple, dtype, pixel_um, spacing_um: float, factor: int = 1):
+    """Writes a (Z, Y, X) TIFF stack from an iterator of slices, so the whole stack is never in memory at once."""
+    tifffile.imwrite(path, data=pages, shape=shape, dtype=dtype, imagej=True, compression="zlib",
+                     resolution=(1 / (pixel_um[1] * factor), 1 / (pixel_um[0] * factor)),
+                     metadata={"axes": "ZYX", "spacing": float(spacing_um), "unit": "um"})
 
 
 @dataclass
@@ -51,7 +71,8 @@ def run_stack(req: StackRequest, pos: torch.Tensor, neg: torch.Tensor, settings:
     out_dir = Path(out_dir)
     pixel_um = (voxel_um[1], voxel_um[2])
     order = processing_order(req.z_list, req.ref_z)
-    masks: dict[int, np.ndarray] = {}
+    masks: dict[int, np.ndarray] = {}   # Bit-packed along x (np.packbits): 8 pixels per byte while the run goes
+    shape = None
     rows = []
     ahead = _ReadAhead(read_ahead)
     n_z = n_z or max(req.z_list, default=0) + 1
@@ -65,38 +86,43 @@ def run_stack(req: StackRequest, pos: torch.Tensor, neg: torch.Tensor, settings:
             # Scores are standardized per slice (score_norm), so the threshold calibrated on the
             # annotated slice stays meaningful when contrast fades with depth
             if head is not None:
-                res = segment_with_head(head, head_input(head, embed_at, z, n_z), settings, pixel_um)
+                res = segment_with_head(head, head_input(head, embed_at, z, n_z, voxel_um[0]), settings, pixel_um)
             else:
                 res = segment_with_prototypes(embed_at(z), pos, neg, settings, pixel_um, raw_threshold=raw_threshold)
-            masks[z] = res.mask & roi if roi is not None else res.mask
+            m = res.mask & roi if roi is not None else res.mask
+        shape = m.shape
+        masks[z] = np.packbits(m, axis=-1)
         img = get_image(z)
-        row = {"z": z, "z_um": z * voxel_um[0], "threshold": res.threshold, **quantify.summarize_mask(masks[z], img, pixel_um, roi)}
+        row = {"z": z, "z_um": z * voxel_um[0], "threshold": res.threshold, **quantify.summarize_mask(m, img, pixel_um, roi)}
         ref = get_reference(z)
         if ref is not None:
             # HD95 on masks downsampled to at most 2048 px: exact on smaller images, and it halves the
             # time per slice on 3000 px images, where the distance transforms dominate
-            row.update(metrics.compare(masks[z], ref, pixel_um, roi, hd95_max_side=2048))
+            row.update(metrics.compare(m, ref, pixel_um, roi, hd95_max_side=2048))
         rows.append(row)
     ahead.close()
     df = pd.DataFrame(rows).sort_values("z").reset_index(drop=True) if rows else pd.DataFrame()
     zs = sorted(masks)
+    unpack = lambda z: np.unpackbits(masks[z], axis=-1, count=shape[1]).astype(bool)  # noqa: E731
     if zs:
-        stack = np.stack([masks[z] for z in zs]).astype(np.uint8) * 255
-        tifffile.imwrite(out_dir / "masks.tif", stack, imagej=True, compression="zlib",
-                         resolution=(1 / pixel_um[1], 1 / pixel_um[0]),
-                         metadata={"axes": "ZYX", "spacing": float(voxel_um[0] * _step(zs)), "unit": "um"})
+        write_stack(out_dir / "masks.tif", (unpack(z).astype(np.uint8) * 255 for z in zs), (len(zs), *shape), np.uint8,
+                    pixel_um, voxel_um[0] * _step(zs))
     df.to_csv(out_dir / "slices.csv", index=False)
     summary = quantify.summarize_stack(df, voxel_um, _step(zs)) if len(df) else {"n_slices": 0}
     if zs:
-        # 3D objects: a cell that spans several slices is counted once
-        mstack = np.stack([masks[z] for z in zs])
+        # 3D objects: a cell that spans several slices is counted once. Large stacks are labelled at a reduced in-plane
+        # resolution (factor f), which keeps memory bounded; volumes are scaled accordingly
+        f = downsample_factor(len(zs), *shape)
+        mstack = np.stack([unpack(z)[::f, ::f] for z in zs])
         labels = quantify.label_3d(mstack)
-        obj = quantify.objects_3d(mstack, (voxel_um[0] * _step(zs), voxel_um[1], voxel_um[2]), zs, labels=labels)
+        obj = quantify.objects_3d(mstack, (voxel_um[0] * _step(zs), voxel_um[1] * f, voxel_um[2] * f), zs, labels=labels)
         obj.to_csv(out_dir / "objects_3d.csv", index=False)
         # Object IDs match the label column of objects_3d.csv, for Fiji, Imaris or napari
-        tifffile.imwrite(out_dir / "labels_3d.tif", labels.astype(np.uint16 if labels.max() < 65535 else np.uint32), imagej=True,
-                         compression="zlib", resolution=(1 / pixel_um[1], 1 / pixel_um[0]),
-                         metadata={"axes": "ZYX", "spacing": float(voxel_um[0] * _step(zs)), "unit": "um"})
+        lab_dtype = np.uint16 if labels.max() < 65535 else np.uint32
+        write_stack(out_dir / "labels_3d.tif", (lab.astype(lab_dtype) for lab in labels), labels.shape, lab_dtype, pixel_um,
+                    voxel_um[0] * _step(zs), factor=f)
+        if f > 1:
+            summary["objects_3d_downsampled"] = f   # 3D objects and labels_3d.tif at 1/f of the in-plane resolution
         summary["n_objects_3d"] = int(len(obj))
         summary["n_objects_3d_inside"] = int((~obj["touches_stack_edge"]).sum()) if len(obj) else 0
         summary["median_object_volume_um3"] = float(obj["volume_um3"].median()) if len(obj) else 0.0
@@ -195,16 +221,19 @@ def run_stack_multi(z_list: list[int], ref_z: int | None, model, settings: Segme
     summary: dict = {"n_slices": len(zs), "z_processed": zs, "structures": {}}
     if zs:
         step = _step(zs)
-        lstack = np.stack([labels[z] for z in zs])
-        meta = {"axes": "ZYX", "spacing": float(voxel_um[0] * step), "unit": "um"}
-        res = (1 / pixel_um[1], 1 / pixel_um[0])
-        tifffile.imwrite(out_dir / "labels.tif", lstack, imagej=True, compression="zlib", resolution=res, metadata=meta)
-        tifffile.imwrite(out_dir / "masks.tif", (lstack > 0).astype(np.uint8) * 255, imagej=True, compression="zlib", resolution=res, metadata=meta)
+        shape = labels[zs[0]].shape
+        write_stack(out_dir / "labels.tif", (labels[z] for z in zs), (len(zs), *shape), np.uint8, pixel_um, voxel_um[0] * step)
+        write_stack(out_dir / "masks.tif", ((labels[z] > 0).astype(np.uint8) * 255 for z in zs), (len(zs), *shape), np.uint8,
+                    pixel_um, voxel_um[0] * step)
+        f = downsample_factor(len(zs), *shape)   # 3D objects of large stacks at a reduced in-plane resolution
+        lstack = np.stack([labels[z][::f, ::f] for z in zs])
+        if f > 1:
+            summary["objects_3d_downsampled"] = f
         objs = []
         for k, name in enumerate(model.names):
             sub = df[df["structure"] == name]
             st = quantify.summarize_stack(sub, voxel_um, step)
-            obj = quantify.objects_3d(lstack == k + 1, (voxel_um[0] * step, voxel_um[1], voxel_um[2]), zs)
+            obj = quantify.objects_3d(lstack == k + 1, (voxel_um[0] * step, voxel_um[1] * f, voxel_um[2] * f), zs)
             obj.insert(0, "structure", name)
             objs.append(obj)
             st.update(n_objects_3d=int(len(obj)), median_object_volume_um3=float(obj["volume_um3"].median()) if len(obj) else 0.0)

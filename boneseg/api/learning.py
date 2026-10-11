@@ -131,7 +131,7 @@ def router(ctx: AppContext) -> APIRouter:
             names = store.label_structures(ds_id, req.channel)
             multi = bool(names and len(names) > 1)
             d = 0 if multi else z_context_slices(vol.voxel_um[0], vol.n_z)   # Stacks: neighbours about 4 um away
-            probe = Head(settings.backbone, settings.layer_from_end, settings.vit_size, "linear", {}, 0, z_context=d)
+            probe = Head(settings.backbone, settings.layer_from_end, settings.vit_size, "linear", {}, 0, z_context=d, z_context_um=d * vol.voxel_um[0])
             samples = []
             for i, l in enumerate(labels):
                 if cancelled():
@@ -151,7 +151,7 @@ def router(ctx: AppContext) -> APIRouter:
                 head = train_head_multi(samples, names, settings, [(req.channel, l["z"]) for l in labels], pixel_um=vol.pixel_um)
             else:
                 head = train_head(samples, settings, [(req.channel, l["z"]) for l in labels], kind=req.kind, pixel_um=vol.pixel_um)
-                head.z_context = d
+                head.z_context, head.z_context_um = d, d * vol.voxel_um[0]
             head.save(store.head_path(ds_id, req.channel))
             out = {**head.info(), "seconds": round(time.time() - t0, 2)}
             if ds.meta.get("reference_channel") is not None and not head.names:
@@ -194,7 +194,7 @@ def router(ctx: AppContext) -> APIRouter:
         prof = Profile(name=req.name.strip() or "Learned model", backbone=head.backbone, layer_from_end=head.layer_from_end,
                        pos=np.zeros((0, head.dim), np.float32), neg=np.zeros((0, head.dim), np.float32), settings=s.to_dict(),
                        description=req.description, source=f"{ds.volume.name}, channel {req.channel}, {len(head.trained_on)} labelled slices",
-                       head=head_to_profile_dict(head))
+                       head=head_to_profile_dict(head), dataset_id=ds_id)
         pid = store.save_profile(prof)
         return {"id": pid, **[p for p in store.list_profiles() if p["id"] == pid][0]}
 
@@ -229,7 +229,7 @@ def router(ctx: AppContext) -> APIRouter:
             train = [(img, gt, regions[z]) for i, (z, img, gt) in enumerate(pairs) if i % 2 == 0]
             val = [(img, gt, regions[z]) for i, (z, img, gt) in enumerate(pairs) if i % 2 == 1]
             job.message = "Loading DINOv2"
-            ft = finetune(train, val, train_blocks=req.blocks, steps=req.steps,
+            ft = finetune(train, val, train_blocks=req.blocks, steps=req.steps, step_lock=store.compute_lock,
                           progress=lambda p, m: (setattr(job, "progress", 0.97 * p), setattr(job, "message", m)), cancelled=job.cancel.is_set)
             ft.save(out_path)
             # The same labels and validation slices with DINOv2 left frozen: the learned model of section 6

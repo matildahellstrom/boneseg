@@ -35,7 +35,7 @@ def router(ctx: AppContext) -> APIRouter:
             ds = store.get(req.dataset_id)
             prof = Profile.from_multi(model, [str(st.get("color", ""))[:16] for st in structures], name=req.name.strip() or "Structures",
                                       backbone=settings.backbone, layer_from_end=settings.layer_from_end, settings=settings.to_dict(),
-                                      description=req.description, source=f"{ds.volume.name}, channel {req.channel}, slice {req.z}")
+                                      description=req.description, source=f"{ds.volume.name}, channel {req.channel}, slice {req.z}", dataset_id=req.dataset_id)
             pid = store.save_profile(prof)
             return {"id": pid, **[p for p in store.list_profiles() if p["id"] == pid][0]}
         if not req.pos:
@@ -50,7 +50,7 @@ def router(ctx: AppContext) -> APIRouter:
                        pos=pos_np, neg=neg_np,
                        settings=settings.to_dict(), description=req.description,
                        source=f"{ds.volume.name}, channel {req.channel}, slice {req.z}",
-                       raw_threshold=cal.raw_threshold if cal.threshold_source == "clicks" else None)
+                       raw_threshold=cal.raw_threshold if cal.threshold_source == "clicks" else None, dataset_id=req.dataset_id)
         pid = store.save_profile(prof)
         return {"id": pid, **[p for p in store.list_profiles() if p["id"] == pid][0]}
 

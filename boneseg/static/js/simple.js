@@ -142,13 +142,13 @@ async function loadSlice(fit = false) {
   P.loading = true;
   let img;
   try { img = await loadImage(`/api/datasets/${P.ds.id}/plane?c=${P.c}&z=${P.z}&max_side=1600`); }
-  catch (e) { if (seq === P.sliceSeq) P.loading = false; toast(`Could not load slice ${P.z + 1}`, true); return; }
+  catch (e) { if (seq === P.sliceSeq) P.loading = false; toast(`Could not load slice ${P.z}`, true); return; }
   if (seq !== P.sliceSeq) return;   // The user moved on while this slice was loading
   P.loading = false;
   P.img = img;
   P.mask = null;
   if (fit) fitView();
-  $("sliceText").textContent = `${P.z + 1} of ${P.ds.n_z}`;
+  $("sliceText").textContent = `${P.z} of ${P.ds.n_z - 1}`;
   $("toClicks").classList.toggle("hidden", P.clicksZ == null || P.clicksZ === P.z);
   draw();
   segment();
@@ -273,7 +273,7 @@ async function segment() {
     const unit = P.ds.voxel_size_known ? "µm²" : "px²";
     $("numbers").innerHTML = `<span>Bone area <b>${(100 * st.area_fraction).toFixed(1)}%</b> of the slice</span>`
       + `<span><b>${fmt(st.area_um2, 0)}</b> ${unit}</span><span><b>${st.n_objects}</b> separate pieces</span>`
-      + (a.z !== P.z ? `<span class="muted">from the clicks on slice ${a.z + 1}</span>` : "");
+      + (a.z !== P.z ? `<span class="muted">from the clicks on slice ${a.z}</span>` : "");
     draw();
   } catch (e) { toast(e.message, true); }
 }
@@ -282,7 +282,7 @@ function updateHint(a) {
   const own = P.clicks[keyOf(P.c, P.z)] || { pos: [], neg: [] };
   const np = own.pos.length, nn = own.neg.length;
   let h;
-  if (a && a.z !== P.z) h = `This slice is segmented with your clicks on slice ${a.z + 1}. Click here to start new clicks on this slice.`;
+  if (a && a.z !== P.z) h = `This slice is segmented with your clicks on slice ${a.z}. Click here to start new clicks on this slice.`;
   else if (np < MIN_CLICKS) h = `Click on bone (green). ${np} of at least ${MIN_CLICKS} so far.`;
   else if (nn < MIN_CLICKS) h = `Now switch to Background and click on things that are not bone. ${nn} of at least ${MIN_CLICKS}.`;
   else h = "Click where the mask is wrong: Bone where it misses bone, Background where it covers something else.";
@@ -364,7 +364,7 @@ function bind() {
   $("channel").onchange = () => { P.c = +$("channel").value; P.clicksZ = clickedSlice(); loadSlice(); };
   $("toClicks").onclick = () => { P.z = P.clicksZ; $("slice").value = P.z; loadSlice(); };
   let sliceTimer = null;
-  $("slice").oninput = () => { P.z = +$("slice").value; $("sliceText").textContent = `${P.z + 1} of ${P.ds.n_z}`; clearTimeout(sliceTimer); sliceTimer = setTimeout(loadSlice, 120); };
+  $("slice").oninput = () => { P.z = +$("slice").value; $("sliceText").textContent = `${P.z} of ${P.ds.n_z - 1}`; clearTimeout(sliceTimer); sliceTimer = setTimeout(loadSlice, 120); };
   $("stackBtn").onclick = runStack;
   $("cancelBtn").onclick = () => P.job && api(`/api/jobs/${P.job}/cancel`, { method: "POST" }).catch(() => {});
 

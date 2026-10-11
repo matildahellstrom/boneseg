@@ -49,7 +49,7 @@ async function openDataset(id, view = {}) {
   S.result = null;
   S.c = 0;
   S.z = Math.floor(d.n_z / 2);
-  $("datasetTitle").textContent = `${d.name} · ${d.width}×${d.height} px · ${d.n_z} slices · ${d.voxel_size_known ? `${d.voxel_um[2].toFixed(3)} µm/px` : "pixel size unknown"}`;
+  $("datasetTitle").textContent = `${d.name} · ${d.width}×${d.height} px · ${d.n_z} slice${d.n_z === 1 ? "" : "s"} · ${d.voxel_size_known ? `${d.voxel_um[2].toFixed(3)} µm/px` : "pixel size unknown"}`;
   const cs = $("channelSelect");
   cs.innerHTML = d.channel_names.map((n, i) => `<option value="${i}">${i}: ${esc(n)}</option>`).join("");
   const rs = $("refSelect");

@@ -17,6 +17,8 @@ def main(argv=None):
     serve.add_argument("--simple", action="store_true", help="Start in simple mode: open, click, run the stack, download")
     serve.add_argument("--token", default=os.environ.get("BONESEG_TOKEN"),
                        help="Require this access token for the API; share http://HOST:PORT/?token=... with users")
+    serve.add_argument("--allowed-host", action="append", default=None,
+                       help="Host name the server may be reached under (repeatable); default: localhost names for a local server, any for a network one")
     serve.add_argument("--allow-paths", action="store_true",
                        help="Allow opening files by path even when listening on the network (on by default for 127.0.0.1)")
     batch = sub.add_parser("batch", help="Segment many files with a saved profile")
@@ -96,7 +98,9 @@ def main(argv=None):
         from .api import create_app
 
         local = args.host in ("127.0.0.1", "localhost", "::1")
-        app = create_app(args.data_dir, allow_paths=local or args.allow_paths, token=args.token)
+        # A local server answers only to local host names, so a web page cannot reach it by DNS rebinding
+        hosts = (["127.0.0.1", "localhost", "::1", "[::1]"] if local else None) if not args.allowed_host else args.allowed_host
+        app = create_app(args.data_dir, allow_paths=local or args.allow_paths, token=args.token, allowed_hosts=hosts)
         from urllib.parse import quote
 
         page = "/simple" if args.simple else "/"

@@ -55,13 +55,20 @@ def z_context_slices(z_um: float, n_z: int) -> int:
     return d if n_z >= 2 * d + 1 else 0
 
 
-def head_input(head: "Head", embed_at, z: int, n_z: int) -> Embedding:
+def head_input(head: "Head", embed_at, z: int, n_z: int, z_um: float | None = None) -> Embedding:
     """The embedding a head expects for slice z: its own, or with the neighbours' features for a z-context model.
-    embed_at(z) returns a slice's embedding; neighbours beyond the stack ends are clamped to the end slices."""
+    embed_at(z) returns a slice's embedding; neighbours beyond the stack ends are clamped to the end slices.
+    z_um is this stack's slice spacing: the neighbours are found at the model's distance in micrometres."""
     emb = embed_at(z)
     d = getattr(head, "z_context", 0)
     if not d:
         return emb
+    um = getattr(head, "z_context_um", 0.0)
+    if um > 0 and z_um and z_um > 0:
+        d = max(1, int(round(um / z_um)))   # The same physical distance as in training
+    if n_z < 2:
+        raise ValueError("This learned model also looks at the slices above and below, so it needs a stack, "
+                         "not a single image. Train a model on single images for these files")
     return with_z_context(emb, embed_at(max(z - d, 0)), embed_at(min(z + d, n_z - 1)))
 
 
@@ -97,6 +104,8 @@ class Head:
     names: list = field(default_factory=list)  # Structure names for a model of several structures; empty for one
     threshold: float = 0.5          # Probability threshold, calibrated on held-out labelled slices (0.5 for older models)
     z_context: int = 0              # Slices between a slice and the neighbours whose features it also sees; 0 for none
+    z_context_um: float = 0.0       # The same distance in micrometres, so the model finds the same neighbours in a stack
+                                    # with another slice spacing (0 for models saved before this was recorded)
 
     @property
     def n_out(self) -> int:
@@ -117,17 +126,35 @@ class Head:
         return (self.backbone, self.layer_from_end, self.vit_size) == (s.backbone, s.layer_from_end, s.vit_size)
 
     def save(self, path: str | Path):
-        torch.save(self.__dict__, path)
+        # Plain types only (tensors, numbers, strings, lists, dicts), so the file loads with weights_only=True
+        torch.save(json_safe(self.__dict__), path)
 
     @classmethod
     def load(cls, path: str | Path) -> "Head":
-        d = torch.load(path, map_location="cpu", weights_only=False)
+        try:
+            d = torch.load(path, map_location="cpu", weights_only=True)   # Safe: cannot run code from the file
+        except Exception:
+            # Models saved by earlier versions may hold NumPy numbers; these files are only ever written by this server
+            d = torch.load(path, map_location="cpu", weights_only=False)
         return cls(**{k: v for k, v in d.items() if k in cls.__dataclass_fields__})
 
     def info(self) -> dict:
         return {"backbone": self.backbone, "layer_from_end": self.layer_from_end, "vit_size": self.vit_size,
                 "kind": self.kind, "trained_on": self.trained_on, "cv": self.cv, "context": self.context, "names": self.names,
-                "threshold": self.threshold, "z_context": self.z_context}
+                "threshold": self.threshold, "z_context": self.z_context, "z_context_um": self.z_context_um}
+
+
+def json_safe(obj):
+    """obj with NumPy numbers and arrays turned into plain Python values (tensors are kept)."""
+    if isinstance(obj, dict):
+        return {k: json_safe(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [json_safe(v) for v in obj]
+    if isinstance(obj, np.generic):
+        return obj.item()
+    if isinstance(obj, np.ndarray):
+        return obj.tolist()
+    return obj
 
 
 def _make_module(kind: str, dim: int, n_out: int = 1) -> torch.nn.Module:
@@ -258,7 +285,7 @@ def train_head(samples: list[tuple[Embedding, np.ndarray]], settings: Segmentati
 
 def head_to_profile_dict(head: Head) -> dict:
     return {"kind": head.kind, "dim": head.dim, "vit_size": head.vit_size, "context": head.context, "names": head.names, "threshold": head.threshold,
-            "z_context": head.z_context,
+            "z_context": head.z_context, "z_context_um": head.z_context_um,
             "state": {k: v.detach().cpu().numpy() for k, v in head.state.items()}, "cv": head.cv,
             "n_trained_on": len(head.trained_on)}
 
@@ -268,7 +295,7 @@ def head_from_profile(profile) -> Head:
     state = {k: torch.from_numpy(np.asarray(v)) for k, v in h["state"].items()}
     return Head(profile.backbone, profile.layer_from_end, h["vit_size"], h["kind"], state, h["dim"], cv=h.get("cv", {}),
                 context=int(h.get("context", 1)), names=list(h.get("names", [])), threshold=float(h.get("threshold", 0.5)),
-                z_context=int(h.get("z_context", 0)))
+                z_context=int(h.get("z_context", 0)), z_context_um=float(h.get("z_context_um", 0.0)))
 
 
 # Several structures ----------------------------------------------------------------------------------

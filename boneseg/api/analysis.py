@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
-from fastapi.responses import HTMLResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, Response
 
 from .. import render
 from ..head import Head
@@ -97,6 +97,7 @@ def router(ctx: AppContext) -> APIRouter:
 
     @r.get("/api/datasets/{ds_id}/export/project.zip")
     def export_project(ds_id: str, include_masks: bool = False):
+        # Written to a temporary file and streamed from there: with mask stacks the archive can be gigabytes
         """Everything done on a dataset except the image itself: settings, clicks, labels, learned models,
         profiles and stack results, with a README. For archiving an analysis or handing it to someone."""
         import datetime as dt
@@ -107,17 +108,25 @@ def router(ctx: AppContext) -> APIRouter:
 
         ds = store.get(ds_id)
         d = store.ds_dir(ds_id)
-        buf = io.BytesIO()
-        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
-            z.writestr("dataset.json", _json.dumps({"file": ds.volume.name, "path": str(ds.path), **ds.info()}, indent=1, default=str))
+        import tempfile
+
+        from starlette.background import BackgroundTask
+
+        tmp = tempfile.NamedTemporaryFile(suffix=".zip", delete=False)
+        tmp.close()
+        with zipfile.ZipFile(tmp.name, "w", zipfile.ZIP_DEFLATED) as z:
+            # The file name only: the server's folders are nobody else's business
+            z.writestr("dataset.json", _json.dumps({"file": ds.volume.name, **ds.info()}, indent=1, default=str))
             for name in ("annotations.json",):
                 if (d / name).exists():
                     z.write(d / name, name)
             for sub in ("labels", "heads"):
                 for f in sorted((d / sub).glob("*")) if (d / sub).exists() else []:
                     z.write(f, f"{sub}/{f.name}")
-            for f in sorted((store.root / "profiles").glob("*.npz")):
-                z.write(f, f"profiles/{f.name}")
+            # Only this image's profiles; on a shared server the others belong to other people
+            own = [p["id"] for p in store.list_profiles() if p.get("dataset_id") == ds_id]
+            for pid in own:
+                z.write(store.profile_path(pid), f"profiles/{pid}.npz")
             jobs = [j for j in store.jobs.values() if j.meta.get("dataset_id") == ds_id and j.status == "done"]
             for j in jobs:
                 for f in sorted(j.out_dir.glob("*")):
@@ -132,10 +141,11 @@ def router(ctx: AppContext) -> APIRouter:
                 "annotations.json  clicks per slice, keyed 'channel:slice', as (y, x) pixel positions\n"
                 "labels/           corrected masks saved as labels, cC_zZ.png\n"
                 "heads/            learned models per channel (PyTorch)\n"
-                "profiles/         all saved profiles; import them in boneseg with 'Import a shared profile'\n"
+                f"profiles/         {len(own)} profile(s) made from this image; import them in boneseg with 'Import a shared profile'\n"
                 f"stack_runs/       {len(jobs)} finished stack run(s): per-slice measurements, 3D objects and summaries"
                 + (" with mask stacks" if include_masks else " (mask stacks left out; add ?include_masks=true)") + "\n"))
-        return Response(buf.getvalue(), media_type="application/zip", headers=attachment(f"{Path(ds.volume.name).stem}_boneseg_project.zip"))
+        return FileResponse(tmp.name, media_type="application/zip", headers=attachment(f"{Path(ds.volume.name).stem}_boneseg_project.zip"),
+                            background=BackgroundTask(lambda: Path(tmp.name).unlink(missing_ok=True)))
 
     @r.post("/api/datasets/{ds_id}/histomorphometry/stack")
     def histo_stack(ds_id: str, req: HistoStackRequest):

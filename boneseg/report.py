@@ -148,7 +148,11 @@ def build_report(info: dict, c: int, z: int, image_png: bytes, stats: dict | Non
     parts = [f"<h1>{html.escape(info['name'])}</h1>",
              f"<p class='small'>boneseg {__version__} report · {now} · channel {c} ({html.escape(ch)}) · slice {z}</p>",
              f"<img src='{render.data_url(image_png)}' alt='Slice {z} with the segmentation mask'>",
-             "<p class='small'>Cyan: segmentation. Red outline: reference mask. Green and red dots: object and background clicks. White line: region of interest.</p>"]
+             "<p class='small'>" + " ".join(part for part, show in (
+                 ("Cyan: segmentation." if not structures else "Colours: the structures listed below.", True),
+                 ("Red outline: reference mask.", info.get("reference_channel") is not None),
+                 ("Green and red dots: object and background clicks.", not structures),
+                 ("White line: region of interest.", bool(info.get("roi")))) if show) + "</p>"]
     file_rows = [("Image size", f"{info['width']} × {info['height']} px, {info['n_z']} slices, {info['n_channels']} channels"),
                  ("Pixel size", f"{info['voxel_um'][2]:.3f} µm" + ("" if info["voxel_size_known"] else " (unknown, measurements are in pixels)")),
                  ("Slice spacing", f"{info['voxel_um'][0]:.2f} µm")]

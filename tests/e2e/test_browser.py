@@ -379,7 +379,7 @@ def test_sam_setting_and_finetune_panel(page, server, monkeypatch):
         def save(self, path):
             path.write_bytes(b"x")
 
-    def fake_finetune(train, val, train_blocks, steps, progress, cancelled):
+    def fake_finetune(train, val, train_blocks, steps, progress, cancelled, **kwargs):
         progress(1.0, "done")
         return Fake()
 
@@ -440,7 +440,7 @@ def test_simple_mode(page, server):
     assert count() == [3, 3]
     # Another slice is segmented with the clicked slice's clicks
     page.evaluate("P.z = 3; document.getElementById('slice').value = 3; loadSlice()")
-    page.wait_for_function("P.mask !== null && document.getElementById('numbers').textContent.includes('slice 7')", timeout=30000)
+    page.wait_for_function("P.mask !== null && document.getElementById('numbers').textContent.includes('slice 6')", timeout=30000)
     # Whole stack, then both downloads work
     page.click("#stackBtn")
     page.wait_for_selector("#downloads a", timeout=60000)

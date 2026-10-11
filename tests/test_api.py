@@ -838,7 +838,7 @@ def test_finetune_job(client, monkeypatch):
         def save(self, path):
             path.write_bytes(b"x")
 
-    def fake_finetune(train, val, train_blocks, steps, progress, cancelled):
+    def fake_finetune(train, val, train_blocks, steps, progress, cancelled, **kwargs):
         seen.update(n_train=len(train), n_val=len(val), blocks=train_blocks, steps=steps)
         progress(1.0, "done")
         return Fake()

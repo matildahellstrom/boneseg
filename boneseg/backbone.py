@@ -114,7 +114,8 @@ class ClassicBackbone(Backbone):
         return F.normalize(grid, dim=-1)
 
 
-_cache: dict[str, Backbone] = {}
+_cache: dict[str, Backbone] = {}   # Insertion order = least to most recently used
+MAX_MODELS = int(os.environ.get("BONESEG_MAX_MODELS", "2"))
 _lock = threading.Lock()
 
 
@@ -138,7 +139,7 @@ def backbone_label(name: str) -> str:
 
 
 def get_backbone(name: str) -> Backbone:
-    """Loads a backbone, keeping at most one DINOv2 model in memory at a time.
+    """Loads a backbone, keeping the most recently used DINOv2 models in memory (MAX_MODELS, Giant alone).
     'dinov2_s14@/path/file.pt' is DINOv2 Small with the fine-tuned weights saved by boneseg.finetune."""
     base, _, ft_path = name.partition("@")
     if base not in BACKBONE_LABELS or (ft_path and base == "classic"):
@@ -148,11 +149,18 @@ def get_backbone(name: str) -> Backbone:
         if not os.path.exists(ft_path):
             raise ValueError(f"Fine-tuned model not found: {ft_path}")
     with _lock:
-        if name not in _cache:
+        if name in _cache:
+            _cache[name] = _cache.pop(name)   # Most recently used last
+        else:
             if name == "classic":
                 _cache[name] = ClassicBackbone()
             else:
-                for key in [k for k in _cache if k != "classic"]:
+                # Up to MAX_MODELS DINOv2 models stay loaded (the least recently used goes first), so a running job
+                # and the viewer on different backbones do not reload each other's model for every slice. Giant
+                # needs a large GPU and is always kept alone.
+                dinos = [k for k in _cache if k != "classic"]
+                limit = 1 if "g14" in name or any("g14" in k for k in dinos) else MAX_MODELS
+                for key in dinos[: max(0, len(dinos) - limit + 1)]:
                     del _cache[key]
                 gc.collect()
                 if torch.cuda.is_available():

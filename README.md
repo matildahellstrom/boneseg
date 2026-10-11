@@ -33,7 +33,7 @@ The app opens at http://127.0.0.1:8000. Click **Try a synthetic demo image** to 
 
 The app runs on an NVIDIA GPU, an Apple Silicon GPU or the CPU, whichever it finds. Small and Base are comfortable on a laptop. Giant needs a large GPU.
 
-To share the app on a lab network, start it with `--host 0.0.0.0 --token SOME-SECRET` and send colleagues the access link it prints. Without a token, anyone who can reach the port can use the app. Opening files by path on the server is turned off on the network unless you add `--allow-paths`, since it would let anyone read files the server can read.
+To share the app on a lab network, start it with `--host 0.0.0.0 --token SOME-SECRET` and send colleagues the access link it prints. Without a token, anyone who can reach the port can use the app. Opening files by path on the server is turned off on the network unless you add `--allow-paths`, since it would let anyone read files the server can read. A server on your own computer only answers to `localhost` and `127.0.0.1`, which keeps other websites from reaching it; reached under another name (for example behind a proxy), list it with `--allowed-host NAME`. Requests that change something are only accepted from the app's own pages.
 
 ### With Docker
 
@@ -218,3 +218,16 @@ pytest tests/e2e
 ```
 
 Uploaded files, profiles and job outputs go to `projects/`, or to the folder set with `--data-dir` or the `BONESEG_DATA_DIR` environment variable. Microscopy files and outputs are kept out of git.
+
+Settings through environment variables:
+
+| Variable | Default | What it does |
+|---|---|---|
+| `BONESEG_MAX_UPLOAD_GB` | 50 | Largest file accepted by upload |
+| `BONESEG_CACHE_GB` / `BONESEG_PLANE_CACHE_GB` | 2 / 1.5 | Memory for cached features / image planes |
+| `BONESEG_MAX_JOBS` | 2 | Background jobs running at once; more wait as queued |
+| `BONESEG_KEEP_RUNS` | 20 | Finished runs kept per image; older ones and their files are deleted |
+| `BONESEG_MAX_MODELS` | 2 | DINOv2 models kept loaded at once (Giant always alone) |
+| `BONESEG_3D_VOXELS` | 200 million | Above this, 3D objects are counted on a downsampled stack (the summary says by how much) |
+
+For a reproducible install, `pip install -r requirements-lock.txt` pins the exact versions the tests passed with; `pip install -e .` installs the `boneseg` command (`pyproject.toml`).

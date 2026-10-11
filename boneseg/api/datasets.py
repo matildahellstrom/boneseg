@@ -1,6 +1,7 @@
 """Datasets: upload, open, browse, region of interest and pixel size."""
 from __future__ import annotations
 
+import os
 import shutil
 from pathlib import Path
 
@@ -25,11 +26,19 @@ def router(ctx: AppContext) -> APIRouter:
     def list_datasets():
         return [ds.info() for ds in sorted(store.datasets.values(), key=lambda d: -d.created)]
 
+    max_bytes = int(float(os.environ.get("BONESEG_MAX_UPLOAD_GB", "50")) * 1e9)   # Large Imaris files are tens of GB
+    too_big = f"The file is larger than this server accepts ({max_bytes / 1e9:.0f} GB; set BONESEG_MAX_UPLOAD_GB to change it)"
+
     @r.post("/api/datasets")
     def upload(file: UploadFile = File(...)):
         def write(dest: Path):
+            written = 0
             with open(dest, "wb") as out:
-                shutil.copyfileobj(file.file, out, length=8 * 1024 * 1024)
+                while chunk := file.file.read(8 * 1024 * 1024):
+                    written += len(chunk)
+                    if written > max_bytes:
+                        raise HTTPException(413, too_big)
+                    out.write(chunk)
 
         return store.add_dataset_file(file.filename or "upload", write).info()
 
@@ -40,10 +49,16 @@ def router(ctx: AppContext) -> APIRouter:
         import asyncio
         import uuid as _uuid
 
+        if int(request.headers.get("content-length") or 0) > max_bytes:
+            raise HTTPException(413, too_big)
         tmp = store.root / "datasets" / f".incoming-{_uuid.uuid4().hex}"
         try:
+            written = 0
             with open(tmp, "wb") as out:
                 async for chunk in request.stream():
+                    written += len(chunk)
+                    if written > max_bytes:
+                        raise HTTPException(413, too_big)
                     out.write(chunk)
 
             def write(dest: Path):

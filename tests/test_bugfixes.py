@@ -166,3 +166,170 @@ def test_bug23_finetune_cancel_before_the_first_check(monkeypatch):
     ft = fmod.finetune([(img, gt)], [(img, gt)], train_blocks=1, steps=500, crop=56, batch=1, pretrained=Tiny(), device=torch.device("cpu"),
                        progress=lambda p, m: steps.append(p), cancelled=lambda: len(steps) >= 3)
     assert ft.info["best_step"] <= 5 and len(steps) <= 5   # Stopped right after cancelling, not at step 100
+
+
+# Code analysis of 11 October 2026 (code-analysis.md): B = bugs, W = weaknesses
+
+def test_b1_concurrent_annotation_saves_are_all_kept(tmp_path):
+    import threading
+
+    from boneseg.store import Store
+
+    store = Store(tmp_path)
+    ds = store.add_dataset_file("a.npy", lambda p: np.save(p, np.zeros((1, 40, 10, 10), np.float32)))
+    errors = []
+
+    def save(z):
+        try:
+            store.set_annotation(ds.id, 0, z, [[1, 1]], [])
+        except Exception as e:  # noqa: BLE001
+            errors.append(e)
+    threads = [threading.Thread(target=save, args=(z,)) for z in range(40)]
+    [t.start() for t in threads]
+    [t.join() for t in threads]
+    assert not errors and len(store.get_annotations(ds.id)) == 40
+
+
+def test_b2_one_structure_alone_and_in_the_multi_path_agree():
+    from boneseg import segment
+    from boneseg.backbone import get_backbone
+    from tests.conftest import make_blobs
+
+    img, gt, centers = make_blobs(seed=0)
+    s = segment.SegmentationSettings(backbone="classic", vit_size=252)
+    emb = segment.embed_image(get_backbone("classic"), img, s)
+    ys, xs = np.nonzero(~gt)
+    neg = [[int(ys[i]), int(xs[i])] for i in np.linspace(0, len(ys) - 1, 6).astype(int)]
+    pos = [list(c) for c in centers[:4]]
+    single = segment.segment(emb, pos, neg, s).mask
+    multi = segment.segment_multi(emb, [{"name": "cells", "pos": pos}], neg, s).labels == 1
+    assert (single == multi).mean() > 0.995   # Same edge snapping and threshold rule
+
+
+def test_b3_png_modes(tmp_path):
+    from boneseg import io as bio
+
+    Image.fromarray(np.dstack([np.full((20, 30), 100, np.uint8), np.full((20, 30), 255, np.uint8)]), "LA").save(tmp_path / "la.png")
+    rgb = np.zeros((20, 30, 3), np.uint8)
+    rgb[:, :15] = (200, 30, 30)
+    Image.fromarray(rgb).convert("P", palette=Image.ADAPTIVE, colors=4).save(tmp_path / "p.png")
+    la = bio.load_volume(tmp_path / "la.png")
+    assert la.n_channels == 1 and la.get_plane(0, 0).max() == 100
+    p = bio.load_volume(tmp_path / "p.png")
+    assert p.channel_names[:3] == ["Red", "Green", "Blue"] and p.get_plane(0, 0).max() == 200
+
+
+def test_b4_z_context_in_micrometres():
+    from boneseg.head import Head, head_input
+    from boneseg.segment import Embedding
+
+    calls = []
+    embed = lambda z: (calls.append(z), Embedding(torch.nn.functional.normalize(torch.rand(2, 2, 3), dim=-1), 28, 28))[1]  # noqa: E731
+    h = Head("classic", 1, 252, "linear", {}, 6, z_context=2, z_context_um=4.0)   # Trained on 2 um slices
+    head_input(h, embed, 10, 30, z_um=1.0)                                        # A 1 um stack: 4 slices away
+    assert calls == [10, 6, 14]
+    with pytest.raises(ValueError, match="needs a stack"):
+        head_input(h, embed, 0, 1, z_um=1.0)
+
+
+def test_b6_prefetch_stops_when_settings_change(tmp_path):
+    from boneseg.segment import SegmentationSettings
+    from boneseg.store import Store
+
+    store = Store(tmp_path)
+    ds = store.add_dataset_file("a.npy", lambda p: np.save(p, np.random.default_rng(0).random((1, 6, 60, 60)).astype(np.float32)))
+    a, b = SegmentationSettings(backbone="classic", vit_size=56), SegmentationSettings(backbone="classic", vit_size=84)
+    store.prefetch(ds.id, 0, [1, 2], a)
+    gen = store._prefetch_gen
+    store.prefetch(ds.id, 0, [3], b)
+    assert store._prefetch_gen == gen + 1   # Queued slices of the old settings are skipped
+
+
+def test_w1_large_stacks_label_3d_objects_at_reduced_resolution(client, monkeypatch):
+    import boneseg.pipeline as pl
+
+    monkeypatch.setattr(pl, "VOXEL_BUDGET", 1000)
+    ds, gt, centers = upload_stack(client, n_z=4)
+    job = client.post(f"/api/datasets/{ds['id']}/stack", json={"channel": 0, "pos": [list(c) for c in centers], "neg": bg_points(gt), "settings": SETTINGS}).json()
+    job = wait(client, job)
+    assert job["status"] == "done" and job["result"]["summary"]["objects_3d_downsampled"] > 1
+    import tifffile
+    masks = tifffile.imread(io.BytesIO(client.get(f"/api/jobs/{job['id']}/files/masks.tif").content))
+    assert masks.shape == (4, *gt.shape)   # Mask stacks stay at full resolution
+
+
+def test_w2_tiffs_are_read_lazily(tmp_path):
+    import tifffile
+
+    from boneseg import io as bio
+
+    arr = (np.random.default_rng(0).random((5, 30, 40)) * 60000).astype(np.uint16)
+    tifffile.imwrite(tmp_path / "s.tif", arr, compression="zlib")
+    v = bio.load_volume(tmp_path / "s.tif")
+    assert hasattr(v, "_file") and all(np.array_equal(v.get_plane(0, z), arr[z]) for z in range(5))
+
+
+def test_w3_host_origin_and_upload_limits(tmp_path, monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from boneseg.api import create_app
+
+    monkeypatch.setenv("BONESEG_MAX_UPLOAD_GB", "0.000001")   # 1 kB
+    c = TestClient(create_app(tmp_path / "d", allowed_hosts=["testserver"]))
+    assert c.get("/api/health").status_code == 200
+    assert c.get("/api/health", headers={"host": "evil.example"}).status_code == 400
+    assert c.post("/api/datasets/demo", headers={"origin": "http://evil.example"}).status_code == 403
+    assert c.post("/api/datasets/demo", headers={"origin": "http://testserver"}).status_code == 200
+    big = io.BytesIO()
+    np.save(big, np.zeros((1, 1, 40, 40), np.float32))
+    assert c.post("/api/datasets/stream", params={"filename": "big.npy"}, content=big.getvalue()).status_code == 413
+    assert c.post("/api/datasets", files={"file": ("big.npy", big.getvalue(), "application/octet-stream")}).status_code == 413
+
+
+def test_w4_project_export_has_only_this_images_profiles(client):
+    import zipfile
+
+    a, gt, centers = upload_stack(client, n_z=1)
+    b, _, _ = upload_stack(client, n_z=1)
+    body = lambda ds: {"name": "p", "channel": 0, "z": 0, "pos": [list(c) for c in centers], "neg": bg_points(gt), "settings": SETTINGS, "dataset_id": ds["id"]}  # noqa: E731
+    pa = client.post("/api/profiles", json=body(a)).json()["id"]
+    client.post("/api/profiles", json=body(b))
+    z = zipfile.ZipFile(io.BytesIO(client.get(f"/api/datasets/{a['id']}/export/project.zip").content))
+    assert [n for n in z.namelist() if n.startswith("profiles/")] == [f"profiles/{pa}.npz"]
+    assert str(client.app.state.store.root) not in z.read("dataset.json").decode()
+
+
+def test_w5_learned_models_load_safely(client, tmp_path):
+    ds, gt, centers = upload_stack(client, n_z=3)
+    client.patch(f"/api/datasets/{ds['id']}", json={"reference_channel": 1})
+    client.post(f"/api/datasets/{ds['id']}/labels/from-reference", json={"channel": 0, "n": 2})
+    client.post(f"/api/datasets/{ds['id']}/head", json={"channel": 0, "settings": SETTINGS})
+    d = torch.load(client.app.state.store.head_path(ds["id"], 0), weights_only=True)
+    assert d["kind"] in ("linear", "mlp")
+
+
+def test_w7_old_runs_are_pruned(tmp_path):
+    from boneseg.store import Store
+
+    store = Store(tmp_path)
+    ids = [store.record_job("stack", {"dataset_id": "x"}, lambda d: {}).id for _ in range(5)]
+    for i, jid in enumerate(ids):
+        store.jobs[jid].created = i
+    store.prune_jobs("x", keep=2)
+    assert sorted(j.id for j in store.jobs.values()) == sorted(ids[-2:])
+    assert not (tmp_path / "jobs" / ids[0]).exists()
+
+
+def test_w8_two_backbones_stay_loaded(monkeypatch):
+    import boneseg.backbone as bmod
+
+    class Fake(bmod.Backbone):
+        def __init__(self, name, device):
+            self.name = name
+    monkeypatch.setattr(bmod, "DinoBackbone", Fake)
+    monkeypatch.setattr(bmod, "_cache", {})
+    a = bmod.get_backbone("dinov2_s14")
+    bmod.get_backbone("dinov2_b14")
+    assert bmod.get_backbone("dinov2_s14") is a   # Still loaded, not reloaded
+    bmod.get_backbone("dinov2_l14")
+    assert set(bmod._cache) == {"dinov2_s14", "dinov2_l14"}   # The least recently used went

@@ -12,6 +12,7 @@ fair baseline: the same data, code and budget, with DINO left unchanged.
 """
 from __future__ import annotations
 
+import contextlib
 import copy
 import time
 from dataclasses import dataclass, field
@@ -174,11 +175,12 @@ def finetune(train: list[tuple[np.ndarray, np.ndarray]], val: list[tuple[np.ndar
              train_blocks: int = 4, vit_size: int = 980, steps: int = 1000, batch: int = 4, crop: int = 448,
              lr_backbone: float = 2e-5, lr_head: float = 1e-3, eval_every: int = 100, seed: int = 0,
              pretrained: nn.Module | None = None, device=None, log=None, progress=None, cancelled=None,
-             init: "FineTuned | None" = None) -> FineTuned:
+             init: "FineTuned | None" = None, step_lock=None) -> FineTuned:
     """Fine-tunes on (image, mask) pairs of [0, 1] images and boolean masks; keeps the step with the best mean
     Dice on the validation pairs. Pass a pretrained backbone to reuse one download across runs (it is copied).
     progress(fraction, message) is called after every step; when cancelled() turns true, training stops and the
-    best step so far is kept. init continues from an earlier fine-tuning (same base and blocks), for example one on
+    best step so far is kept. step_lock, if given, is held for each training step and each check (the app passes its
+    model lock, since GPU backends such as Apple MPS fail when two threads use them at once). init continues from an earlier fine-tuning (same base and blocks), for example one on
     other samples, before adapting to a few slices of a new one."""
     device = device or pick_device()
     torch.manual_seed(seed)
@@ -214,28 +216,30 @@ def finetune(train: list[tuple[np.ndarray, np.ndarray]], val: list[tuple[np.ndar
             if best is not None:
                 break
             eval_every = step   # Cancelled before the first check: check at this step, keep it and stop after it
-        net.train()
-        net.dino.eval() if train_blocks == 0 else None   # Frozen backbone: no dropout or other train-time behaviour
-        X, Y, M = _batch(tr, crop, batch, rng)
-        x = ((_to3(torch.from_numpy(X)) - _IMAGENET_MEAN) / _IMAGENET_STD).to(device)
-        y, m = torch.from_numpy(Y)[:, None].to(device), torch.from_numpy(M)[:, None].to(device)
-        logits = F.interpolate(net(x), size=x.shape[-2:], mode="bilinear", align_corners=False)
-        p = torch.sigmoid(logits) * m
-        bce = (F.binary_cross_entropy_with_logits(logits, y, reduction="none") * m).sum() / m.sum()
-        dice = 1 - (2 * (p * y).sum() + 1) / (p.sum() + (y * m).sum() + 1)
-        loss = bce + dice
-        opt.zero_grad()
-        loss.backward()
-        opt.step()
-        sched.step()
-        if step % eval_every == 0 or step == steps:
-            vd = float(np.mean([_dice((predict(net, v, device) >= 0.5) & (True if v.valid is None else v.valid), v.gt if v.valid is None else v.gt & v.valid)
-                                for v in va])) if va else -float(loss.item())
-            history.append({"step": step, "loss": float(loss.item()), "val_dice": vd})
-            if vd > best_dice:
-                best_dice, best = vd, snapshot()
-            if log:
-                log(f"  step {step}/{steps}: loss {loss.item():.3f}, validation Dice {vd:.3f}, {time.time() - t0:.0f}s")
+        lock = step_lock if step_lock is not None else contextlib.nullcontext()
+        with lock:   # Released after this step, so other GPU work can run between steps
+            net.train()
+            net.dino.eval() if train_blocks == 0 else None   # Frozen backbone: no dropout or other train-time behaviour
+            X, Y, M = _batch(tr, crop, batch, rng)
+            x = ((_to3(torch.from_numpy(X)) - _IMAGENET_MEAN) / _IMAGENET_STD).to(device)
+            y, m = torch.from_numpy(Y)[:, None].to(device), torch.from_numpy(M)[:, None].to(device)
+            logits = F.interpolate(net(x), size=x.shape[-2:], mode="bilinear", align_corners=False)
+            p = torch.sigmoid(logits) * m
+            bce = (F.binary_cross_entropy_with_logits(logits, y, reduction="none") * m).sum() / m.sum()
+            dice = 1 - (2 * (p * y).sum() + 1) / (p.sum() + (y * m).sum() + 1)
+            loss = bce + dice
+            opt.zero_grad()
+            loss.backward()
+            opt.step()
+            sched.step()
+            if step % eval_every == 0 or step == steps:
+                vd = float(np.mean([_dice((predict(net, v, device) >= 0.5) & (True if v.valid is None else v.valid), v.gt if v.valid is None else v.gt & v.valid)
+                                    for v in va])) if va else -float(loss.item())
+                history.append({"step": step, "loss": float(loss.item()), "val_dice": vd})
+                if vd > best_dice:
+                    best_dice, best = vd, snapshot()
+                if log:
+                    log(f"  step {step}/{steps}: loss {loss.item():.3f}, validation Dice {vd:.3f}, {time.time() - t0:.0f}s")
         if progress is not None:
             el = time.time() - t0
             progress(step / steps, f"Step {step} of {steps}" + (f", best validation Dice {best_dice:.3f}" if va and best is not None else "")

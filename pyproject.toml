@@ -1,0 +1,48 @@
+# Packaging for boneseg. `pip install -e .` installs the `boneseg` command (boneseg serve, batch, finetune, ...).
+# Version bounds: the lowest versions known to work and the next major version as the upper limit, so a future
+# release with breaking changes is not picked up silently. requirements-lock.txt pins the exact versions tested.
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "boneseg"
+dynamic = ["version"]
+description = "Few-shot segmentation of bone microscopy images with DINOv2 features, as a local web app"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "torch>=2.4,<3",
+    "torchvision",
+    "numpy>=1.26,<3",
+    "scipy>=1.11,<2",
+    "scikit-image>=0.22,<1",
+    "pandas>=2.0,<4",
+    "pillow>=10,<13",
+    "tifffile>=2024.1",
+    "zarr>=3,<4",
+    "h5py>=3.9,<4",
+    "imaris-ims-file-reader==0.1.8",
+    "fastapi>=0.110,<1",
+    "uvicorn[standard]>=0.27,<1",
+    "python-multipart>=0.0.9",
+]
+
+[project.optional-dependencies]
+sam = ["segment-anything>=1.0"]               # "Agree with SAM"
+dev = ["pytest>=8", "httpx>=0.27", "playwright>=1.40", "segment-anything>=1.0"]
+
+[project.scripts]
+boneseg = "boneseg.__main__:main"
+
+[tool.setuptools.dynamic]
+version = { attr = "boneseg.__version__" }
+
+[tool.setuptools.packages.find]
+include = ["boneseg*"]
+
+[tool.setuptools.package-data]
+boneseg = ["static/*", "static/js/*", "models/*.pt"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

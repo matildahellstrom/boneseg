@@ -12,3 +12,4 @@ fastapi
 uvicorn[standard]
 python-multipart
 segment-anything
+zarr>=3

@@ -92,7 +92,8 @@ class AppContext:
     def head_embedding(self, ds_id: str, c: int, z: int, settings: SegmentationSettings, head: Head):
         """The embedding the learned model expects for slice z, with its neighbours' features for a z-context model.
         Call with compute_lock held."""
-        return head_input(head, lambda zz: self.store.embedding(ds_id, c, zz, settings), z, self.store.get(ds_id).volume.n_z)
+        vol = self.store.get(ds_id).volume
+        return head_input(head, lambda zz: self.store.embedding(ds_id, c, zz, settings), z, vol.n_z, vol.voxel_um[0])
 
     def last_result(self, ds_id, c, z):
         res = self.store.get(ds_id).results.get((c, z))

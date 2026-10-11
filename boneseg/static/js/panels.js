@@ -17,7 +17,7 @@ async function loadSide() {
     const img = await loadImage(`/api/datasets/${S.ds.id}/xz?c=${S.c}&y=${S.sideY}&low=${S.low}&high=${S.high}${job}`);
     if (seq !== sideSeq) return;
     $("sideImg").src = img.src;
-    $("sideLabel").textContent = `Side view at row ${S.sideY}${job ? " · cyan: latest stack run" : " · run the stack to see its mask here"}`;
+    $("sideLabel").textContent = `Side view at row ${S.sideY}${job ? (isMulti() ? " · latest stack run, in the structures' colours" : " · cyan: latest stack run") : " · run the stack to see its mask here"}`;
     placeSideZ();
   } catch (e) { toast(e.message, true); }
   draw();
@@ -135,7 +135,7 @@ function showVoxel() {
   $("voxelSummary").textContent = d.voxel_size_known ? `Pixel size ${d.voxel_um[2].toFixed(3)} µm` : "Pixel size unknown, set it for measurements in µm";
   $("voxelSummary").style.color = d.voxel_size_known ? "" : "var(--warn)";
   $("voxelHint").textContent = d.voxel_um_override ? "Set by you." : d.voxel_size_known ? "Read from the file." : "The file has no pixel size, so measurements are in pixels until you set it.";
-  $("datasetTitle").textContent = `${d.name} · ${d.width}×${d.height} px · ${d.n_z} slices · ${d.voxel_size_known ? `${d.voxel_um[2].toFixed(3)} µm/px` : "pixel size unknown"}`;
+  $("datasetTitle").textContent = `${d.name} · ${d.width}×${d.height} px · ${d.n_z} slice${d.n_z === 1 ? "" : "s"} · ${d.voxel_size_known ? `${d.voxel_um[2].toFixed(3)} µm/px` : "pixel size unknown"}`;
 }
 
 async function saveVoxel() {

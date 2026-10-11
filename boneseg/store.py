@@ -40,6 +40,14 @@ def _read_error(path: Path, e: Exception) -> str:
     return f"Could not read {path.name}. The file may be damaged or not what its extension says ({type(e).__name__}: {detail})"
 
 
+def atomic_write_text(path: Path, text: str):
+    """Writes a file so that readers see either the old or the new content, never half of it: the text goes to a
+    temporary file next to it, which then replaces the original in one step (os.replace is atomic)."""
+    tmp = path.with_name(f".{path.name}.{uuid.uuid4().hex[:8]}.tmp")
+    tmp.write_text(text)
+    os.replace(tmp, path)
+
+
 class LRU:
     """Least-recently-used cache, bounded by item count and optionally by total size in bytes."""
 
@@ -146,12 +154,26 @@ class Store:
         (self.root / "profiles").mkdir(parents=True, exist_ok=True)
         (self.root / "jobs").mkdir(parents=True, exist_ok=True)
         self.datasets: dict[str, Dataset] = {}
-        self.planes = LRU(64)
+        # Planes are bounded in bytes as well as in number: 64 normalised planes of a 3000 x 3000 image are several GB
+        self.planes = LRU(64, max_bytes=int(float(os.environ.get("BONESEG_PLANE_CACHE_GB", "1.5")) * 1e9),
+                          size_of=lambda a: int(getattr(a, "nbytes", 0)))
         # Features are the expensive part; the budget is in bytes because Giant features are four times Small ones
         self.embeddings = LRU(256, max_bytes=int(float(os.environ.get("BONESEG_CACHE_GB", "2")) * 1e9), size_of=_embedding_bytes)
         self._prefetching: set = set()
+        self._prefetch_gen = 0          # Bumped when the settings change: queued prefetches of old settings stop
+        self._prefetch_settings = None
+        self._last_embed_s = 0.0        # How long the last feature computation took
+        from concurrent.futures import ThreadPoolExecutor
+
+        # Bounded workers: background jobs beyond the limit wait as "queued" instead of all competing for the model at
+        # once, and prefetching runs on one worker (stale prefetches are skipped by the generation check)
+        self._job_pool = ThreadPoolExecutor(max_workers=int(os.environ.get("BONESEG_MAX_JOBS", "2")), thread_name_prefix="boneseg-job")
+        self._prefetch_pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="boneseg-prefetch")
         self.jobs: dict[str, Job] = {}
         self._lock = threading.Lock()
+        # Guards read-modify-write of the small JSON files (annotations, dataset metadata): requests run in a thread
+        # pool, and two saves interleaving used to drop clicks or leave a half-written file
+        self.file_lock = threading.RLock()
         # One model computation at a time: GPU backends such as Apple MPS crash when used from several threads at once
         self.compute_lock = threading.RLock()
         self._load_existing()
@@ -182,7 +204,7 @@ class Store:
     def _save_meta(self, ds: Dataset):
         d = self.root / "datasets" / ds.id
         path = ds.path.name if ds.path.parent == d else str(ds.path)
-        (d / "dataset.json").write_text(json.dumps({"path": path, "created": ds.created, "user": ds.meta}, indent=1))
+        atomic_write_text(d / "dataset.json", json.dumps({"path": path, "created": ds.created, "user": ds.meta}, indent=1))
 
     def add_dataset_file(self, src_name: str, write: Callable[[Path], None]) -> Dataset:
         """Creates a dataset whose file is written by write(dest_path)."""
@@ -230,10 +252,11 @@ class Store:
         return {"reference_channel": None}
 
     def update_meta(self, ds_id: str, **kw):
-        ds = self.get(ds_id)
-        ds.meta.update(kw)
-        ds.apply_meta()
-        self._save_meta(ds)
+        with self.file_lock:
+            ds = self.get(ds_id)
+            ds.meta.update(kw)
+            ds.apply_meta()
+            self._save_meta(ds)
         return ds
 
     def get(self, ds_id: str) -> Dataset:
@@ -246,6 +269,9 @@ class Store:
         d = self.root / "datasets" / ds_id
         shutil.rmtree(d, ignore_errors=True)
         del self.datasets[ds_id]
+        for job in [j for j in self.jobs.values() if j.meta.get("dataset_id") == ds_id]:   # Its runs go with it
+            job.cancel.set()
+            self._remove_job(job)
         self.planes.drop(lambda k: k[0] == ds_id)
         self.embeddings.drop(lambda k: k[0] == ds_id)
 
@@ -282,7 +308,9 @@ class Store:
         with self.compute_lock:
             emb = self.embeddings.get(key)
             if emb is None:
+                t0 = time.time()
                 emb = embed_image(get_backbone(s.backbone), self.color_plane(ds_id, c, z, s.clip_low, s.clip_high), s)
+                self._last_embed_s = time.time() - t0
                 self.embeddings.put(key, emb)
         return emb
 
@@ -313,7 +341,16 @@ class Store:
 
     def prefetch(self, ds_id: str, c: int, zs: list[int], s: SegmentationSettings):
         """Computes features for the given slices in the background, so moving to them is instant.
-        Takes the model lock per slice, so interactive requests can slip in between."""
+        Takes the model lock per slice, so interactive requests can slip in between. A request with other settings
+        (another backbone, size or contrast) cancels the slices still queued, and slow backbones are not prefetched:
+        their prefetch would hold the model lock for many seconds per slice and delay what the user asks for."""
+        settings_key = self.embedding_key(ds_id, c, -1, s)
+        if settings_key != self._prefetch_settings:
+            self._prefetch_settings = settings_key
+            self._prefetch_gen += 1
+        if self._last_embed_s > 2.0:
+            return
+        gen = self._prefetch_gen
         n_z = self.get(ds_id).volume.n_z
         todo = [z for z in zs if 0 <= z < n_z and self.embedding_key(ds_id, c, z, s) not in self.embeddings
                 and (ds_id, c, z) not in self._prefetching]
@@ -322,6 +359,8 @@ class Store:
 
         def run():
             for z in todo:
+                if gen != self._prefetch_gen:   # Settings changed since this prefetch was queued
+                    break
                 self._prefetching.add((ds_id, c, z))
                 try:
                     if ds_id in self.datasets:
@@ -331,7 +370,7 @@ class Store:
                 finally:
                     self._prefetching.discard((ds_id, c, z))
 
-        threading.Thread(target=run, daemon=True).start()
+        self._prefetch_pool.submit(run)
 
     def reference_mask(self, ds_id: str, z: int, c: int | None = None) -> np.ndarray | None:
         """The expert mask for slice z: the reference channel if one is set, otherwise a label the user
@@ -353,6 +392,10 @@ class Store:
         return json.loads(p.read_text()) if p.exists() else {}
 
     def set_annotation(self, ds_id: str, c: int, z: int, pos: list, neg: list, extra: list | None = None) -> dict:
+        with self.file_lock:   # The whole read-modify-write, so concurrent saves of different slices all survive
+            return self._set_annotation(ds_id, c, z, pos, neg, extra)
+
+    def _set_annotation(self, ds_id: str, c: int, z: int, pos: list, neg: list, extra: list | None = None) -> dict:
         ann = self.get_annotations(ds_id)
         key = f"{int(c)}:{int(z)}"
         pts = lambda ps: [[int(round(a)), int(round(b))] for a, b in ps]
@@ -363,7 +406,7 @@ class Store:
                 ann[key]["extra"] = extra
         else:
             ann.pop(key, None)
-        (self.ds_dir(ds_id) / "annotations.json").write_text(json.dumps(ann))
+        atomic_write_text(self.ds_dir(ds_id) / "annotations.json", json.dumps(ann))
         return ann
 
     def label_path(self, ds_id: str, c: int, z: int) -> Path:
@@ -394,9 +437,10 @@ class Store:
         if labels.shape != (vol.height, vol.width):
             img = img.resize((vol.width, vol.height), Image.NEAREST)
         img.save(self.label_path(ds_id, c, z))
-        names_by_channel = dict(self.get(ds_id).meta.get("label_structures") or {})
-        names_by_channel[str(int(c))] = list(names)
-        self.update_meta(ds_id, label_structures=names_by_channel)
+        with self.file_lock:
+            names_by_channel = dict(self.get(ds_id).meta.get("label_structures") or {})
+            names_by_channel[str(int(c))] = list(names)
+            self.update_meta(ds_id, label_structures=names_by_channel)
 
     def load_label_map(self, ds_id: str, c: int, z: int) -> np.ndarray | None:
         from PIL import Image
@@ -424,12 +468,13 @@ class Store:
     # A label saved while a region of interest was set only says something inside that region: outside it, the mask
     # was clipped away, not judged. The region is kept with the label, and training ignores pixels outside it.
     def set_label_region(self, ds_id: str, c: int, z: int, poly):
-        regions = dict(self.get(ds_id).meta.get("label_regions") or {})
-        if poly:
-            regions[f"{int(c)}:{int(z)}"] = poly
-        else:
-            regions.pop(f"{int(c)}:{int(z)}", None)
-        self.update_meta(ds_id, label_regions=regions)
+        with self.file_lock:
+            regions = dict(self.get(ds_id).meta.get("label_regions") or {})
+            if poly:
+                regions[f"{int(c)}:{int(z)}"] = poly
+            else:
+                regions.pop(f"{int(c)}:{int(z)}", None)
+            self.update_meta(ds_id, label_regions=regions)
 
     def label_region(self, ds_id: str, c: int, z: int) -> np.ndarray | None:
         """Where the label on (c, z) is valid, as a mask; None when it covers the whole slice."""
@@ -461,7 +506,7 @@ class Store:
                             "structures": [{"name": st["name"], "color": st.get("color", "")} for st in prof.structures] if prof.structures else None,
                             "vit_size": prof.head["vit_size"] if prof.head else None,
                             "source": prof.source, "n_pos": int(len(prof.pos)), "n_neg": int(len(prof.neg)),
-                            "settings": prof.settings})
+                            "settings": prof.settings, "dataset_id": prof.dataset_id})
             except Exception:
                 traceback.print_exc()
         return out
@@ -492,9 +537,35 @@ class Store:
                 traceback.print_exc()
                 job.status, job.error = "failed", f"{type(e).__name__}: {e}"
             self._save_job(job)
+            self.prune_jobs(job.meta.get("dataset_id"))
 
-        threading.Thread(target=run, daemon=True).start()
+        self._job_pool.submit(run)
         return job
+
+    def _remove_job(self, job: Job):
+        self.jobs.pop(job.id, None)
+        if job.out_dir is not None:
+            shutil.rmtree(job.out_dir, ignore_errors=True)
+
+    def prune_jobs(self, ds_id: str | None, keep: int | None = None):
+        """Keeps the newest `keep` finished runs per dataset (BONESEG_KEEP_RUNS, default 20) and deletes older ones
+        with their files: each full-resolution stack run writes mask stacks that can take gigabytes."""
+        if ds_id is None:
+            return
+        keep = int(os.environ.get("BONESEG_KEEP_RUNS", "20")) if keep is None else keep
+        finished = sorted((j for j in self.jobs.values() if j.meta.get("dataset_id") == ds_id and j.status in ("done", "failed", "cancelled")),
+                          key=lambda j: -j.created)
+        for job in finished[keep:]:
+            self._remove_job(job)
+
+    def shutdown(self):
+        """Asks running jobs to stop and stops the workers, so the server exits promptly (Ctrl+C)."""
+        for job in self.jobs.values():
+            if job.status in ("queued", "running"):
+                job.cancel.set()
+        self._prefetch_gen += 1
+        self._job_pool.shutdown(wait=False, cancel_futures=True)
+        self._prefetch_pool.shutdown(wait=False, cancel_futures=True)
 
     def record_job(self, kind: str, meta: dict, run: Callable[[Path], dict], cancelled: Callable[[], bool] | None = None) -> Job:
         """Runs work synchronously in a new job folder and stores it as a finished job, for example one
@@ -520,7 +591,7 @@ class Store:
         """Finished jobs are written next to their outputs, so results survive a restart."""
         try:
             info = job.info()
-            (job.out_dir / "job.json").write_text(json.dumps(info))
+            atomic_write_text(job.out_dir / "job.json", json.dumps(info))
         except Exception:
             traceback.print_exc()
 

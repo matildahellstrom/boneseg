@@ -513,6 +513,7 @@ class Profile:
     raw_threshold: float | None = None  # Calibrated on the source image, reused when no clicks are given
     head: dict | None = None            # A learned model: {"kind", "dim", "vit_size", "state": {name: array}}
     structures: list | None = None      # Several structures: [{"name", "color", "pos", "neg", "threshold"}]
+    dataset_id: str = ""                # The image it was made from, so a project export includes only its own profiles
 
     @property
     def kind(self) -> str:
@@ -535,7 +536,7 @@ class Profile:
         arrays = {"pos": self.pos, "neg": self.neg}
         meta = {"name": self.name, "backbone": self.backbone, "layer_from_end": self.layer_from_end,
                 "settings": self.settings, "description": self.description, "source": self.source,
-                "raw_threshold": self.raw_threshold}
+                "raw_threshold": self.raw_threshold, "dataset_id": self.dataset_id}
         if self.head:
             meta["head"] = {k: v for k, v in self.head.items() if k != "state"}
             meta["head"]["state_keys"] = list(self.head["state"])
@@ -582,6 +583,13 @@ class MultiModel:
     thresholds: list[float]
 
 
+def _structure_scores(emb: Embedding, pos_t: torch.Tensor, neg_t: torch.Tensor, settings: SegmentationSettings) -> np.ndarray:
+    """One structure's full-resolution score map, made exactly as for a single structure: standardized patch scores,
+    upsampled and snapped to image edges (guided filter), so several structures get the same boundary quality."""
+    raw = upsample(normalize_scores(score_grid(emb.grid, pos_t, neg_t, settings.neg_weight), settings.score_norm), (emb.height, emb.width))
+    return refine_scores(raw, emb, settings)
+
+
 def calibrate_multi(emb: Embedding, classes: list[dict], neg_points, settings: SegmentationSettings) -> MultiModel:
     """Builds per-structure prototypes from the clicks on one slice and calibrates each threshold there.
 
@@ -590,14 +598,15 @@ def calibrate_multi(emb: Embedding, classes: list[dict], neg_points, settings: S
     classes = [c for c in classes if len(c.get("pos", []))]
     if not classes:
         raise ValueError("Add clicks for at least one structure")
-    shape = (emb.height, emb.width)
     model = MultiModel(names=[], pos=[], neg=[], thresholds=[])
     for k, c in enumerate(classes):
         others = [p for j, o in enumerate(classes) if j != k for p in o["pos"]]
         neg_k = list(neg_points) + others
         pos_t, neg_t = prototypes(emb, c["pos"]), prototypes(emb, neg_k)
-        raw = upsample(normalize_scores(score_grid(emb.grid, pos_t, neg_t, settings.neg_weight), settings.score_norm), shape)
-        thr = calibrate_threshold(sample_points(raw, c["pos"]), sample_points(raw, neg_k)) if len(neg_k) else None
+        raw = _structure_scores(emb, pos_t, neg_t, settings)
+        # The same threshold rule as one structure: strictness "Auto" is 0.7 with up to five clicks of a kind, else 0.9
+        position = auto_position(settings.threshold_position, len(c["pos"]), len(neg_k))
+        thr = calibrate_threshold(sample_points(raw, c["pos"]), sample_points(raw, neg_k), position) if len(neg_k) else None
         if thr is None:
             thr = float(threshold_otsu(raw)) if float(raw.max()) > float(raw.min()) else float(raw.max())
         model.names.append(c.get("name", f"Structure {k + 1}"))
@@ -613,8 +622,7 @@ def apply_multi(emb: Embedding, model: MultiModel, settings: SegmentationSetting
     shape = (emb.height, emb.width)
     passes, sims = [], []
     for pos_t, neg_t, thr in zip(model.pos, model.neg, model.thresholds):
-        raw = upsample(normalize_scores(score_grid(emb.grid, pos_t, neg_t, settings.neg_weight), settings.score_norm), shape)
-        passes.append(raw >= thr)
+        passes.append(_structure_scores(emb, pos_t, neg_t, settings) >= thr)
         # Plain similarity to the structure's own clicks decides between structures that both pass
         sims.append(upsample(score_grid(emb.grid, pos_t, pos_t[:0], 0.0), shape))
     sim = np.where(np.stack(passes), np.stack(sims), -np.inf)

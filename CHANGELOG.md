@@ -116,3 +116,12 @@ A subagent used both pages and the API like real and careless users and reported
 - Switching between simple mode and the full app, or reloading, keeps the image, channel and slice; a running stack run or fine-tune reappears after a reload and a second stack run on the same image is refused; deleting the open image clears its panels; batch runs no longer skip single-channel and colour files; `--open --token` opens a working link; API inputs are checked (clear 400 errors, no out-of-range slices or broken regions stored); downloads are named after the image; error messages show file names, not server folders; training runs as a background job with progress; fine-tuned model files no longer overwrite each other, and Cancel works before the first check.
 Not fixed (cosmetic, by choice): the old Errors overlay after Clear is now cleared, the other small text issues of BUG-24 remain.
 
+### Code analysis fixes
+`code-analysis.md` (a full read of the code) found 8 bugs and 10 weaknesses; all are addressed, with regression tests in `tests/test_bugfixes.py` (131 tests pass):
+- Clicks and image settings are saved under a lock with atomic file replacement; 40 simultaneous saves used to corrupt `annotations.json`.
+- Several structures get the same edge snapping and automatic threshold as one structure (earlier multi-structure profiles keep their stored thresholds, now applied to edge-snapped scores).
+- PNGs with transparency or a colour palette are read correctly; learned models with neighbouring slices store the distance in µm and refuse single images; fine-tuning holds the model lock per step; stale prefetches are dropped and slow backbones are not prefetched; Space works on focused buttons; small text fixes, and simple mode numbers slices from 0 like the full app.
+- Stack runs keep masks bit-packed, write TIFF stacks slice by slice and label 3D objects at reduced resolution above a voxel budget; TIFFs are read lazily (zarr); the plane cache has a byte limit.
+- Local servers only answer to local host names, writes must come from the app's own pages, and uploads have a size limit; the project export contains only the image's own profiles and no server paths, and is streamed from disk; learned models load with `weights_only=True`.
+- Background jobs run on a bounded pool and are cancelled on shutdown; old runs are pruned; two DINOv2 models stay loaded; `pyproject.toml` and `requirements-lock.txt` for reproducible installs.
+

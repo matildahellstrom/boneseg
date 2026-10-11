@@ -175,12 +175,7 @@ def _to_czyx(arr: np.ndarray, axes: str) -> tuple[np.ndarray, str]:
     """Reorders an array with tifffile axis letters into (C, Z, Y, X).
     Generic sequence axes (I, Q) count as z, samples (S) count as channels,
     and any other axis, such as time, is reduced to its first index."""
-    axes = axes.upper()
-    for generic in ("I", "Q"):
-        if generic in axes and "Z" not in axes:
-            axes = axes.replace(generic, "Z")
-    if "S" in axes and "C" not in axes:
-        axes = axes.replace("S", "C")
+    axes = _canonical_axes(axes)
     for i in reversed(range(len(axes))):
         if axes[i] not in "CZYX" or axes.count(axes[i]) > 1 and axes.index(axes[i]) != i:
             arr = np.take(arr, 0, axis=i)
@@ -192,14 +187,71 @@ def _to_czyx(arr: np.ndarray, axes: str) -> tuple[np.ndarray, str]:
     return np.transpose(arr, [axes.index(a) for a in "CZYX"]), "CZYX"
 
 
+def _canonical_axes(axes: str) -> str:
+    """tifffile axis letters with generic sequence axes (I, Q) read as z and samples (S) as channels."""
+    axes = axes.upper()
+    for generic in ("I", "Q"):
+        if generic in axes and "Z" not in axes:
+            axes = axes.replace(generic, "Z")
+    if "S" in axes and "C" not in axes:
+        axes = axes.replace("S", "C")
+    return axes
+
+
+def _lazy_tiff(path: Path, tif, series, voxel, known) -> Volume:
+    """A TIFF volume read one plane at a time through tifffile's zarr interface, so a multi-gigabyte stack (compressed
+    or not) is never loaded whole. Axes other than C, Z, Y and X (such as time) are read at their first index."""
+    import zarr
+
+    arr = zarr.open(series.aszarr(), mode="r")
+    if isinstance(arr, zarr.Group):   # Pyramidal files: the full-resolution level
+        arr = arr["0"]
+    axes = _canonical_axes(series.axes)
+    if len(axes) != arr.ndim or "Y" not in axes or "X" not in axes:
+        raise ValueError(f"unexpected axes {series.axes}")
+    size = {a: arr.shape[i] for i, a in enumerate(axes) if a in "CZYX" and axes.index(a) == i}
+    yx_order = [a for a in axes if a in "YX"]
+
+    def index(ch, zz, y=None):
+        idx = []
+        for i, a in enumerate(axes):
+            if axes.index(a) != i:      # A repeated letter: its first index
+                idx.append(0)
+            elif a == "C":
+                idx.append(ch)
+            elif a == "Z":
+                idx.append(zz)
+            elif a == "Y":
+                idx.append(slice(None) if y is None else y)
+            elif a == "X":
+                idx.append(slice(None))
+            else:
+                idx.append(0)
+        return tuple(idx)
+
+    def reader(ch, zz):
+        plane = np.asarray(arr[index(ch, zz)])
+        return plane.T if yx_order == ["X", "Y"] else plane
+
+    vol = Volume(name=path.name, n_channels=size.get("C", 1), n_z=size.get("Z", 1), height=size["Y"], width=size["X"],
+                 voxel_um=voxel, voxel_size_known=known, channel_names=_default_names(size.get("C", 1)), dtype=str(arr.dtype),
+                 _reader=lambda ch, zz: reader(ch if "C" in size else 0, zz if "Z" in size else 0))
+    vol._file = tif   # Kept open for the reader
+    return add_colour_channel(vol)
+
+
 def load_tiff(path: Path) -> Volume:
     import tifffile
 
-    with tifffile.TiffFile(path) as tif:
-        series = tif.series[0]
+    tif = tifffile.TiffFile(path)
+    series = tif.series[0]
+    voxel, known = _tiff_voxel(tif)
+    try:
+        return _lazy_tiff(path, tif, series, voxel, known)   # The file stays open for the lazy reader
+    except Exception:   # zarr missing or an unusual layout: read the whole series as before
         axes = series.axes.upper()
         arr = series.asarray()
-        voxel, known = _tiff_voxel(tif)
+        tif.close()
     arr, axes = _to_czyx(arr, axes)
     return add_colour_channel(_from_array(path.name, arr, voxel, known=known))
 
@@ -208,6 +260,15 @@ def load_image(path: Path) -> Volume:
     from PIL import Image
 
     img = Image.open(path)
+    # Normalise the PIL mode first: grey with transparency (LA) keeps only the grey values, palette images (P) and
+    # other colour modes become RGB, so a palette image shows its colours rather than its colour-table indices.
+    # Grey modes (L, I;16, I, F) are kept as they are, so 16-bit greys keep their range.
+    if img.mode == "LA":
+        img = img.convert("L")
+    elif img.mode == "P":
+        img = img.convert("RGBA" if "transparency" in img.info else "RGB")
+    elif img.mode not in ("L", "I;16", "I;16B", "I;16L", "I", "F", "RGB", "RGBA"):
+        img = img.convert("RGB")
     arr = np.asarray(img)
     if arr.ndim == 2:
         arr = arr[None, None]

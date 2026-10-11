@@ -1,6 +1,7 @@
 """FastAPI server for the boneseg web app. Routes live in the modules next to this file."""
 from __future__ import annotations
 
+import contextlib
 import json
 import math
 import os
@@ -40,19 +41,44 @@ class SafeJSONResponse(JSONResponse):
         return json.dumps(_finite(content), ensure_ascii=False, allow_nan=False, separators=(",", ":")).encode()
 
 
-def create_app(data_dir: str | Path | None = None, allow_paths: bool = True, token: str | None = None) -> FastAPI:
+def create_app(data_dir: str | Path | None = None, allow_paths: bool = True, token: str | None = None,
+               allowed_hosts: list[str] | None = None) -> FastAPI:
     """allow_paths lets clients open files by path on the server. Keep it off when the app is reachable
     from other computers, since it would let anyone read files the server can read.
     With a token, every API request must carry it, as a 'boneseg_token' cookie (set by opening the app
-    once with ?token=...) or as an 'Authorization: Bearer' header."""
+    once with ?token=...) or as an 'Authorization: Bearer' header.
+    allowed_hosts limits the Host header (the CLI passes localhost names for a local server), which stops web pages
+    from reaching the app through DNS rebinding. Requests that change something must come from the app's own pages
+    (their Origin header, when present, must match the Host), which stops cross-site uploads and edits."""
     data_dir = Path(data_dir or os.environ.get("BONESEG_DATA_DIR", "projects"))
     store = Store(data_dir)
-    app = FastAPI(title="boneseg", version=__version__, default_response_class=SafeJSONResponse)
+
+    @contextlib.asynccontextmanager
+    async def lifespan(_app):
+        yield
+        store.shutdown()   # Cancel running jobs so the server stops promptly
+
+    app = FastAPI(title="boneseg", version=__version__, default_response_class=SafeJSONResponse, lifespan=lifespan)
     app.state.store = store
     ctx = AppContext(store, allow_paths)
     models_dir = store.root / "models"
     models_dir.mkdir(exist_ok=True)
     backbone_mod.MODEL_DIRS = None if allow_paths else [models_dir]
+
+    if allowed_hosts:
+        from starlette.middleware.trustedhost import TrustedHostMiddleware
+
+        app.add_middleware(TrustedHostMiddleware, allowed_hosts=allowed_hosts)
+
+    @app.middleware("http")
+    async def same_origin_writes(request: Request, call_next):
+        if request.method in ("POST", "PUT", "PATCH", "DELETE"):
+            from urllib.parse import urlparse
+
+            origin = request.headers.get("origin")
+            if origin and origin != "null" and urlparse(origin).netloc != request.headers.get("host", ""):
+                return JSONResponse({"detail": "Requests from other websites are not accepted"}, status_code=403)
+        return await call_next(request)
 
     if token:
         import hmac

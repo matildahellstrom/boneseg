@@ -210,7 +210,11 @@ function bind() {
   window.addEventListener("keydown", (e) => {
     if (e.target.matches("input[type=text], input[type=number], select, textarea") || document.querySelector("dialog[open]")) return;  // Typing in a field never triggers shortcuts
     const k = e.key.toLowerCase();
-    if (k === " ") { S.space = true; e.preventDefault(); }
+    if (k === " ") {
+      // Space pans the image, except on a focused button, checkbox, link or section header, where it must press it
+      if (e.target.closest("button, a, summary, input, [role=button], [tabindex]")) return;
+      S.space = true; e.preventDefault();
+    }
     else if (k === "1") setMode("pos");
     else if (k === "2") setMode("neg");
     else if ((e.ctrlKey || e.metaKey) && k === "z") { e.preventDefault(); S.editing ? undoStroke() : undo(); }
