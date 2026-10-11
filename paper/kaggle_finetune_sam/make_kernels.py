@@ -298,6 +298,42 @@ log("smoke done")
 '''
 
 
+KERNEL_STACK = r'''
+# Whole stacks: fine-tune SAM ViT-B with encoder and decoder adapters (the paper's few-shot recipe) on the same 5
+# labelled slices per sample as boneseg, then segment every slice of the central 80% of the stack without any prompt.
+# Masks go to stack_masks/<sample>.npz: z (slice numbers), shape (height, width), masks (bit-packed along x).
+import h5py, torch
+build_liu()                      # Writes the labelled development (and test) slices as training images
+CFG = "b_ende_adapter"
+D_BLOCK = (224, 287)             # Sample D: the 64-slice block that boneseg's local evaluation also uses
+(OUT / "stack_masks").mkdir(exist_ok=True)
+for s, info in SETUP["liu"].items():
+    if time_up(f"stack {s}"): continue
+    stems = lambda zs: [f"{s}_{z}" for z in zs]
+    run = train(f"stack_{s}", CFG, "liu", stems(info["dev"][:5]), stems(info["dev"][5:]))   # 5 to learn, 5 to stop early
+    if not run:
+        log(f"{s}: training failed"); continue
+    model = load_model(run, CFG)
+    f = h5py.File(find_input(info["file"]), "r")
+    a = f["DataSetInfo/Image"].attrs
+    X, Y, Z = (int(b"".join(a[k]).decode()) for k in ("X", "Y", "Z"))
+    data = f["DataSet/ResolutionLevel 0/TimePoint 0"][f"Channel {info['channel']}"]["Data"]
+    lo, hi = D_BLOCK if s == "D" else (int(0.1 * (Z - 1)), int(0.9 * (Z - 1)))
+    zs, packed, t = list(range(lo, hi + 1)), [], time.time()
+    for i, z in enumerate(zs):
+        plane = np.asarray(data[z, :Y, :X], np.float32)
+        p1, p99 = np.percentile(plane, [1, 99.5])          # The same normalisation as the training images (build_liu)
+        Image.fromarray((np.clip((plane - p1) / max(p99 - p1, 1e-6), 0, 1) * 255).astype(np.uint8)).save("/tmp/slice.png")
+        packed.append(np.packbits(predict(model, "/tmp/slice.png"), axis=-1))   # No prompt: the model segments on its own
+        if (i + 1) % 100 == 0:
+            log(f"  {s}: {i + 1} of {len(zs)} slices, {(time.time() - t) / (i + 1):.2f} s per slice")
+    np.savez_compressed(OUT / "stack_masks" / f"{s}.npz", z=np.array(zs), shape=np.array([Y, X]), masks=np.stack(packed))
+    log(f"{s}: {len(zs)} slices ({lo}-{hi}) segmented")
+    del model; torch.cuda.empty_cache()
+shutil.make_archive(str(OUT / "stack_masks"), "zip", OUT / "stack_masks")
+log(f"stack kernel done; skipped {SKIPPED}")
+'''
+
 def notebook(cells):
     return {"cells": [{"cell_type": "code", "metadata": {}, "execution_count": None, "outputs": [], "source": c} for c in cells],
             "metadata": {"kernelspec": {"display_name": "Python 3", "language": "python", "name": "python3"}, "language_info": {"name": "python"}},
@@ -309,7 +345,8 @@ def main():
     write_setup = f"open('/tmp/setup.json', 'w').write(r'''{setup}''')"
     for name, body, sources, title in (("kernel_a", KERNEL_A, ["matildahellstrom/liudata", "sbilab/segpc2021dataset"], "boneseg SAM fine-tuning A (bone, plasma cells)"),
                                        ("kernel_smoke", KERNEL_SMOKE, ["matildahellstrom/liudata"], "boneseg SAM fine-tuning smoke test"),
-                                       ("kernel_b", KERNEL_B, ["matildahellstrom/liudata", "sbilab/segpc2021dataset"], "boneseg SAM fine-tuning B (osteoclasts, ViT-H)")):
+                                       ("kernel_b", KERNEL_B, ["matildahellstrom/liudata", "sbilab/segpc2021dataset"], "boneseg SAM fine-tuning B (osteoclasts, ViT-H)"),
+                                       ("kernel_stack", KERNEL_STACK, ["matildahellstrom/liudata"], "boneseg SAM fine-tuned, whole stacks")):
         assert len(title) <= 50, f"Kaggle refuses titles over 50 characters (400 Bad Request): {title}"
         d = HERE / name
         d.mkdir(exist_ok=True)
