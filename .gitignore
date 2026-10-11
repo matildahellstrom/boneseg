@@ -28,3 +28,4 @@ projects/
 nnUNet_raw/
 !boneseg/models/*.pt
 paper/logs/
+sam_stack/
