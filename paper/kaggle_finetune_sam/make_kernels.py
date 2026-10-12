@@ -1,4 +1,4 @@
-"""Writes the two Kaggle kernels that fine-tune SAM with the code of Gu et al. (2025), github.com/mazurowski-lab/
+"""Writes the Kaggle kernels that fine-tune SAM with the code of Gu et al. (2025), github.com/mazurowski-lab/
 finetune-SAM (pinned commit), on exactly the images, folds and prompts in setup.json (export_setup.py):
 
   kernel_a  Liu bone (5 held-out samples) and SegPC (3 draws), few-shot, 4 configurations each
@@ -9,19 +9,31 @@ finetune-SAM (pinned commit), on exactly the images, folds and prompts in setup.
 Configurations: the paper's few-shot recipe (ViT-B, encoder+decoder, Adapter), ViT-B decoder-only Adapter, ViT-B
 encoder+decoder LoRA, and its interactive recipe (MobileSAM ViT-T, encoder+decoder, Adapter, trained with boxes).
 Every kernel writes preds.zip: one binary PNG per test image, configuration and prompt, at the evaluation resolution.
+
+micro-SAM kernels (Archit et al. 2025, micro-sam from PyPI, pinned; training and prediction in boneseg/microsam_core.py):
+  kernel_microsam_smoke  one Liu fold and one SegPC draw, both recipes, 2 epochs
+  kernel_microsam_a      Liu bone and SegPC, the same folds as kernel_a; recipes full and LoRA, starting from vit_b_lm
+  kernel_microsam_b      NOISe osteoclasts, the same folds as kernel_b
+  kernel_microsam_stack  Liu whole stacks, full recipe, every slice of the central 80% segmented automatically
+Each test image gets micro-SAM's automatic mask (prompt "none") and the paper-style point and box prompts, plus the
+untrained generalist's automatic mask (microsam_zs).
 Usage: python paper/kaggle_finetune_sam/make_kernels.py; then kaggle kernels push -p paper/kaggle_finetune_sam/kernel_a
+Another Kaggle account: KAGGLE_USERNAME=name (and BONESEG_LIU_DATASET=owner/dataset if the Liu files live elsewhere).
 """
 from __future__ import annotations
 
-import re
-
 import json
+import os
+import re
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 COMMIT = "e41f73287329ea68df3bfb153c867bdec4eb23b2"
+# Whose Kaggle account the notebooks belong to, and the private Kaggle dataset holding the Liu Imaris files
+KAGGLE_USER = os.environ.get("KAGGLE_USERNAME", "matildahellstrom")
+LIU_DATASET = os.environ.get("BONESEG_LIU_DATASET", f"{KAGGLE_USER}/liudata")
 
-COMMON = r'''
+DATA_PART = r'''
 import io, json, os, random, shutil, subprocess, sys, time, zipfile
 from argparse import Namespace
 from pathlib import Path
@@ -37,23 +49,18 @@ def sh(cmd, cwd=None):
     r = subprocess.run(cmd, shell=True, cwd=cwd, capture_output=True, text=True)
     if r.returncode: print(r.stdout[-3000:], r.stderr[-3000:])
     return r.returncode
-# finetune-SAM's training scripts also import tensorboardX, torchio, slicerio and pynrrd (utils/dataset.py)
-sh("pip install -q monai einops icecream segment-anything stream-unzip tensorboardX torchio slicerio pynrrd nibabel seaborn")
-if not REPO.exists():
-    sh(f"git clone -q https://github.com/mazurowski-lab/finetune-SAM {REPO} && cd {REPO} && git checkout -q COMMIT")
-# Fail within a minute, not after hours, if the training code cannot be imported
-_chk = subprocess.run([sys.executable, "-c", "import tensorboardX, cfg, monai, cv2; from utils.dataset import Public_dataset; "
-                       "from models.sam import sam_model_registry; from models.sam_LoRa import LoRA_Sam"], cwd=REPO, capture_output=True, text=True)
-if _chk.returncode: raise RuntimeError("finetune-SAM cannot be imported:\n" + _chk.stderr[-3000:])
-for url, name in (("https://dl.fbaipublicfiles.com/segment_anything/sam_vit_b_01ec64.pth", "sam_vit_b_01ec64.pth"),
-                  ("https://github.com/ChaoningZhang/MobileSAM/raw/master/weights/mobile_sam.pt", "mobile_sam.pt")):
-    if not (W / name).exists(): sh(f"curl -sL -o {W / name} {url}")
+sh("pip install -q stream-unzip")
 def find_input(name):
     hits = [p for p in Path("/kaggle/input").rglob(name)]
     if not hits: raise FileNotFoundError(name)
     return hits[0]
-def save_pair(ds, stem, img, mask):
-    (DATA / ds / "images").mkdir(parents=True, exist_ok=True); (DATA / ds / "masks").mkdir(parents=True, exist_ok=True)
+def save_pair(ds, stem, img, mask, inst=None):
+    """Image, binary mask and instance labels (uint16, one id per object; micro-SAM trains on objects). Without
+    given instances, the connected components of the mask are the objects (bone)."""
+    from scipy import ndimage
+    for k in ("images", "masks", "instances"): (DATA / ds / k).mkdir(parents=True, exist_ok=True)
+    inst = ndimage.label(mask > 0)[0] if inst is None else inst
+    Image.fromarray(inst.astype(np.uint16)).save(DATA / ds / "instances" / f"{stem}.png")
     Image.fromarray(img).save(DATA / ds / "images" / f"{stem}.png")
     Image.fromarray((mask > 0).astype(np.uint8) * 255).save(DATA / ds / "masks" / f"{stem}.png")
 def build_liu():
@@ -77,10 +84,11 @@ def build_segpc(names):
         if p.parent.name == "y": ys.setdefault(p.stem.split("_")[0], []).append(p)
     for n in names:
         img = Image.open(xs[n]).convert("RGB").resize((1440, 1080), Image.BILINEAR)
-        m = np.zeros((1080, 1440), bool)
-        for y in ys.get(n, []):
-            m |= np.asarray(Image.open(y).convert("L").resize((1440, 1080), Image.NEAREST)) > 0
-        save_pair("segpc", n, np.asarray(img), m)
+        m = np.zeros((1080, 1440), bool); inst = np.zeros((1080, 1440), np.uint16)
+        for i, y in enumerate(ys.get(n, []), 1):   # One file per cell
+            c = np.asarray(Image.open(y).convert("L").resize((1440, 1080), Image.NEAREST)) > 0
+            m |= c; inst[c] = i
+        save_pair("segpc", n, np.asarray(img), m, inst)
     log(f"SegPC: {len(names)} images")
 def drive_stream(file_id):
     """Streams a large Google Drive file. From cloud machines Drive often answers with an HTML page (a virus-scan
@@ -116,23 +124,16 @@ def build_noise():
         if k != "images": continue
         img = np.asarray(Image.open(io.BytesIO(raw)).convert("RGB"))
         h, w = img.shape[:2]
-        m = Image.new("L", (w, h), 0); dr = ImageDraw.Draw(m)
+        m = Image.new("I", (w, h), 0); dr = ImageDraw.Draw(m)
+        k = 0
         for line in got.get((b, n, "labels"), b"").decode().splitlines():
             p = line.split()
             if len(p) >= 7 and p[0] == "0":
                 xy = (np.asarray(p[1:], float).reshape(-1, 2) * [w, h]).tolist()
-                dr.polygon([tuple(q) for q in xy], fill=255)
-        save_pair("noise", f"{b}_{n}", img, np.asarray(m))
+                k += 1; dr.polygon([tuple(q) for q in xy], fill=k)   # One id per osteoclast outline
+        inst = np.asarray(m)
+        save_pair("noise", f"{b}_{n}", img, inst > 0, inst)
     log(f"NOISe: {sum(1 for k in got if k[2] == 'images')} patches")
-CONFIGS = {
-    "b_ende_adapter": ("vit_b", "sam_vit_b_01ec64.pth", "adapter", "noprompt", "-if_update_encoder True -if_encoder_adapter True -if_mask_decoder_adapter True"),
-    "t_ende_adapter_box": ("vit_t", "mobile_sam.pt", "adapter", "box", "-if_update_encoder True -if_encoder_adapter True -if_mask_decoder_adapter True"),
-    "b_dec_adapter": ("vit_b", "sam_vit_b_01ec64.pth", "adapter", "noprompt", "-if_mask_decoder_adapter True"),
-    "b_ende_lora": ("vit_b", "sam_vit_b_01ec64.pth", "lora", "noprompt", "-if_update_encoder True -if_encoder_lora_layer True -if_decoder_lora_layer True"),
-}
-# Batch size: the paper's 2, except where updating the ViT-B encoder at batch 2 needs more than the T4's 15 GB
-# (the smoke test ran out of memory in the backward pass); gradients are then averaged over single images
-BATCH = {"b_ende_adapter": 1, "b_ende_lora": 1}
 # Kaggle stops a session at 12 hours and keeps only what is in /kaggle/working. No new training starts after
 # BUDGET_S, and the predictions zip is rewritten after every run, so a cut-off session keeps everything done so far.
 BUDGET_S = 11 * 3600
@@ -144,6 +145,38 @@ def time_up(what):
     return True
 def save_zip():
     if (OUT / "preds").exists(): shutil.make_archive(str(OUT / "preds"), "zip", OUT / "preds")
+def tag_new(ds, suffix):
+    """Adds suffix to prediction folders that have none yet, so runs on the same images stay apart."""
+    import re
+    for p in (OUT / "preds" / ds).glob("samft_*"):
+        if not re.search(r"_(d\d+|full)$", p.name):
+            p.rename(p.with_name(p.name + suffix))
+def save_pred(ds, method, prompt, stem, mask):
+    d = OUT / "preds" / ds / f"{method}__{prompt}"; d.mkdir(parents=True, exist_ok=True)
+    Image.fromarray(mask.astype(np.uint8) * 255).save(d / f"{stem}.png")
+'''
+
+FSAM_PART = r'''
+# finetune-SAM's training scripts also import tensorboardX, torchio, slicerio and pynrrd (utils/dataset.py)
+sh("pip install -q monai einops icecream segment-anything stream-unzip tensorboardX torchio slicerio pynrrd nibabel seaborn")
+if not REPO.exists():
+    sh(f"git clone -q https://github.com/mazurowski-lab/finetune-SAM {REPO} && cd {REPO} && git checkout -q COMMIT")
+# Fail within a minute, not after hours, if the training code cannot be imported
+_chk = subprocess.run([sys.executable, "-c", "import tensorboardX, cfg, monai, cv2; from utils.dataset import Public_dataset; "
+                       "from models.sam import sam_model_registry; from models.sam_LoRa import LoRA_Sam"], cwd=REPO, capture_output=True, text=True)
+if _chk.returncode: raise RuntimeError("finetune-SAM cannot be imported:\n" + _chk.stderr[-3000:])
+for url, name in (("https://dl.fbaipublicfiles.com/segment_anything/sam_vit_b_01ec64.pth", "sam_vit_b_01ec64.pth"),
+                  ("https://github.com/ChaoningZhang/MobileSAM/raw/master/weights/mobile_sam.pt", "mobile_sam.pt")):
+    if not (W / name).exists(): sh(f"curl -sL -o {W / name} {url}")
+CONFIGS = {
+    "b_ende_adapter": ("vit_b", "sam_vit_b_01ec64.pth", "adapter", "noprompt", "-if_update_encoder True -if_encoder_adapter True -if_mask_decoder_adapter True"),
+    "t_ende_adapter_box": ("vit_t", "mobile_sam.pt", "adapter", "box", "-if_update_encoder True -if_encoder_adapter True -if_mask_decoder_adapter True"),
+    "b_dec_adapter": ("vit_b", "sam_vit_b_01ec64.pth", "adapter", "noprompt", "-if_mask_decoder_adapter True"),
+    "b_ende_lora": ("vit_b", "sam_vit_b_01ec64.pth", "lora", "noprompt", "-if_update_encoder True -if_encoder_lora_layer True -if_decoder_lora_layer True"),
+}
+# Batch size: the paper's 2, except where updating the ViT-B encoder at batch 2 needs more than the T4's 15 GB
+# (the smoke test ran out of memory in the backward pass); gradients are then averaged over single images
+BATCH = {"b_ende_adapter": 1, "b_ende_lora": 1}
 def write_list(path, ds, stems):
     path.write_text("\n".join(f"{ds}/images/{s}.png,{ds}/masks/{s}.png" for s in stems))
 def train(tag, cfg, ds, train_stems, val_stems, epochs=200):
@@ -196,15 +229,6 @@ def predict(model, img_path, boxes=None):
         for b in sb:
             out |= run(b[None])
         return out
-def tag_new(ds, suffix):
-    """Adds suffix to prediction folders that have none yet, so runs on the same images stay apart."""
-    import re
-    for p in (OUT / "preds" / ds).glob("samft_*"):
-        if not re.search(r"_(d\d+|full)$", p.name):
-            p.rename(p.with_name(p.name + suffix))
-def save_pred(ds, method, prompt, stem, mask):
-    d = OUT / "preds" / ds / f"{method}__{prompt}"; d.mkdir(parents=True, exist_ok=True)
-    Image.fromarray(mask.astype(np.uint8) * 255).save(d / f"{stem}.png")
 def predict_fold(run, cfg, ds, key_prefix, test_stems):
     model = load_model(run, cfg)
     for stem in test_stems:
@@ -217,6 +241,8 @@ def predict_fold(run, cfg, ds, key_prefix, test_stems):
     del model
     import torch; torch.cuda.empty_cache()
 '''.replace("COMMIT", COMMIT)
+
+COMMON = DATA_PART + FSAM_PART   # Everything the finetune-SAM kernels need
 
 KERNEL_A = r'''
 build_liu()
@@ -334,6 +360,127 @@ shutil.make_archive(str(OUT / "stack_masks"), "zip", OUT / "stack_masks")
 log(f"stack kernel done; skipped {SKIPPED}")
 '''
 
+MICROSAM_VERSION = "1.8.14"
+# micro-SAM kernels: boneseg/microsam_core.py is written into the notebook as a module, so Kaggle trains and predicts
+# with exactly the code the app uses to load the checkpoints
+MS_PART = r"""
+sh("pip install -q micro-sam==MSVER")
+_chk = subprocess.run([sys.executable, "-c", "from micro_sam.training import train_sam, default_sam_loader; "
+                       "from micro_sam.instance_segmentation import get_predictor_and_decoder"], capture_output=True, text=True)
+if _chk.returncode: raise RuntimeError("micro-SAM cannot be imported:\n" + _chk.stderr[-3000:])
+sys.path.insert(0, "/tmp"); import microsam_core as MC
+import torch
+RUNS = Path("/tmp/ms_runs")
+def ms_read(ds, stem):
+    img = np.asarray(Image.open(DATA / ds / "images" / f"{stem}.png"))
+    return img, np.asarray(Image.open(DATA / ds / "instances" / f"{stem}.png")).astype(np.int64)
+def ms_train(tag, recipe, ds, train_stems, val_stems, **kw):
+    tr, va = [ms_read(ds, s) for s in train_stems], [ms_read(ds, s) for s in val_stems]
+    return MC.train([i for i, _ in tr], [l for _, l in tr], [i for i, _ in va], [l for _, l in va], RUNS,
+                    name=f"{tag}_{recipe}", recipe=recipe, device="cuda", log=log, **kw)
+def ms_predict(model, method, ds, key_prefix, stems, suffix="", prompts=True):
+    # Automatic (no prompt), then the same point and box prompts as the zero-shot SAM rows
+    for stem in stems:
+        img, _ = ms_read(ds, stem)
+        save_pred(ds, method, "none" + suffix, stem, model.mask(img))
+        if not prompts: continue
+        model.set_image(img)
+        for seed, p in enumerate(SETUP["prompts"][f"{key_prefix}/{stem}"]):
+            save_pred(ds, method, f"points_s{seed}{suffix}", stem, model.points(p["points"], []))
+            save_pred(ds, method, f"points_bg_s{seed}{suffix}", stem, model.points(p["points"], p["background"]))
+            save_pred(ds, method, f"boxes_s{seed}{suffix}", stem, model.boxes(p["boxes"]))
+def ms_zero_shot(ds, key_prefix, stems):
+    # micro-SAM's generalist without fine-tuning: its automatic mask (the prompted rows exist locally)
+    model = MC.Model(None, device="cuda")
+    ms_predict(model, "microsam_zs", ds, key_prefix, stems, prompts=False)
+    del model; torch.cuda.empty_cache(); save_zip()
+def ms_fold(tag, ds, key_prefix, train_stems, val_stems, test_stems, suffix="", **kw):
+    for recipe in MC.RECIPES:
+        if time_up(f"{tag} {recipe}"): continue
+        ck = ms_train(tag, recipe, ds, train_stems, val_stems, **kw)
+        if not ck: continue
+        model = MC.Model(ck, recipe, device="cuda")
+        ms_predict(model, f"microsam_{recipe}", ds, key_prefix, test_stems, suffix)
+        del model; torch.cuda.empty_cache(); save_zip()
+""".replace("MSVER", MICROSAM_VERSION)
+
+KERNEL_MS_A = r"""
+build_liu()
+build_segpc(SETUP["segpc"]["val"] + sorted({n for d in SETUP["segpc"]["draws"] for k in ("train", "val") for n in d[k]}))
+liu_tests = [f"{s}_{z}" for s, info in SETUP["liu"].items() for z in info["test"]]
+ms_zero_shot("liu", "liu", liu_tests)
+ms_zero_shot("segpc", "segpc", SETUP["segpc"]["val"])
+for s, info in SETUP["liu"].items():
+    stems = lambda zs: [f"{s}_{z}" for z in zs]
+    ms_fold(f"liu_{s}", "liu", "liu", stems(info["dev"][:5]), stems(info["dev"][5:]), stems(info["test"]))
+for i, d in enumerate(SETUP["segpc"]["draws"]):
+    ms_fold(f"segpc_d{i}", "segpc", "segpc", d["train"], d["val"], SETUP["segpc"]["val"], suffix=f"_d{i}")
+save_zip()
+log(f"micro-SAM kernel A done; skipped {SKIPPED}")
+"""
+
+KERNEL_MS_B = r"""
+build_noise()
+ms_zero_shot("noise", "noise", [f"{b}_{n}" for b, d in SETUP["noise"].items() for n in d["test"]])
+for b, d in SETUP["noise"].items():
+    stems = lambda ns: [f"{b}_{n}" for n in ns]
+    ms_fold(f"noise_{b}", "noise", "noise", stems(d["dev"][:5]), stems(d["dev"][5:10]), stems(d["test"]))
+save_zip()
+log(f"micro-SAM kernel B done; skipped {SKIPPED}")
+"""
+
+KERNEL_MS_SMOKE = r"""
+# Smoke test: one Liu fold (grey) and one SegPC draw (colour), both recipes, 2 short epochs; checks installing,
+# training on the GPU, saving, reloading and predicting with and without prompts
+info = dict(list(SETUP["liu"].items())[:1]); SETUP["liu"] = info
+build_liu()
+d = SETUP["segpc"]["draws"][0]
+build_segpc(SETUP["segpc"]["val"][:2] + d["train"] + d["val"])
+s, info = next(iter(info.items()))
+stems = lambda zs: [f"{s}_{z}" for z in zs]
+ms_fold(f"smoke_{s}", "liu", "liu", stems(info["dev"][:5]), stems(info["dev"][5:]), stems(info["test"][:2]), epochs=2, per_epoch=5)
+ms_fold("smoke_segpc", "segpc", "segpc", d["train"], d["val"], SETUP["segpc"]["val"][:2], suffix="_d0", epochs=2, per_epoch=5)
+ms_zero_shot("liu", "liu", stems(info["test"][:1]))
+print(sorted(str(p.relative_to(OUT)) for p in (OUT / "preds").rglob("*.png")))
+log("micro-SAM smoke done")
+"""
+
+KERNEL_MS_STACK = r"""
+# Whole stacks: micro-SAM fine-tuned (full recipe) on the same 5 labelled slices per sample as boneseg (5 more for
+# early stopping), then every slice of the central 80% of the stack segmented automatically (decoder foreground).
+# Masks go to stack_masks/<sample>.npz: z (slice numbers), shape (height, width), masks (bit-packed along x).
+import h5py
+build_liu()
+D_BLOCK = (224, 287)             # Sample D: the 64-slice block that boneseg's local evaluation also uses
+(OUT / "stack_masks").mkdir(exist_ok=True)
+for s, info in SETUP["liu"].items():
+    if time_up(f"stack {s}"): continue
+    stems = lambda zs: [f"{s}_{z}" for z in zs]
+    ck = ms_train(f"stack_{s}", "full", "liu", stems(info["dev"][:5]), stems(info["dev"][5:]))
+    if not ck:
+        log(f"{s}: training failed"); continue
+    model = MC.Model(ck, "full", device="cuda")
+    f = h5py.File(find_input(info["file"]), "r")
+    a = f["DataSetInfo/Image"].attrs
+    X, Y, Z = (int(b"".join(a[k]).decode()) for k in ("X", "Y", "Z"))
+    data = f["DataSet/ResolutionLevel 0/TimePoint 0"][f"Channel {info['channel']}"]["Data"]
+    lo, hi = D_BLOCK if s == "D" else (int(0.1 * (Z - 1)), int(0.9 * (Z - 1)))
+    zs, packed, t = list(range(lo, hi + 1)), [], time.time()
+    for i, z in enumerate(zs):
+        plane = np.asarray(data[z, :Y, :X], np.float32)
+        p1, p99 = np.percentile(plane, [1, 99.5])          # The same normalisation as the training images (build_liu)
+        img = (np.clip((plane - p1) / max(p99 - p1, 1e-6), 0, 1) * 255).astype(np.uint8)
+        packed.append(np.packbits(model.mask(img), axis=-1))
+        if (i + 1) % 100 == 0:
+            log(f"  {s}: {i + 1} of {len(zs)} slices, {(time.time() - t) / (i + 1):.2f} s per slice")
+    np.savez_compressed(OUT / "stack_masks" / f"{s}.npz", z=np.array(zs), shape=np.array([Y, X]), masks=np.stack(packed))
+    log(f"{s}: {len(zs)} slices ({lo}-{hi}) segmented")
+    del model; torch.cuda.empty_cache()
+shutil.make_archive(str(OUT / "stack_masks"), "zip", OUT / "stack_masks")
+log(f"micro-SAM stack kernel done; skipped {SKIPPED}")
+"""
+
+
 def notebook(cells):
     return {"cells": [{"cell_type": "code", "metadata": {}, "execution_count": None, "outputs": [], "source": c} for c in cells],
             "metadata": {"kernelspec": {"display_name": "Python 3", "language": "python", "name": "python3"}, "language_info": {"name": "python"}},
@@ -343,16 +490,25 @@ def notebook(cells):
 def main():
     setup = (HERE / "setup.json").read_text()
     write_setup = f"open('/tmp/setup.json', 'w').write(r'''{setup}''')"
-    for name, body, sources, title in (("kernel_a", KERNEL_A, ["matildahellstrom/liudata", "sbilab/segpc2021dataset"], "boneseg SAM fine-tuning A (bone, plasma cells)"),
-                                       ("kernel_smoke", KERNEL_SMOKE, ["matildahellstrom/liudata"], "boneseg SAM fine-tuning smoke test"),
-                                       ("kernel_b", KERNEL_B, ["matildahellstrom/liudata", "sbilab/segpc2021dataset"], "boneseg SAM fine-tuning B (osteoclasts, ViT-H)"),
-                                       ("kernel_stack", KERNEL_STACK, ["matildahellstrom/liudata"], "boneseg SAM fine-tuned, whole stacks")):
+    core = (HERE.parents[1] / "boneseg" / "microsam_core.py").read_text()
+    write_core = f"open('/tmp/microsam_core.py', 'w').write({core!r})"
+    liu, segpc = LIU_DATASET, "sbilab/segpc2021dataset"
+    fsam, ms = [COMMON], [DATA_PART, write_core, MS_PART]
+    for name, body, sources, title, parts in (
+            ("kernel_a", KERNEL_A, [liu, segpc], "boneseg SAM fine-tuning A (bone, plasma cells)", fsam),
+            ("kernel_smoke", KERNEL_SMOKE, [liu], "boneseg SAM fine-tuning smoke test", fsam),
+            ("kernel_b", KERNEL_B, [liu, segpc], "boneseg SAM fine-tuning B (osteoclasts, ViT-H)", fsam),
+            ("kernel_stack", KERNEL_STACK, [liu], "boneseg SAM fine-tuned, whole stacks", fsam),
+            ("kernel_microsam_smoke", KERNEL_MS_SMOKE, [liu, segpc], "boneseg micro-SAM smoke test", ms),
+            ("kernel_microsam_a", KERNEL_MS_A, [liu, segpc], "boneseg micro-SAM A (bone, plasma cells)", ms),
+            ("kernel_microsam_b", KERNEL_MS_B, [], "boneseg micro-SAM B (osteoclasts)", ms),
+            ("kernel_microsam_stack", KERNEL_MS_STACK, [liu], "boneseg micro-SAM whole stacks", ms)):
         assert len(title) <= 50, f"Kaggle refuses titles over 50 characters (400 Bad Request): {title}"
         d = HERE / name
         d.mkdir(exist_ok=True)
-        (d / "notebook.ipynb").write_text(json.dumps(notebook([write_setup, COMMON, body]), indent=1))
+        (d / "notebook.ipynb").write_text(json.dumps(notebook([write_setup, *parts, body]), indent=1))
         (d / "kernel-metadata.json").write_text(json.dumps({
-            "id": "matildahellstrom/" + re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-"),   # Kaggle names a notebook after its title
+            "id": f"{KAGGLE_USER}/" + re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-"),   # Kaggle names a notebook after its title
             "title": title, "code_file": "notebook.ipynb", "language": "python",
             "kernel_type": "notebook", "is_private": "true", "enable_gpu": "true", "enable_tpu": "false", "enable_internet": "true",
             "machine_shape": "NvidiaTeslaT4", "dataset_sources": sources, "competition_sources": [], "kernel_sources": [], "model_sources": []}, indent=2))

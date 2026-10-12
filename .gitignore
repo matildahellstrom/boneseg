@@ -29,3 +29,11 @@ nnUNet_raw/
 !boneseg/models/*.pt
 paper/logs/
 sam_stack/
+
+# Figures that show microscopy crops (Liu data, licence unclear) stay local; plots of numbers are committed
+paper/figures/examples/*.jpg
+paper/figures/clicks/*.jpg
+paper/figures/viewer/
+
+# PDF/HTML reports can show data images: kept local
+reports/

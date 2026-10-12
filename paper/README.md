@@ -2,6 +2,21 @@
 
 Code for a reproducible comparison of boneseg with standard tools, on the Liu samples that have expert masks. Everything here evaluates the method frozen at git tag `method-v1`, and nothing here changes the method.
 
+## Data
+
+No image data is in this repository: microscopy files go in `data/` (git-ignored). Each dataset has to be fetched separately, and two of them cannot be redistributed.
+
+| Dataset | Used for | How to get it | Where it goes | Terms |
+|---|---|---|---|---|
+| Liu bone samples A, C, D, E, F | Bone: the main evaluation, whole stacks, robustness | Not public through this repository. Ask the repository owner or the data's owners for the Imaris files (names in `common.py`, `SAMPLES`) | `data/liudata/` | Licence unclear: keep the files and any images made from them out of git and out of shared reports |
+| NOISe mouse osteoclasts | Osteoclasts | `python paper/noise_common.py fetch` streams the chosen patches from the public 18 GB archive (github.com/michaelwwan/noise) | `data/noise/` | No data licence: use for evaluation only, never commit the patches or images made from them |
+| SegPC-2021 plasma cells | Plasma cells | Kaggle `sbilab/segpc2021dataset`, then `python paper/segpc_common.py prepare --zip <the zip>` | `data/segpc/` | CC BY-NC-SA 4.0, non-commercial; cite the three papers in its readme |
+
+- **Sample D** (24 GB) can be used without downloading it: `remote_d.py` reads its evaluation slices over the network from a private Kaggle dataset (default `matildahellstrom/liudata`, change with `BONESEG_LIU_DATASET=owner/dataset`) and caches them in `data/liudata/D_slices.npz`. That needs read access to the dataset. With the file in `data/liudata/` instead, sample D is read locally, but its slices are then picked like the other samples', so its numbers differ slightly from those reported here, which used the remote slices.
+- **Fixed splits.** The slices, folds, few-shot picks and prompts of every reported comparison are frozen in `kaggle_finetune_sam/setup.json`, so results are reproducible once the files are in place.
+- **Kaggle notebooks** (`kaggle_*`) belong to a Kaggle account and read private datasets of that account. To run them under your own account: `python scripts/set_kaggle_user.py YOUR-NAME`, then upload the Liu files as a private dataset `YOUR-NAME/liudata` (and the nnU-Net export as `YOUR-NAME/liubone-nnunet`).
+- Without any of these datasets the app and the test suite still work: the tests use synthetic images, and the app has a synthetic demo.
+
 ## Protocol
 
 **Samples.** Every Liu file present in `data/liudata/` that has an expert mask. The code knows A, C, D, E and F; this run used A, C, E and F, since D (24 GB) was not downloaded. The image channel is the autofluorescence channel (3 in A, 4 in the others). The expert mask is the file's last channel, an Imaris segmentation of that channel.

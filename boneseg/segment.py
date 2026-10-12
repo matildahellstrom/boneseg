@@ -41,8 +41,10 @@ class SegmentationSettings:
     refiner: str = ""                # Learned full-resolution refiner after the click threshold: "", "bundled" or a file path
     suggest_missed: bool = False     # Point out bone-like regions with no click; off, since on the Liu test slices clicks
                                      # guided this way did worse than random extra clicks (paper/results/guided_clicks_summary.md)
-    sam_refine: str = "off"          # "agree" keeps only the pixels SAM ViT-B, given the same clicks, also calls the structure
-                                     # (boneseg/sam.py); applied by the app to single-structure click segmentations
+    sam_refine: str = "off"          # "agree" keeps only the pixels the SAM model, given the same clicks, also calls the
+                                     # structure; "replace" uses its mask alone (boneseg/sam.py); applied by the app to
+                                     # single-structure click segmentations
+    sam_model: str = "sam"           # "sam" (SAM ViT-B) or "microsam" (micro-SAM ViT-B for light microscopy)
     clip_low: float = 1.0
     clip_high: float = 99.5
 
@@ -92,7 +94,8 @@ class SegmentationSettings:
             (self.threshold_mode in ("clicks", "otsu", "top_percent", "manual"), f"Unknown threshold mode {self.threshold_mode}"),
             (self.score_norm in ("robust", "none"), f"Unknown score normalisation {self.score_norm}"),
             (self.edge_refine in ("guided", "none"), f"Unknown edge refinement {self.edge_refine}"),
-            (self.sam_refine in ("off", "agree"), f"Unknown sam_refine value {self.sam_refine}"),
+            (self.sam_refine in ("off", "agree", "replace"), f"Unknown sam_refine value {self.sam_refine}"),
+            (self.sam_model in ("sam", "microsam"), f"Unknown sam_model value {self.sam_model}"),
         ]
         for ok, msg in checks:
             if not ok:

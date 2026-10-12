@@ -183,7 +183,7 @@ async function saveRoi(polygon) {
     S.roiArea = out.area_um2;
     updateRoiHint();
     draw();
-    if (S.method === "learned" || pts().pos.length || $("profileSelect").value) scheduleSegment(0);
+    if (S.method !== "clicks" || pts().pos.length || $("profileSelect").value) scheduleSegment(0);
   } catch (e) { toast(e.message, true); }
 }
 

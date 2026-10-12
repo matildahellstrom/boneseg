@@ -203,6 +203,10 @@ Every step is a plain function. `notebooks/boneseg_quickstart.ipynb` walks throu
 | `tests/` | Unit, API, file-format and browser tests on synthetic images |
 | `ci/` | A GitHub Actions workflow, ready to enable (see `ci/README.md`) |
 
+## Licence and citation
+
+The code is released under the MIT licence (`LICENSE`). To cite boneseg, use `CITATION.cff` (GitHub shows it as "Cite this repository"). The microscopy datasets used in `paper/` are not part of the code and have their own terms, listed under "Data" in [paper/README.md](paper/README.md); the DINOv2, SAM and micro-SAM weights, downloaded on first use, come with their own licences as well.
+
 ## Development
 
 ```bash

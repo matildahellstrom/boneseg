@@ -8,6 +8,7 @@ evaluation reads about 3 GB instead of 24 GB.
 """
 from __future__ import annotations
 
+import os
 import time
 
 import numpy as np
@@ -16,7 +17,7 @@ from common import ROOT  # noqa: F401  (puts the repository on the path)
 from remote_file import RangeFile, kaggle_file_url
 from boneseg import io as bio
 
-DATASET = "matildahellstrom/liudata"
+DATASET = os.environ.get("BONESEG_LIU_DATASET", "matildahellstrom/liudata")   # A private Kaggle dataset: needs access
 FILE = "15-15-06_IC 2_Trap_SOST_col1_Blaze crop2 segmentation quantified.ims"
 OUT = ROOT / "data" / "liudata" / "D_slices.npz"
 IMAGE_CH = 4

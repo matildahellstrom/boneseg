@@ -202,6 +202,7 @@ function settings() {
     refiner: $("refiner").value,
     suggest_missed: $("suggestMissed").checked,
     sam_refine: $("samRefine").value,
+    sam_model: $("samModel").value,
     clip_low: S.low,
     clip_high: S.high,
   };
@@ -224,6 +225,7 @@ function applySettings(st) {
   set("fillHoles", st.fill_holes_um2); set("smooth", st.smooth_px); set("vitSize", st.vit_size); set("layer", st.layer_from_end);
   set("strict", st.threshold_position); set("edgeRefine", st.edge_refine); set("shiftPasses", st.shift_passes); set("refiner", st.refiner);
   set("samRefine", st.sam_refine);
+  if (st.sam_model) set("samModel", st.sam_model);
   if (st.suggest_missed != null) $("suggestMissed").checked = !!st.suggest_missed;
   if (st.clip_low != null) { S.low = st.clip_low; $("lowSlider").value = st.clip_low; }
   if (st.clip_high != null) { S.high = st.clip_high; $("highSlider").value = st.clip_high; }
@@ -243,8 +245,11 @@ function syncSettingLabels() {
   $("smoothValue").textContent = `${$("smooth").value} px`;
   const sam = S.health?.sam;
   $("samHint").classList.toggle("hidden", !sam || $("samRefine").value === "off");
+  $("samModel").closest("label").classList.toggle("hidden", $("samRefine").value === "off");
+  const micro = $("samModel").value === "microsam";
+  const cached = micro ? sam?.microsam_weights_cached : sam?.weights_cached;
   if (sam) $("samHint").textContent = !sam.available ? "Needs the segment-anything package: pip install segment-anything"
-    : (sam.weights_cached ? "" : "The first use downloads SAM's weights, 375 MB. ") + "Adds a few seconds on each new slice. Best with many clicks; ignored for the learned model, several structures and stack runs.";
+    : (cached ? "" : `The first use downloads ${micro ? "micro-SAM's" : "SAM's"} weights, 375 MB. `) + "Adds a few seconds on each new slice. Best with many clicks; ignored for the learned model, several structures and stack runs.";
   const bb = S.health?.backbones.find((b) => b.id === $("backboneSelect").value);
   $("backboneHint").textContent = !bb ? "" : bb.id === "classic"
     ? "Hand-made intensity and texture features. Instant, but less accurate than DINOv2."

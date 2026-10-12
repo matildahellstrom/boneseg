@@ -806,8 +806,8 @@ def test_agree_with_sam(client, monkeypatch):
     ds, gt, centers = upload_stack(client)
     calls = []
 
-    def fake_sam(key, img, pos, neg):
-        calls.append((key, len(pos), len(neg)))
+    def fake_sam(key, img, pos, neg, model="sam"):
+        calls.append((key, len(pos), len(neg), model))
         m = np.zeros(img.shape[:2], bool)
         m[:, : img.shape[1] // 2] = True   # SAM "agrees" only on the left half
         return m
@@ -817,9 +817,14 @@ def test_agree_with_sam(client, monkeypatch):
     off = client.post(f"/api/datasets/{ds['id']}/segment", json=body).json()
     assert not calls and "sam_s" not in off["timing"]
     on = client.post(f"/api/datasets/{ds['id']}/segment", json={**body, "settings": {**SETTINGS, "sam_refine": "agree"}}).json()
-    assert calls == [((ds["id"], 0, 1, 1.0, 99.5), len(centers), 6)] and "sam_s" in on["timing"]
+    assert calls == [((ds["id"], 0, 1, 1.0, 99.5), len(centers), 6, "sam")] and "sam_s" in on["timing"]
     assert 0 < on["stats"]["area_fraction"] < off["stats"]["area_fraction"]
-    assert set(client.get("/api/health").json()["sam"]) == {"available", "weights_cached"}
+    # micro-SAM's mask alone: exactly the fake model's left half
+    rep = client.post(f"/api/datasets/{ds['id']}/segment", json={**body, "settings": {**SETTINGS, "sam_refine": "replace", "sam_model": "microsam"}}).json()
+    assert calls[-1][3] == "microsam" and abs(rep["stats"]["area_fraction"] - 0.5) < 0.02
+    bad = client.post(f"/api/datasets/{ds['id']}/segment", json={**body, "settings": {**SETTINGS, "sam_model": "medsam"}})
+    assert bad.status_code == 400
+    assert set(client.get("/api/health").json()["sam"]) == {"available", "weights_cached", "microsam_weights_cached"}
 
 
 def test_finetune_job(client, monkeypatch):

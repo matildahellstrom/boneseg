@@ -400,6 +400,53 @@ def test_sam_setting_and_finetune_panel(page, server, monkeypatch):
     assert not page.errors, page.errors
 
 
+def test_microsam_panel_kaggle_package_model_and_stack(page, server, monkeypatch, tmp_path):
+    import zipfile
+
+    import torch
+
+    from boneseg import microsam
+
+    url, data = server
+    stack = open_demo(page, url, data)
+    # Click model choice appears with Segment Anything switched on
+    page.click("text=Clean-up and advanced")
+    assert not page.is_visible("#samModel")
+    page.select_option("#samRefine", "replace")
+    page.select_option("#samModel", "microsam")
+    assert page.evaluate("settings().sam_model") == "microsam" and page.is_visible("#samModel") and page.is_visible("#samHint")
+    page.select_option("#samRefine", "off")
+    page.evaluate("api(`/api/datasets/${S.ds.id}/labels/from-reference`, {method: 'POST', body: {channel: S.c, n: 3}}).then(() => refreshLabels())")
+    page.wait_for_function("S.labels.length === 3", timeout=20000)
+    assert page.is_disabled("#methodMicrosam")
+    page.click("text=Fine-tune micro-SAM on these labels")
+    page.fill("#kaggleUser", "Tester")
+    with page.expect_download() as dl:
+        page.click("#microsamExport")
+    path = tmp_path / dl.value.suggested_filename
+    dl.value.save_as(path)
+    assert path.suffix == ".zip" and any(n.endswith("notebook.ipynb") for n in zipfile.ZipFile(path).namelist())
+    assert "README.txt" in page.inner_text("#microsamText")
+    # Load a model file (weights only, tiny) and segment with a stub of micro-SAM's decoder
+    model = tmp_path / "microsam_demo.pt"
+    torch.save({"model_state": {"sam.x": torch.zeros(1)}, "decoder_state": {}, "boneseg": {"recipe": "full", "val_dice": 0.77, "n_train": 2, "n_val": 1}}, model)
+    monkeypatch.setattr(microsam, "foreground", lambda path, img: np.where(stack[0, 2] > 0, 0.9, 0.1).astype(np.float32))
+    monkeypatch.setattr(microsam, "require", lambda: None)
+    page.set_input_files("#microsamFile", str(model))
+    page.wait_for_function("!document.querySelector('#methodMicrosam').disabled", timeout=20000)
+    assert "0.770" in page.inner_text("#microsamText")
+    page.click("#methodMicrosam")
+    wait_result(page)
+    assert page.evaluate("S.method") == "microsam" and page.evaluate("S.result.threshold") == 0.5
+    page.click("#stackBtn")
+    page.wait_for_function("document.querySelector('#jobText').textContent.startsWith('Done')", timeout=60000)
+    assert "12 slices" in page.inner_text("#jobText")
+    page.on("dialog", lambda d: d.accept())
+    page.click("#microsamRemove")
+    page.wait_for_function("document.querySelector('#methodMicrosam').disabled && S.method === 'clicks'", timeout=20000)
+    assert not page.errors, page.errors
+
+
 def test_simple_mode(page, server):
     import urllib.request
 

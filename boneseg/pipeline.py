@@ -65,9 +65,10 @@ def run_stack(req: StackRequest, pos: torch.Tensor, neg: torch.Tensor, settings:
               get_reference: Callable[[int], np.ndarray | None], voxel_um, out_dir: Path,
               progress: Callable[[float, str], None] = lambda p, m: None, cancelled: Callable[[], bool] = lambda: False,
               lock=None, head=None, roi: np.ndarray | None = None, read_ahead: Callable[[int], object] | None = None,
-              n_z: int | None = None) -> dict:
+              n_z: int | None = None, segment_fn: Callable[[int], object] | None = None) -> dict:
     """Segments every slice in req.z_list. Writes a mask stack, per-slice stats and a summary to out_dir. A learned
-    model with z context also gets the features of its neighbouring slices (n_z is the stack's depth)."""
+    model with z context also gets the features of its neighbouring slices (n_z is the stack's depth). segment_fn(z),
+    if given, replaces boneseg's own segmentation (micro-SAM)."""
     out_dir = Path(out_dir)
     pixel_um = (voxel_um[1], voxel_um[2])
     order = processing_order(req.z_list, req.ref_z)
@@ -85,7 +86,9 @@ def run_stack(req: StackRequest, pos: torch.Tensor, neg: torch.Tensor, settings:
         with (lock or contextlib.nullcontext()):
             # Scores are standardized per slice (score_norm), so the threshold calibrated on the
             # annotated slice stays meaningful when contrast fades with depth
-            if head is not None:
+            if segment_fn is not None:
+                res = segment_fn(z)
+            elif head is not None:
                 res = segment_with_head(head, head_input(head, embed_at, z, n_z, voxel_um[0]), settings, pixel_um)
             else:
                 res = segment_with_prototypes(embed_at(z), pos, neg, settings, pixel_um, raw_threshold=raw_threshold)

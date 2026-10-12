@@ -1,0 +1,15 @@
+cff-version: 1.2.0
+message: "If you use boneseg, please cite it as below."
+title: "boneseg: few-shot segmentation of bone microscopy images with DINOv2"
+type: software
+authors:
+  - family-names: "Hellström"
+    given-names: "Matilda"
+version: "0.1.0"
+license: MIT
+repository-code: "https://github.com/matildahellstrom/boneseg"
+keywords:
+  - bone histomorphometry
+  - microscopy
+  - few-shot segmentation
+  - DINOv2

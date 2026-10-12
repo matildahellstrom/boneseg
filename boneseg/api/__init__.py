@@ -17,7 +17,7 @@ from .. import sam
 from ..backbone import BACKBONE_LABELS, dino_weights_cached, pick_device
 from ..segment import SegmentationSettings
 from ..store import Store
-from . import analysis, batch, datasets, learning, profiles, segmentation, study
+from . import analysis, batch, datasets, learning, microsam, profiles, segmentation, study
 from .context import AppContext
 
 STATIC = Path(__file__).resolve().parent.parent / "static"
@@ -125,9 +125,10 @@ def create_app(data_dir: str | Path | None = None, allow_paths: bool = True, tok
                          + [{"id": f"dinov2_s14@{p}", "label": f"DINOv2 Small, fine-tuned · {p.stem}", "ready": dino_weights_cached("dinov2_s14")}
                             for p in sorted(models_dir.glob("*.pt")) if p.stem.startswith("dinov2_s14")],
             "models_dir": str(models_dir),
-            "sam": {"available": sam.available(), "weights_cached": sam.weights_cached()},
+            "sam": {"available": sam.available(), "weights_cached": sam.weights_cached(),
+                    "microsam_weights_cached": sam.weights_cached("microsam")},
         }
 
-    for module in (datasets, segmentation, learning, analysis, profiles, study, batch):
+    for module in (datasets, segmentation, learning, microsam, analysis, profiles, study, batch):
         app.include_router(module.router(ctx))
     return app

@@ -88,6 +88,15 @@ def _chart(slices: list[dict]) -> str:
 def methods_text(info: dict, settings: dict, source: str, n_pos: int, n_neg: int, profile: str | None, head: dict | None,
                  stack: bool = False) -> str:
     bb = BACKBONE_LABELS.get(settings["backbone"], settings["backbone"])
+    vox = info["voxel_um"]
+    units = (f" Measurements used a pixel size of {vox[2]:.3f} × {vox[1]:.3f} µm"
+             + (f" and a slice spacing of {vox[0]:.2f} µm." if info["n_z"] > 1 else "."))
+    if source == "microsam":
+        return (f"Images were segmented with boneseg {__version__} and micro-SAM (Archit et al., Nature Methods 2025). Intensities "
+                f"were clipped at percentiles and scaled to 8 bits as for training. micro-SAM's ViT-B light-microscopy model "
+                f"(vit_b_lm) with its segmentation decoder was fine-tuned on manually labelled slices of this dataset with "
+                f"micro-SAM's training code, and each slice was segmented without prompts, as the pixels where the decoder's "
+                f"foreground probability was at least 0.5, predicted in 512-pixel tiles." + units)
     if source == "structures":
         how = (f"Several structures were segmented together from {n_pos} clicks on the structures and {n_neg} shared background "
                f"clicks{' with the saved profile ' + repr(profile) if profile else ''}. Each structure was scored against the background "
@@ -123,6 +132,10 @@ def methods_text(info: dict, settings: dict, source: str, n_pos: int, n_neg: int
         if settings.get("refiner"):
             how += ("; the final mask came from a small learned refiner, a U-Net that takes the image and the score relative to "
                     "the threshold and predicts the mask at full resolution")
+        if settings.get("sam_refine") in ("agree", "replace"):
+            model = "micro-SAM's ViT-B light-microscopy model (Archit et al., 2025)" if settings.get("sam_model") == "microsam" else "SAM ViT-B (Kirillov et al., 2023)"
+            how += (f"; {model} received the same clicks as point prompts, and " + ("only the pixels both methods assigned to the "
+                    "structure were kept" if settings["sam_refine"] == "agree" else "its mask was used as the result"))
     clean = []
     if settings.get("min_object_um2"):
         clean.append(f"objects smaller than {settings['min_object_um2']} µm² were removed")
@@ -130,12 +143,11 @@ def methods_text(info: dict, settings: dict, source: str, n_pos: int, n_neg: int
         clean.append(f"holes smaller than {settings['fill_holes_um2']} µm² were filled")
     if settings.get("smooth_px"):
         clean.append(f"edges were smoothed with a {settings['smooth_px']} px opening and closing")
-    vox = info["voxel_um"]
     return (f"Images were segmented with boneseg {__version__}. Intensities were clipped at the {settings['clip_low']:g} and "
             f"{settings['clip_high']:g} percentiles and scaled to [0, 1]. Features came from the frozen, self-supervised {bb} backbone "
             f"(block {settings['layer_from_end']} from the end, longest image side resized to {settings['vit_size']} px with the aspect "
             f"ratio kept). {how}." + (f" After thresholding, {', '.join(clean)}." if clean else "") +
-            f" Measurements used a pixel size of {vox[2]:.3f} × {vox[1]:.3f} µm" + (f" and a slice spacing of {vox[0]:.2f} µm." if info["n_z"] > 1 else ".")
+            units
             + (" For the z-stack, the prototypes and threshold from the annotated slice were applied to every slice, with scores "
                "standardized per slice by their median and median absolute deviation, and objects were counted in 3D with "
                "6-connectivity." if stack and source != "learned" and settings.get("score_norm") == "robust" else ""))

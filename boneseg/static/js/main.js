@@ -139,7 +139,7 @@ function bind() {
     refreshProfiles("");
   };
 
-  for (const id of ["thrMode", "topPercent", "manualThr", "lambda", "minObj", "fillHoles", "smooth", "vitSize", "layer", "backboneSelect", "strict", "edgeRefine", "shiftPasses", "refiner", "suggestMissed", "samRefine"]) {
+  for (const id of ["thrMode", "topPercent", "manualThr", "lambda", "minObj", "fillHoles", "smooth", "vitSize", "layer", "backboneSelect", "strict", "edgeRefine", "shiftPasses", "refiner", "suggestMissed", "samRefine", "samModel"]) {
     $(id).addEventListener("input", syncSettingLabels);
     $(id).addEventListener("change", () => { rememberSettings(); if (S.result) scheduleSegment(0); });
   }
@@ -173,6 +173,12 @@ function bind() {
   };
   $("methodClicks").onclick = () => { setMethod("clicks"); if (pts().pos.length || $("profileSelect").value) scheduleSegment(0); };
   $("methodLearned").onclick = () => { setMethod("learned"); scheduleSegment(0); };
+  $("methodMicrosam").onclick = () => { setMethod("microsam"); scheduleSegment(0); };
+  $("microsamExport").onclick = exportMicrosam;
+  $("microsamLoad").onclick = () => $("microsamFile").click();
+  $("microsamFile").onchange = (e) => { loadMicrosam(e.target.files[0]); e.target.value = ""; };
+  $("microsamRemove").onclick = removeMicrosam;
+  try { $("kaggleUser").value = localStorage.getItem("boneseg.kaggleUser") || ""; } catch (_) { /* storage blocked */ }
   $("showLabel").addEventListener("input", draw);
   $("showHisto").addEventListener("input", draw);
   $("showSide").addEventListener("input", loadSide);

@@ -274,6 +274,8 @@ class Store:
             self._remove_job(job)
         self.planes.drop(lambda k: k[0] == ds_id)
         self.embeddings.drop(lambda k: k[0] == ds_id)
+        for f in (self.root / "models").glob(f"microsam_{ds_id}_c*"):   # micro-SAM fine-tuned on its labels
+            f.unlink(missing_ok=True)
 
     # Planes and embeddings ----------------------------------------------------------------------
     def raw_plane(self, ds_id: str, c: int, z: int) -> np.ndarray:

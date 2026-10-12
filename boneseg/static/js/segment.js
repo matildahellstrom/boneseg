@@ -188,6 +188,7 @@ function updateHint() {
   let hint = "";
   if (!S.ds) hint = "";
   else if (S.method === "learned") hint = "The learned model segments every slice you open. Correct and save more labels to improve it.";
+  else if (S.method === "microsam") hint = "micro-SAM, fine-tuned on your labels, segments every slice you open. Run the stack to segment them all.";
   else if (!p.pos.length && !profile) hint = "Click two or three examples of the structure you want to segment.";
   else if (!p.neg.length && !profile) hint = "Now Shift-click a few background spots. The threshold is placed between your object and background clicks.";
   else if (S.result && S.result.uncertain_fraction > 0.05) hint = "Orange areas depend on single clicks. Click inside the dashed ring to settle the most uncertain one.";

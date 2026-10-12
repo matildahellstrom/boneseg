@@ -1,6 +1,8 @@
 """Shared state and helpers for the route modules."""
 from __future__ import annotations
 
+from pathlib import Path
+
 import numpy as np
 from fastapi import HTTPException
 
@@ -27,6 +29,10 @@ class AppContext:
         self.store = store
         self.allow_paths = allow_paths
         self.models_dir = store.root / "models"   # Fine-tuned backbones; listed as backbones by /api/health
+
+    def microsam_path(self, ds_id: str, c: int) -> Path:
+        """Where micro-SAM fine-tuned on this dataset's labels for channel c is kept (boneseg/microsam.py)."""
+        return self.models_dir / f"microsam_{ds_id}_c{c}.pt"
 
     def prototypes_for(self, ds_id, channel, z, pos_pts, neg_pts, profile_id, settings):
         """Prototypes from clicks, a profile, or a profile refined by clicks.

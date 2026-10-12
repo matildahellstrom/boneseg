@@ -125,3 +125,16 @@ Not fixed (cosmetic, by choice): the old Errors overlay after Clear is now clear
 - Local servers only answer to local host names, writes must come from the app's own pages, and uploads have a size limit; the project export contains only the image's own profiles and no server paths, and is streamed from disk; learned models load with `weights_only=True`.
 - Background jobs run on a bounded pool and are cancelled on shutdown; old runs are pruned; two DINOv2 models stay loaded; `pyproject.toml` and `requirements-lock.txt` for reproducible installs.
 
+
+## 12 October 2026
+
+### micro-SAM
+micro-SAM (Archit et al., Nature Methods 2025), Segment Anything trained on light microscopy, in the app and in the comparison:
+- On the clicks: under "Clean-up and advanced", Segment Anything can keep only what it agrees on or replace boneseg's mask, with SAM ViT-B or micro-SAM's `vit_b_lm`. On the Liu test slices micro-SAM did worse than both boneseg and SAM on bone (25 + 25 clicks: 0.612 alone, 0.724 agreeing, against 0.755 and 0.757; `paper/results/microsam_clicks_summary.md`).
+- Fine-tuned on your labels: section 6 writes a Kaggle package (the labelled slices as a private dataset and a notebook), since training needs a GPU; the trained file is loaded back (checked as weights only) and "micro-SAM" in section 3 segments slices and whole stacks without clicks. `boneseg/microsam_core.py` holds the training and prediction code shared with the Kaggle notebooks; `pip install -e .[microsam]`.
+- Kaggle notebooks `paper/kaggle_finetune_sam/kernel_microsam_*` fine-tune micro-SAM (full and LoRA) on the same 5-shot folds as SAM and boneseg, and on whole stacks; `paper/microsam_analyze.py` merges the scores.
+
+### Ready to share
+- MIT licence, `CITATION.cff`, and a "Data" section in `paper/README.md` on how to get each dataset and its terms.
+- Kaggle notebooks run under any account: `python scripts/set_kaggle_user.py NAME` (or `KAGGLE_USERNAME`, `BONESEG_LIU_DATASET`).
+- Figures that show microscopy crops of the Liu data were removed from the repository and its history, and stay local (git-ignored).

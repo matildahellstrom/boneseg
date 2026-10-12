@@ -149,6 +149,7 @@ async function refreshHead() {
   $("methodLearned").disabled = !S.head;
   if (!S.head && S.method === "learned") setMethod("clicks");
   showHeadInfo();
+  refreshMicrosam();
 }
 
 function showHeadInfo() {
@@ -197,7 +198,60 @@ function setMethod(m) {
   S.method = m;
   $("methodClicks").classList.toggle("active", m === "clicks");
   $("methodLearned").classList.toggle("active", m === "learned");
+  $("methodMicrosam").classList.toggle("active", m === "microsam");
   updateHint();
+}
+
+// ---------------------------------------------------------------------------------------------
+// micro-SAM fine-tuned on the labels: trained on Kaggle (package download), then loaded back as a file
+async function refreshMicrosam() {
+  S.microsam = null;
+  if (S.ds) { try { S.microsam = await api(`/api/datasets/${S.ds.id}/microsam?c=${S.c}`); } catch (_) { S.microsam = null; } }
+  const m = S.microsam?.model;
+  $("methodMicrosam").disabled = !m;
+  if (!m && S.method === "microsam") setMethod("clicks");
+  $("microsamRemove").classList.toggle("hidden", !m);
+  if (S.microsam && !S.microsam.available) $("microsamText").textContent = "micro-SAM is not installed here: pip install micro-sam. The package can still be made.";
+  else if (m) $("microsamText").innerHTML = `Model loaded: ${esc(m.recipe === "lora" ? "LoRA" : "full")} fine-tuning`
+    + (m.n_train ? ` on ${m.n_train} slice${m.n_train > 1 ? "s" : ""}` : "")
+    + (m.val_dice != null ? `, Dice on ${m.n_val} check slice${m.n_val > 1 ? "s" : ""} <b>${(+m.val_dice).toFixed(3)}</b>` : "")
+    + ". Choose <b>micro-SAM</b> in section 3 to use it.";
+  else $("microsamText").textContent = "";
+}
+
+async function exportMicrosam() {
+  const user = $("kaggleUser").value.trim().toLowerCase();
+  if (!user) { toast("Enter your Kaggle user name first"); $("kaggleUser").focus(); return; }
+  try { localStorage.setItem("boneseg.kaggleUser", user); } catch (_) { /* storage blocked */ }
+  $("microsamExport").disabled = true;
+  $("microsamText").textContent = "Writing the package…";
+  try {
+    const res = await api(`/api/datasets/${S.ds.id}/microsam/kaggle`, { method: "POST", body: { channel: S.c, username: user, recipe: $("microsamRecipe").value, settings: settings() } });
+    const name = /filename="?([^";]+)/.exec(res.headers.get("content-disposition") || "")?.[1] || "boneseg-microsam.zip";
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(await res.blob()); a.download = name; a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+    $("microsamText").textContent = `Saved ${name}. Unzip it and follow README.txt; then load the model file here.`;
+  } catch (e) { $("microsamText").textContent = ""; toast(e.message, true); }
+  $("microsamExport").disabled = false;
+}
+
+async function loadMicrosam(file) {
+  if (!file) return;
+  $("microsamText").textContent = `Loading ${file.name}…`;
+  try {
+    // The raw file as the body: no form encoding, so a 400 MB model needs no extra copy
+    const res = await fetch(`/api/datasets/${S.ds.id}/microsam/model?c=${S.c}`, { method: "POST", body: file, headers: { "Content-Type": "application/octet-stream" } });
+    if (!res.ok) { let msg = res.statusText; try { msg = (await res.json()).detail || msg; } catch (_) { /* not JSON */ } throw new Error(msg); }
+    await refreshMicrosam();
+    toast("micro-SAM model loaded. Choose micro-SAM in section 3 to segment with it.");
+  } catch (e) { $("microsamText").textContent = ""; toast(e.message, true); }
+}
+
+async function removeMicrosam() {
+  if (!confirm("Remove the micro-SAM model of this channel?")) return;
+  try { await api(`/api/datasets/${S.ds.id}/microsam/model?c=${S.c}`, { method: "DELETE" }); } catch (e) { toast(e.message, true); }
+  refreshMicrosam();
 }
 
 // ---------------------------------------------------------------------------------------------

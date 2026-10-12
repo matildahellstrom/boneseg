@@ -4,6 +4,7 @@ preds.zip holds <dataset>/<method>__<prompt>[_d<draw>|_full]/<image>.png. Writes
 (one row per dataset, image, method, prompt, prompt draw and few-shot draw; Dice, NSD, area bias).
 Usage: kaggle kernels output matildahellstrom/boneseg-sam-fine-tuning-a-bone-plasma-cells -p ft_a   (and kernel B)
        python paper/finetune_sam_score.py ft_a/preds.zip ft_b/preds.zip
+       python paper/finetune_sam_score.py ms_a/preds.zip ms_b/preds.zip --out microsam.csv   (the micro-SAM kernels)
 """
 from __future__ import annotations
 
@@ -51,7 +52,7 @@ def parse(folder: str):
     return method, prompt, seed, draw
 
 
-def main(zips):
+def main(zips, out="finetune_sam.csv"):
     gt = ground_truth()
     names = {"liu": "bone", "noise": "osteoclasts", "segpc": "plasma"}
     rows = []
@@ -73,9 +74,11 @@ def main(zips):
                          "dice": metrics.dice(pred, g), "nsd": metrics.nsd(pred, g, tol, px, max_side=1500),
                          "area_bias": 100 * (float(pred.mean()) - float(g.mean()))})
     df = pd.DataFrame(rows)
-    df.to_csv(OUT / "finetune_sam.csv", index=False)
+    df.to_csv(OUT / out, index=False)
     print(df.groupby(["dataset", "method", "prompt", "draw"])[["dice", "nsd", "area_bias"]].mean().round(3).to_string())
 
 
 if __name__ == "__main__":
-    main(sys.argv[1:])
+    args = sys.argv[1:]
+    out = args.pop(args.index("--out") + 1) if "--out" in args else "finetune_sam.csv"   # micro-SAM: --out microsam.csv
+    main([a for a in args if a != "--out"], out)

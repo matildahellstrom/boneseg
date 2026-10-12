@@ -29,7 +29,18 @@ def router(ctx: AppContext) -> APIRouter:
         settings = SegmentationSettings.from_dict(req.settings)
         with store.compute_lock:
             profile_head = ctx.learned_profile_head(req.profile_id, settings)
-            if req.method == "learned" or profile_head is not None:
+            if req.method == "microsam":
+                # micro-SAM fine-tuned on this channel's labels (on Kaggle), no clicks needed
+                from .. import microsam
+
+                path = ctx.microsam_path(ds_id, req.channel)
+                if not path.exists():
+                    raise ValueError("No micro-SAM model for this channel yet: fine-tune one on Kaggle (section 6) and load its file")
+                img = store.color_plane(ds_id, req.channel, req.z, *microsam.clip_for(path, settings))
+                res = microsam.segment(path, img, settings, ds.volume.pixel_um)
+                t_embed = time.time() - t0
+                u = np.clip(1 - 4 * np.abs(res.heat - 0.5), 0, 1).astype(np.float32) if req.uncertainty else None
+            elif req.method == "learned" or profile_head is not None:
                 head = profile_head or ctx.load_head(ds_id, req.channel, settings)
                 if head.names:
                     raise ValueError("This learned model predicts several structures; add the structures to use it")
@@ -53,14 +64,15 @@ def router(ctx: AppContext) -> APIRouter:
                                               pos_points=req.pos if on_slice else None, neg_points=req.neg if on_slice else None)
                 u = uncertainty_map(emb, pos, neg, settings, threshold=res.threshold) if req.uncertainty and pos.shape[0] > 0 else None
         t_sam = None
-        if settings.sam_refine == "agree" and req.method == "clicks" and profile_head is None and req.pos and req.clicks_z in (None, req.z):
-            # A second opinion from SAM on the same clicks: keep only what both call the structure
+        if settings.sam_refine != "off" and req.method == "clicks" and profile_head is None and req.pos and req.clicks_z in (None, req.z):
+            # SAM or micro-SAM on the same clicks: keep only what both call the structure, or use its mask instead
             from .. import sam
 
             t1 = time.time()
             img = store.color_plane(ds_id, req.channel, req.z, settings.clip_low, settings.clip_high)
             res.extra["before_sam"] = res.mask
-            res.mask = sam.agree(res.mask, (ds_id, req.channel, req.z, settings.clip_low, settings.clip_high), img, req.pos, req.neg)
+            res.mask = sam.apply(settings.sam_refine, res.mask, (ds_id, req.channel, req.z, settings.clip_low, settings.clip_high),
+                                 img, req.pos, req.neg, settings.sam_model)
             t_sam = round(time.time() - t1, 3)
         roi = store.roi_mask(ds_id)
         if roi is not None:
@@ -220,6 +232,31 @@ def router(ctx: AppContext) -> APIRouter:
         if not z_list:
             raise ValueError("The slice range is empty")
         ref_z = req.ref_z if req.ref_z is not None else z_list[0]
+        if req.method == "microsam":
+            # micro-SAM fine-tuned on this channel's labels segments every slice on its own
+            from .. import microsam
+
+            path = ctx.microsam_path(ds_id, req.channel)
+            if not path.exists():
+                raise ValueError("No micro-SAM model for this channel yet: fine-tune one on Kaggle (section 6) and load its file")
+            microsam.require()
+            c, clip = req.channel, microsam.clip_for(path, settings)
+
+            def work_microsam(job):
+                return run_stack(
+                    StackRequest(z_list=z_list, ref_z=ref_z), None, None, settings,
+                    segment_fn=lambda z: microsam.segment(path, store.color_plane(ds_id, c, z, *clip), settings, ds.volume.pixel_um),
+                    get_embedding=lambda z: None, lock=store.compute_lock, roi=store.roi_mask(ds_id),
+                    get_image=lambda z: store.plane(ds_id, c, z, settings.clip_low, settings.clip_high),
+                    get_reference=lambda z: store.reference_mask(ds_id, z, c),
+                    voxel_um=ds.volume.voxel_um, out_dir=job.out_dir,
+                    progress=lambda p, m: (setattr(job, "progress", p), setattr(job, "message", m)),
+                    cancelled=job.cancel.is_set, n_z=ds.volume.n_z,
+                    read_ahead=lambda z: store.color_plane(ds_id, c, z, *clip),
+                )
+
+            job = store.start_job("stack", work_microsam, meta={"dataset_id": ds_id, "n_slices": len(z_list), "channel": c, "method": "microsam"})
+            return job.info()
         structures = [st for st in req.structures if st.get("pos")]
         profile_model, _ = ctx.multi_profile_model(req.profile_id, settings)
         if len(structures) > 1 or profile_model is not None:

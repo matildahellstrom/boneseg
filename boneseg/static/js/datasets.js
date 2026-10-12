@@ -157,7 +157,7 @@ async function loadPlane(fit = false) {
   updateCounts();
   renderLabels();
   draw();
-  if (S.method === "learned" || pts().pos.length || $("profileSelect").value) scheduleSegment(0);
+  if (S.method !== "clicks" || pts().pos.length || $("profileSelect").value) scheduleSegment(0);
   placeSideZ();
 }
 

@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field, field_validator
 
 
 class SegmentRequest(BaseModel):
-    method: str = "clicks"  # "clicks" (prototypes) or "learned" (head trained on labels)
+    method: str = "clicks"  # "clicks" (prototypes), "learned" (head trained on labels) or "microsam" (fine-tuned on Kaggle)
     channel: int = 0
     z: int = 0
     pos: list[tuple[float, float]] = Field(default_factory=list)  # (y, x) in full-resolution pixels
