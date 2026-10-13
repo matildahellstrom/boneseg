@@ -12,8 +12,9 @@ Every kernel writes preds.zip: one binary PNG per test image, configuration and 
 
 micro-SAM kernels (Archit et al. 2025, micro-sam from PyPI, pinned; training and prediction in boneseg/microsam_core.py):
   kernel_microsam_smoke  one Liu fold and one SegPC draw, both recipes, 2 epochs
-  kernel_microsam_a      Liu bone and SegPC, the same folds as kernel_a; recipes full and LoRA, starting from vit_b_lm
+  kernel_microsam_a      Liu bone, the same folds as kernel_a; recipes full and LoRA, starting from vit_b_lm
   kernel_microsam_b      NOISe osteoclasts, the same folds as kernel_b
+  kernel_microsam_c      SegPC plasma cells, the same three few-shot draws as kernel_a
   kernel_microsam_stack  Liu whole stacks, full recipe, every slice of the central 80% segmented automatically
 Each test image gets micro-SAM's automatic mask (prompt "none") and the paper-style point and box prompts, plus the
 untrained generalist's automatic mask (microsam_zs).
@@ -404,19 +405,24 @@ def ms_fold(tag, ds, key_prefix, train_stems, val_stems, test_stems, suffix="", 
         del model; torch.cuda.empty_cache(); save_zip()
 """.replace("MSVER", MICROSAM_VERSION)
 
+# One dataset per kernel: full fine-tuning takes up to about an hour per fold on a T4, and Kaggle stops at 12 hours
 KERNEL_MS_A = r"""
 build_liu()
-build_segpc(SETUP["segpc"]["val"] + sorted({n for d in SETUP["segpc"]["draws"] for k in ("train", "val") for n in d[k]}))
-liu_tests = [f"{s}_{z}" for s, info in SETUP["liu"].items() for z in info["test"]]
-ms_zero_shot("liu", "liu", liu_tests)
-ms_zero_shot("segpc", "segpc", SETUP["segpc"]["val"])
+ms_zero_shot("liu", "liu", [f"{s}_{z}" for s, info in SETUP["liu"].items() for z in info["test"]])
 for s, info in SETUP["liu"].items():
     stems = lambda zs: [f"{s}_{z}" for z in zs]
     ms_fold(f"liu_{s}", "liu", "liu", stems(info["dev"][:5]), stems(info["dev"][5:]), stems(info["test"]))
+save_zip()
+log(f"micro-SAM kernel A done; skipped {SKIPPED}")
+"""
+
+KERNEL_MS_C = r"""
+build_segpc(SETUP["segpc"]["val"] + sorted({n for d in SETUP["segpc"]["draws"] for k in ("train", "val") for n in d[k]}))
+ms_zero_shot("segpc", "segpc", SETUP["segpc"]["val"])
 for i, d in enumerate(SETUP["segpc"]["draws"]):
     ms_fold(f"segpc_d{i}", "segpc", "segpc", d["train"], d["val"], SETUP["segpc"]["val"], suffix=f"_d{i}")
 save_zip()
-log(f"micro-SAM kernel A done; skipped {SKIPPED}")
+log(f"micro-SAM kernel C done; skipped {SKIPPED}")
 """
 
 KERNEL_MS_B = r"""
@@ -500,7 +506,8 @@ def main():
             ("kernel_b", KERNEL_B, [liu, segpc], "boneseg SAM fine-tuning B (osteoclasts, ViT-H)", fsam),
             ("kernel_stack", KERNEL_STACK, [liu], "boneseg SAM fine-tuned, whole stacks", fsam),
             ("kernel_microsam_smoke", KERNEL_MS_SMOKE, [liu, segpc], "boneseg micro-SAM smoke test", ms),
-            ("kernel_microsam_a", KERNEL_MS_A, [liu, segpc], "boneseg micro-SAM A (bone, plasma cells)", ms),
+            ("kernel_microsam_a", KERNEL_MS_A, [liu], "boneseg micro-SAM A (bone)", ms),
+            ("kernel_microsam_c", KERNEL_MS_C, [segpc], "boneseg micro-SAM C (plasma cells)", ms),
             ("kernel_microsam_b", KERNEL_MS_B, [], "boneseg micro-SAM B (osteoclasts)", ms),
             ("kernel_microsam_stack", KERNEL_MS_STACK, [liu], "boneseg micro-SAM whole stacks", ms)):
         assert len(title) <= 50, f"Kaggle refuses titles over 50 characters (400 Bad Request): {title}"

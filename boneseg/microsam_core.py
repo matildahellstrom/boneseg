@@ -59,6 +59,13 @@ def _loader(images, labels, n_samples, train):
                               n_samples=n_samples, is_train=train, min_size=25, batch_size=1, shuffle=train)
 
 
+def _free_gpu():
+    import gc
+    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+
+
 def train(images, labels, val_images, val_labels, out_dir, name="microsam", recipe="full", epochs=40,
           per_epoch=25, patience=8, n_objects=10, device=None, log=print) -> Path | None:
     """Fine-tunes micro-SAM; images are uint8 (H, W) or (H, W, 3), labels instance labels of the same size.
@@ -66,15 +73,25 @@ def train(images, labels, val_images, val_labels, out_dir, name="microsam", reci
     from micro_sam.training import train_sam
     device = device or ("cuda" if torch.cuda.is_available() else "cpu")
     t = time.time()
-    try:
-        train_sam(name, MODEL, _loader(images, labels, per_epoch, True), _loader(val_images, val_labels, 10, False),
-                  n_epochs=epochs, early_stopping=patience, n_objects_per_batch=n_objects, device=device,
-                  save_root=str(out_dir), peft_kwargs=peft_kwargs(recipe), verify_n_labels_in_loader=None)
-    except Exception as e:
-        import traceback
-        traceback.print_exc()
-        log(f"{name}: training failed ({type(e).__name__}: {e})")
-        return None
+    while True:
+        _free_gpu()   # Memory left by an earlier run in the same session made full fine-tuning run out on a 16 GB T4
+        try:
+            train_sam(name, MODEL, _loader(images, labels, per_epoch, True), _loader(val_images, val_labels, 10, False),
+                      n_epochs=epochs, early_stopping=patience, n_objects_per_batch=n_objects, device=device,
+                      save_root=str(out_dir), peft_kwargs=peft_kwargs(recipe), verify_n_labels_in_loader=None)
+            break
+        except torch.OutOfMemoryError:
+            if n_objects <= 2:
+                log(f"{name}: training failed (out of GPU memory even with 2 objects per batch)")
+                return None
+            n_objects //= 2   # Fewer objects per image and step need less memory; training starts again
+            log(f"{name}: out of GPU memory, starting again with {n_objects} objects per batch")
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            log(f"{name}: training failed ({type(e).__name__}: {e})")
+            return None
+    _free_gpu()
     ck = Path(out_dir) / "checkpoints" / name / "best.pt"
     log(f"{name}: {'trained' if ck.exists() else 'no checkpoint written'} in {time.time() - t:.0f} s")
     return ck if ck.exists() else None
