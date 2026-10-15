@@ -1,21 +1,17 @@
 # boneseg
 
-Segment structures in bone microscopy images with a few clicks. boneseg turns the DINO few-shot segmentation from the notebook in `notebooks/` into a web app. You open an Imaris, TIFF or PNG file, click a few cells and a few background spots, and get a mask with measurements in micrometres. From there you can run the whole z-stack, correct masks and train a small model on them, and compare samples between groups.
+Segment structures in bone microscopy images with a few clicks. boneseg turns the DINO few-shot segmentation from the notebook in `notebooks/` into a web app. You open an Imaris, TIFF or PNG file, click a few cells and a few background spots, and get a mask with measurements in micrometres. From there you can run the whole z-stack, and correct masks and train a small model on them.
 
-![boneseg segmenting osteoclast-like cells and bone matrix as two structures on the demo stack](docs/screenshot.png)
+![boneseg segmenting cells on the synthetic demo stack from a few clicks](docs/screenshot.png)
 
 ## What it does
 
 - **Segment from clicks.** A frozen DINOv2 backbone turns the image into patch features. Your clicks become prototypes, and the threshold is calibrated from them. The mask updates after every click.
-- **Guide the next click.** An uncertainty overlay shows where the mask depends on single clicks, and a ring marks the most useful next click.
-- **Several structures at once.** Segment, for example, cells and bone matrix together, each with its own clicks and colour.
-- **Whole stacks.** Run every slice from one annotated slice, with measurements per slice, objects counted in 3D, and a side view through the stack.
-- **A second opinion from SAM.** Optionally, Segment Anything gets the same clicks and the mask keeps only what both agree on: with 25 + 25 clicks on bone, Dice rose by 0.03 and the bone-area overestimate disappeared.
+- **Guide the next click.** A dashed ring marks where one more click would help most.
+- **Whole stacks.** Run every slice from one annotated slice, with measurements per slice and objects counted in 3D.
 - **Learn from corrections.** Fix a mask with a brush, save it as a label, and train a small model: seconds on small images, a few minutes on large stacks, where computing the labelled slices' features takes most of the time (progress is shown). It reports its accuracy on slices it has not seen, sets its own threshold on them, and in a stack also looks at the neighbouring slices. From 5 labelled slices it measured whole Liu stacks within 5% of the experts' bone volume fraction and within about 1% of their trabecular number and separation.
-- **Compare samples.** Run a profile on every sample, put samples in groups, and compare them with a dot plot and a rank test.
 - **Check against experts.** A file's expert mask channel (named like "segmentation", "mask" or "surface") scores every result with Dice, IoU and HD95 and shows where the mask is wrong.
-- **Reuse and share.** Profiles carry clicks, learned models or several structures to new images, to other users and to batch runs.
-- **Keep a record.** Export masks, label images and CSV tables, write an HTML report with a draft methods paragraph, or zip the whole project.
+- **Keep a record.** Export the mask as a TIFF, the stack outputs, or a zip of the whole project.
 
 ## Quick start
 
@@ -44,25 +40,27 @@ Add `-e BONESEG_TOKEN=some-secret` to require an access token, then open http://
 ## How to use it
 
 1. **Open an image.** Drop a file on the left panel. Multi-gigabyte Imaris files open in place with "Open a large file from disk instead". Pick the channel that shows the structure and the slice under the file list. The pixel size comes from the file (files without one are measured in pixels), and an expert segmentation channel named "segmentation", "mask" or "surface" is picked up as the reference mask that results are scored against.
-2. **Click.** Click a few examples of the structure, then shift-click a few background spots. For several structures, click "+ Structure" and give each its own clicks; background clicks are shared.
-3. **Refine.** Follow the hint under the click counts. Orange areas depend on single clicks, and the dashed ring marks where one more click helps most. With a reference mask, "Errors" shows extra pixels in red and missed ones in yellow. Once you have clicked a fair amount, "Segment Anything on the clicks" under "Clean-up and advanced" trims the mask to what SAM or micro-SAM also finds, or uses their mask instead.
-4. **Correct and teach.** If the file already has expert masks, "Label 5 slices from the reference" turns them into labels, so the model learns from the experts and can then segment files that have no expert masks. Otherwise: press E to fix the mask with a brush and save it as a label. With several structures, the brush paints in the active structure's colour (Tab switches). After one or more labels, "Train model" fits a small classifier in the background (seconds on small images, minutes on large stacks) and reports its Dice on held-out slices. Switch to "Learned model" to segment new slices, with one or several structures, without clicks. To adapt DINOv2 itself to your images, open "Fine-tune DINOv2 on these labels": it takes several minutes, reports whether it beat the learned model on held-out labels, and adds the result to the backbone menu.
-5. **Scale up.** "Run stack" segments a range of slices. "Save as profile" keeps the clicks, a learned model or all structures for other images. "Compare samples" at the top runs a profile on every sample and compares groups.
-6. **Export.** Masks as PNG or TIFF, label images, per-object CSV with each object's intensity in every channel, stack outputs, an HTML report, or a project zip with everything except the image.
+2. **Click.** Click a few examples of the structure, then shift-click a few background spots. The mask updates after every click.
+3. **Refine.** Follow the hint under the click counts. The dashed ring marks where one more click helps most. With a reference mask, "Errors" shows extra pixels in red and missed ones in yellow. "Remove objects smaller than" drops specks. Every other setting is fixed at the values that tested best (see How it works).
+4. **Correct and teach.** If the file already has expert masks, "Label 5 slices from the reference" turns them into labels, so the model learns from the experts. Otherwise: press E to fix the mask with a brush and save it as a label. After one or more labels, "Train model" fits a small classifier in the background (seconds on small images, minutes on large stacks) and reports its Dice on held-out slices. Switch to "Learned model" to segment new slices without clicks.
+5. **Scale up.** "Run stack" segments a range of slices with the clicks or the learned model, whichever is active.
+6. **Export.** The mask as a TIFF, the stack outputs, or a project zip with everything except the image.
+
+The interface was cut down to these steps on 15 October 2026. The server API still has the earlier extras (several structures, profiles, sample comparison, SAM on the clicks, DINOv2 and micro-SAM fine-tuning), which the paper code and the command line use.
 
 ### Recipes
 
 **Brightfield colour images** (TRAP, H&E and other stains). Colour PNG, JPEG and TIFF files get an extra channel, "Colour (RGB)", which the app opens by default. DINOv2 then sees the image as a colour photograph, which found osteoclasts more reliably than any single channel on the NOISe data. Intensity measurements on this channel use the brightness.
 
-**Some files have expert masks, others do not** (as in the Liu data, where the last channel is the expert segmentation).
-1. Open a file with expert masks and pick its image channel. The reference channel is picked up from its name.
+**Files with expert masks** (as in the Liu data, where the last channel is the expert segmentation).
+1. Open the file and pick its image channel. The reference channel is picked up from its name.
 2. Click "Label 5 slices from the reference", then "Train model". The summary shows the model's Dice against the expert mask on slices it was not trained on.
-3. "Save model as profile". Open the other files and pick each one's image channel; the app remembers it, since the same stain can sit at a different channel number in different files. In "Compare samples", run the profile on every sample with "Each sample's own" channel, assign groups and compare.
+3. "Run stack" with the learned model.
 
 **No expert masks.**
 1. Click a few examples and background spots on one slice, and check the mask.
-2. Press E to correct it, save it as a label, and repeat on two or three more slices spread through the stack ("Copy to next slice" helps).
-3. "Train model", check the held-out Dice, and run the stack or a batch with the learned model.
+2. Press E to correct it, save it as a label, and repeat on two or three more slices spread through the stack.
+3. "Train model", check the held-out Dice, and run the stack with the learned model.
 
 ### Keyboard shortcuts
 
@@ -71,19 +69,17 @@ Add `-e BONESEG_TOKEN=some-secret` to require an access token, then open http://
 | Click / Shift-click | Add an object / background point |
 | Right-click | Remove the nearest point |
 | 1, 2 | Switch between object and background clicks |
-| Tab, Shift+Tab | With several structures, switch which one object clicks go to |
 | Ctrl+Z | Undo the last point |
 | , and . | Previous and next slice |
 | F | Fit the image to the window |
-| M, H, U | Toggle the mask, heatmap and uncertainty overlays |
+| M | Show or hide the mask |
 | E, Esc | Start and cancel correcting the mask with a brush |
 | [ and ], Ctrl+Z | While correcting: smaller or larger brush, undo the last stroke |
-| Alt-click | Move the side-view cut to this row |
 | Scroll, drag | Zoom, pan |
 
 ## Batch processing
 
-From the app, "Compare samples" can run a saved profile on every open sample. From the command line:
+From the command line, with a profile saved by an earlier version of the app or through the API:
 
 ```bash
 python -m boneseg profiles                       # List saved profiles and their ids
@@ -154,7 +150,7 @@ Each of these was measured and did not hold up, so the defaults stay simpler:
 - Neighbourhood features for click-based segmentation gained about 0.015 on Liu file A but lost 0.07 on the demo's small cells.
 - For learned models carried between files A, E and F (mean other-file Dice 0.68 with Small): centering each image's features lowered it to 0.61; training on gamma- and blur-varied copies of the expert slices gave 0.68; DINOv2 Base gave 0.65 and Large 0.69, the latter at about three times the cost of Small.
 
-On Liu file A a smaller backbone input of 644 px did slightly better than the default 980 px (0.66 against 0.65 with 25 + 25 clicks), and Base was close to Small. Try the "Detail" setting under "Clean-up and advanced" if a mask looks too fragmented.
+On Liu file A a smaller backbone input of 644 px did slightly better than the default 980 px (0.66 against 0.65 with 25 + 25 clicks), and Base was close to Small. The app keeps 980 px; the API setting `vit_size` changes it.
 
 Run the benchmarks yourself:
 

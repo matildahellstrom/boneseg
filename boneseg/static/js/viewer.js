@@ -33,15 +33,12 @@ function draw() {
   const h = S.base.naturalHeight * scale;
   ctx.imageSmoothingEnabled = scale < 2;
   ctx.drawImage(S.base, ox, oy, w, h);
-  const op = +$("opacity").value;
   const layer = (img, alpha) => { if (img) { ctx.globalAlpha = alpha; ctx.drawImage(img, ox, oy, w, h); ctx.globalAlpha = 1; } };
-  if ($("showHeat").checked) layer(S.layers.heat, op);
-  if ($("showUnc").checked) layer(S.layers.unc, Math.min(1, op + 0.2));
   if (S.editing && S.edit) layer(S.edit, 0.5);
-  else if ($("showErr").checked && S.layers.err) layer(S.layers.err, Math.min(1, op + 0.3));
-  else if ($("showMask").checked) layer(S.layers.mask, Math.min(1, op + 0.3));
+  else if ($("showErr").checked && S.layers.err) layer(S.layers.err, 0.9);
+  else if ($("showMask").checked) layer(S.layers.mask, 0.9);
   if ($("showRef").checked) layer(S.layers.ref, 0.9);
-  if ($("showLabel").checked && !S.editing) layer(S.layers.label, 0.95);
+  if (!S.editing) layer(S.layers.label, 0.95);
   $("zoomLabel").textContent = `${Math.round(scale * fullToDisp() * 100)}%`;
 
   const f = fullToDisp();
@@ -53,9 +50,9 @@ function draw() {
     ctx.lineWidth = 1.5;
     ctx.stroke();
   }
-  if ($("showPoints").checked && !S.editing) {
+  if (!S.editing) {
     const p = S.points[key()] || { pos: [], neg: [] };
-    const groups = [[p.neg, "#ff5a6e"], ...S.structures.map((st, k) => [posList(p, k), st.color])];
+    const groups = [[p.neg, "#ff5a6e"], [p.pos, "#22d27a"]];
     for (const [list, color] of groups) {
       for (const pt of list) {
         const [sx, sy] = toScreen(pt);
@@ -69,30 +66,8 @@ function draw() {
       }
     }
   }
-  if ($("showSide").checked && S.sideY != null) {
-    const [, sy] = toScreen([S.sideY, 0]);
-    ctx.save();
-    ctx.setLineDash([8, 6]);
-    ctx.strokeStyle = "#ffa53a";
-    ctx.lineWidth = 1.2;
-    ctx.beginPath(); ctx.moveTo(ox, sy); ctx.lineTo(ox + w, sy); ctx.stroke();
-    ctx.restore();
-  }
-  (S.result?.missed || []).forEach((m, i) => {
-    const [mx, my] = toScreen(m.point);
-    ctx.setLineDash([4, 3]);
-    ctx.lineWidth = 2;
-    ctx.strokeStyle = "#c78bff";
-    ctx.beginPath();
-    ctx.arc(mx, my, 12, 0, Math.PI * 2);
-    ctx.stroke();
-    ctx.setLineDash([]);
-    ctx.fillStyle = "#c78bff";
-    ctx.font = "bold 12px system-ui";
-    ctx.fillText(String(i + 1), mx + 14, my - 10);
-  });
   const sug = S.result?.suggestion;
-  if (sug && $("uncToggle").checked) {
+  if (sug) {
     const [sx, sy] = toScreen(sug);
     ctx.setLineDash([5, 4]);
     ctx.lineWidth = 2;
@@ -162,7 +137,6 @@ window.addEventListener("mouseup", (ev) => {
   if (d.moved || d.pan || ev.target !== canvas) return;
   const p = screenToFull(ev);
   if (!inside(p)) return;
-  if (ev.altKey && d.button === 0) { S.sideY = Math.round(p[0]); $("showSide").checked = true; loadSide(); draw(); return; }
   if (d.button === 2) { removeNearest(...p); return; }
   if (d.button !== 0) return;
   const kind = ev.shiftKey ? (S.mode === "pos" ? "neg" : "pos") : S.mode;
@@ -183,4 +157,4 @@ canvas.addEventListener("wheel", (ev) => {
   S.fitted = false;
   draw();
 }, { passive: false });
-window.addEventListener("resize", () => { if (S.fitted) fitView(); else draw(); placeSideZ(); });
+window.addEventListener("resize", () => { if (S.fitted) fitView(); else draw(); });

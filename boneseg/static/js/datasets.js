@@ -32,17 +32,21 @@ function showEmpty(on) {
     $("datasetTitle").textContent = "No image loaded";
     $("resultsSection").classList.add("hidden");
     // Panels that belonged to the closed image
-    for (const el of ["sidePanel", "jobBox"]) $(el)?.classList.add("hidden");
-    S.lastJob = null;
+    $("jobBox").classList.add("hidden");
     S.job = null;
     S.base = null;
     draw();
   }
 }
 
+// Each open gets a number; an older open still loading stops at its next step, so opening two images in quick
+// succession cannot mix their clicks, slices or view
+let openSeq = 0;
 async function openDataset(id, view = {}) {
+  const seq = ++openSeq;
   await flushSaves();   // Clicks on the previous dataset are saved before its state is replaced
   const d = await api(`/api/datasets/${id}`);
+  if (seq !== openSeq) return;
   S.ds = d;
   S.points = {};
   S.history = [];
@@ -61,11 +65,17 @@ async function openDataset(id, view = {}) {
   $("zStart").max = $("zEnd").max = d.n_z - 1;
   $("zStart").value = 0;
   $("zEnd").value = d.n_z - 1;
-  $("zStep").value = Math.max(1, Math.round(d.n_z / 50));
+  // Slices and whole-stack runs only matter for stacks; the reference toggle only for files with an expert mask
+  $("sliceNav").classList.toggle("hidden", d.n_z < 2);
+  $("stackSection").classList.toggle("hidden", d.n_z < 2);
+  $("refToggle").classList.toggle("hidden", d.reference_channel == null);
   showEmpty(false);
   $("resultsSection").classList.add("hidden");
   stopEditing();
-  try { S.points = await api(`/api/datasets/${id}/annotations`); } catch (_) { S.points = {}; }
+  let points = {};
+  try { points = await api(`/api/datasets/${id}/annotations`); } catch (_) { /* none saved */ }
+  if (seq !== openSeq) return;
+  S.points = points;
   // Channel and slice: from the link if given, else the first slice that has clicks, else the middle
   if (view.c != null && view.c >= 0 && view.c < d.n_channels) { S.c = view.c; cs.value = S.c; }
   const clicked = firstClickedSlice(S.points, S.c, d.n_z);
@@ -74,20 +84,15 @@ async function openDataset(id, view = {}) {
   $("jobBox").classList.add("hidden");   // A stack run of the previous dataset is not this one's
   S.job = null;
   applySettings(d.settings);
-  S.structures = structuresFromAnnotations(S.points);
-  S.active = 0;
-  renderStructures();
   await refreshDatasets();
   await refreshLabels();
   await refreshHead();
-  S.sideY = null;
-  S.lastJob = null;
-  if ($("showSide").checked) loadSide();
+  if (seq !== openSeq) return;
   await loadPlane(true);
   resumeJobs(id);
 }
 
-// After a reload or in a second tab, a stack run or fine-tune still going on this image is shown again,
+// After a reload or in a second tab, a stack run still going on this image is shown again,
 // with its progress and Cancel button
 async function resumeJobs(id) {
   let running = [];
@@ -100,15 +105,6 @@ async function resumeJobs(id) {
     $("cancelBtn").classList.remove("hidden");
     $("stackBtn").disabled = true;
     pollJob(stack.id);
-  }
-  const ft = running.find((j) => j.kind === "finetune");
-  if (ft) {
-    S.finetuneJob = ft.id;
-    $("finetuneBox").open = true;
-    $("finetuneJob").classList.remove("hidden");
-    $("finetuneBtn").disabled = true;
-    $("finetuneCancel").classList.remove("hidden");
-    pollFinetune(ft.id);
   }
 }
 
@@ -140,8 +136,7 @@ async function loadPlane(fit = false) {
   updateCounts();
   renderLabels();
   draw();
-  if (S.method !== "clicks" || pts().pos.length || $("profileSelect").value) scheduleSegment(0);
-  placeSideZ();
+  if (S.method !== "clicks" || pts().pos.length) scheduleSegment(0);
 }
 
 async function loadReference() {

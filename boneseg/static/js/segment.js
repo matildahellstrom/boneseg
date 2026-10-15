@@ -13,18 +13,13 @@ function scheduleSegment(delay = 120) {
 async function runSegment() {
   if (!S.ds) return;
   const p = pts();
-  const profile = $("profileSelect").value || null;
-  const profKind = S.profiles.find((pp) => pp.id === profile)?.kind;
-  if (S.method === "learned" && S.head?.names?.length) { runMulti(null, "learned"); return; }
-  if (S.method === "clicks" && profKind === "structures") { runMulti(profile); return; }
-  if (S.method === "clicks" && !profile && isMulti()) { runMulti(); return; }
-  if (S.method === "clicks" && !p.pos.length && !profile) { toast("Click the structure you want first, or pick a profile"); return; }
+  if (S.method === "clicks" && !p.pos.length) { toast("Click the structure you want first"); return; }
   const seq = ++S.seq;
   busy(true, S.result ? "Updating…" : "Computing features…");
   try {
     const out = await api(`/api/datasets/${S.ds.id}/segment`, {
       method: "POST",
-      body: { method: S.method, channel: S.c, z: S.z, pos: p.pos, neg: p.neg, profile_id: profile, settings: settings(), uncertainty: $("uncToggle").checked },
+      body: { method: S.method, channel: S.c, z: S.z, pos: p.pos, neg: p.neg, settings: settings(), uncertainty: true },
     });
     if (seq !== S.seq) return; // A newer request is on its way
     const [mask, heat, unc, err] = await Promise.all([
@@ -49,34 +44,18 @@ async function runSegment() {
 
 function showResults(out) {
   $("resultsSection").classList.remove("hidden");
-  $("labelsExport").classList.add("hidden");
-  $("editBtn").classList.remove("hidden");
-  $("saveLabelBtn").classList.remove("hidden");
   const s = out.stats;
   const cards = [
     ["Area", `${fmt(s.area_um2)} ${areaUnit()}`],
     ["Area fraction", `${(100 * s.area_fraction).toFixed(1)}%`],
-    ["Objects", `${s.n_objects}`],
-    [`Objects ${perArea()}`, fmt(s.objects_per_mm2)],
-    ["Median object", `${fmt(s.median_object_area_um2)} ${areaUnit()}`],
-    ["Signal contrast", s.contrast_ratio ? `${s.contrast_ratio.toFixed(2)}×` : "–"],
   ];
   $("statCards").innerHTML = cards.map(([k, v]) => `<div class="card"><div class="k">${k}</div><div class="v">${v}</div></div>`).join("");
   const ev = out.evaluation;
   $("evalBox").classList.toggle("hidden", !ev);
+  $("errToggle").classList.toggle("hidden", !ev);
   if (ev) $("evalBox").innerHTML = `<b>Against ${ev.against === "your saved label" ? "your saved label" : "the reference mask"}</b><br>Dice ${ev.dice.toFixed(3)} · IoU ${ev.iou.toFixed(3)} · HD95 ${fmt(ev.hd95_um)} ${lengthUnit()}`
     + `<br><span class="small">Extra ${fmt(ev.false_positive_um2)} ${areaUnit()} · missed ${fmt(ev.false_negative_um2)} ${areaUnit()} · <a href="#" id="errLink">show errors</a></span>`;
   if (ev) $("errLink").onclick = (e) => { e.preventDefault(); $("showErr").checked = !$("showErr").checked; draw(); };
-  // Bone-like regions left out of the mask with no click on them: small separate pieces are found only when clicked
-  const missed = out.missed || [];
-  $("missedBox").classList.toggle("hidden", !missed.length);
-  if (missed.length) {
-    const top = missed[0];
-    $("missedBox").innerHTML = `<b>${missed.length} region${missed.length > 1 ? "s" : ""}</b> look${missed.length > 1 ? "" : "s"} like the structure but ${missed.length > 1 ? "are" : "is"} not in the mask (purple rings). Is the one marked 1 part of it?
-       <div class="row" style="margin-top:6px"><button class="ghost" id="missPos"><span class="dot pos"></span> Yes, add it</button><button class="ghost" id="missNeg"><span class="dot neg"></span> No, background</button></div>`;
-    $("missPos").onclick = () => addPoint("pos", top.point[0], top.point[1]);
-    $("missNeg").onclick = () => addPoint("neg", top.point[0], top.point[1]);
-  }
   const sug = out.suggestion;
   $("suggestionBox").classList.toggle("hidden", !(out.uncertainty_png));
   if (out.uncertainty_png) {
@@ -89,93 +68,53 @@ function showResults(out) {
       $("sugNeg").onclick = () => addPoint("neg", sug[0], sug[1]);
     }
   }
-  const src = { clicks: "from your clicks", "carried over": "from the profile", "learned (probability 0.5)": "learned model, probability 0.5", top_percent: "fixed share", manual: "manual", otsu: "Otsu" }[out.threshold_source] || out.threshold_source;
+  const src = { clicks: "from your clicks", "learned (probability 0.5)": "learned model, probability 0.5" }[out.threshold_source] || out.threshold_source;
   updateHint();
   $("timing").textContent = `Threshold ${out.threshold.toFixed(3)} (${src}) · features ${out.timing.embed_s.toFixed(2)} s · total ${out.timing.total_s.toFixed(2)} s`;
 }
 
-async function runMulti(profileId = null, method = "clicks") {
-  const p = pts();
-  const structures = profileId || method === "learned" ? S.structures.map((st) => ({ name: st.name, color: st.color, pos: [] }))
-    : S.structures.map((st, k) => ({ name: st.name, color: st.color, pos: posList(p, k) }));
-  if (!profileId && method !== "learned" && !structures.some((st) => st.pos.length)) { toast("Click examples of at least one structure"); return; }
-  const seq = ++S.seq;
-  busy(true, "Segmenting structures…");
-  try {
-    const out = await api(`/api/datasets/${S.ds.id}/segment_multi`, {
-      method: "POST", body: { method, channel: S.c, z: S.z, structures, neg: p.neg, settings: settings(), profile_id: profileId },
-    });
-    if (seq !== S.seq) return;
-    S.layers.mask = await loadImage(out.labels_png);
-    delete S.layers.heat; delete S.layers.unc; delete S.layers.err;
-    S.result = { multi: true, ...out };
-    showMultiResults(out);
-    draw();
-    status(`Segmented ${out.structures.length} structures on slice ${S.z} in ${out.timing.total_s.toFixed(2)} s`);
-  } catch (e) {
-    if (seq === S.seq) toast(e.message, true);
-  } finally {
-    if (seq === S.seq) busy(false);
-  }
-}
-
-function showMultiResults(out) {
-  $("resultsSection").classList.remove("hidden");
-  $("statCards").innerHTML = out.structures.map((st) => `<div class="card" style="border-left:3px solid ${safeColor(st.color)}"><div class="k">${esc(st.name)}</div>
-    <div class="v">${(100 * st.area_fraction).toFixed(1)}%</div><div class="k">${st.n_objects} objects · ${fmt(st.area_um2)} ${areaUnit()}</div></div>`).join("");
-  $("evalBox").classList.add("hidden");
-  $("suggestionBox").classList.add("hidden");
-  $("missedBox").classList.add("hidden");
-  $("labelsExport").classList.remove("hidden");
-  $("editBtn").classList.remove("hidden");
-  $("saveLabelBtn").classList.remove("hidden");
-  $("timing").textContent = S.method === "learned" ? "Each pixel takes the structure the learned model finds most likely." : "Each pixel goes to the structure it resembles most, if it clears that structure's threshold. Correct with the brush in each structure's colour (Tab switches) and save as a label to train a model of all structures.";
-  updateHint();
-}
-
 function addPoint(kind, y, x) {
-  const list = kind === "pos" ? posList(pts(), S.active) : pts().neg;
   const pt = [Math.round(y), Math.round(x)];
-  list.push(pt);
-  S.history.push({ key: key(), op: "add", kind, struct: kind === "pos" ? S.active : null, pt });
+  pts()[kind].push(pt);
+  S.history.push({ key: key(), op: "add", kind, pt });
   persistClicks();
   updateCounts();
   draw();
-  if ($("autoRun").checked) scheduleSegment();
+  scheduleSegment();
 }
 
 function removeNearest(y, x) {
   const p = pts();
   let best = null;
-  // Candidates: background clicks, then each structure's object clicks; kind/struct say which list a point is in
-  const lists = [[p.neg, "neg", null], ...S.structures.map((_, k) => [posList(p, k), "pos", k])];
-  lists.forEach(([list, kind, struct]) => list.forEach(([py, px], i) => {
-    const d = (py - y) ** 2 + (px - x) ** 2;
-    if (!best || d < best.d) best = { list, kind, struct, i, d };
-  }));
+  for (const kind of ["neg", "pos"]) {
+    p[kind].forEach(([py, px], i) => {
+      const d = (py - y) ** 2 + (px - x) ** 2;
+      if (!best || d < best.d) best = { kind, i, d };
+    });
+  }
   if (!best) return;
-  const [pt] = best.list.splice(best.i, 1);
-  S.history.push({ key: key(), op: "remove", kind: best.kind, struct: best.struct, pt, index: best.i });   // So undo can put it back
+  const [pt] = p[best.kind].splice(best.i, 1);
+  S.history.push({ key: key(), op: "remove", kind: best.kind, pt, index: best.i });   // So undo can put it back
   persistClicks();
   updateCounts();
   draw();
-  if ($("autoRun").checked && (p.pos.length || $("profileSelect").value)) scheduleSegment();
+  if (p.pos.length) scheduleSegment();
 }
 
 function undo() {
   const h = S.history.pop();
   if (!h) return;
   const p = S.points[h.key];
-  if (p) undoEntry(p, h, (q) => (h.kind === "pos" ? posList(q, h.struct || 0) : q.neg));
+  if (p) undoEntry(p, h, (q) => q[h.kind]);
   persistClicks(h.key);
   updateCounts();
   draw();
-  if ($("autoRun").checked && (pts().pos.length || $("profileSelect").value)) scheduleSegment();
+  if (pts().pos.length) scheduleSegment();
 }
 
 function updateCounts() {
   const p = pts();
-  $("nPos").textContent = posList(p, S.active).length;
+  $("nPos").textContent = p.pos.length;
   $("nNeg").textContent = p.neg.length;
   updateHint();
 }
@@ -183,15 +122,13 @@ function updateCounts() {
 // One short suggestion for what to do next, based on where the user is
 function updateHint() {
   const p = pts();
-  const profile = $("profileSelect").value;
   let hint = "";
   if (!S.ds) hint = "";
   else if (S.method === "learned") hint = "The learned model segments every slice you open. Correct and save more labels to improve it.";
-  else if (S.method === "microsam") hint = "micro-SAM, fine-tuned on your labels, segments every slice you open. Run the stack to segment them all.";
-  else if (!p.pos.length && !profile) hint = "Click two or three examples of the structure you want to segment.";
-  else if (!p.neg.length && !profile) hint = "Now Shift-click a few background spots. The threshold is placed between your object and background clicks.";
-  else if (S.result && S.result.uncertain_fraction > 0.05) hint = "Orange areas depend on single clicks. Click inside the dashed ring to settle the most uncertain one.";
-  else if (S.result && !S.result.evaluation) hint = "Looks stable. Run the whole stack, save the clicks as a profile, or press E to correct the mask.";
+  else if (!p.pos.length) hint = "Click two or three examples of the structure you want to segment.";
+  else if (!p.neg.length) hint = "Now Shift-click a few background spots. The threshold is placed between your object and background clicks.";
+  else if (S.result && S.result.uncertain_fraction > 0.05) hint = "Part of the mask depends on single clicks. Click inside the dashed ring to settle the most uncertain spot.";
+  else if (S.result && !S.result.evaluation) hint = "Looks stable. Run the whole stack, or press E to correct the mask.";
   else if (S.result) hint = "Turn on Errors to see where the mask disagrees with the reference.";
   $("nextHint").textContent = hint;
 }
@@ -208,58 +145,5 @@ function autoBackground() {
   persistClicks();
   updateCounts();
   draw();
-  if ($("autoRun").checked && pts().pos.length) scheduleSegment();
-}
-
-// ---------------------------------------------------------------------------------------------
-// Structures: several things to segment on the same slice
-function renderStructures() {
-  const box = $("structList");
-  box.innerHTML = "";
-  S.structures.forEach((st, k) => {
-    const b = document.createElement("button");
-    b.className = "struct" + (k === S.active ? " active" : "");
-    b.title = k === S.active ? "Object clicks go to this structure" : "Click to send object clicks to this structure";
-    b.innerHTML = `<span class="sw" style="background:${safeColor(st.color)}"></span>${esc(st.name)}${k > 0 ? '<span class="x" title="Remove this structure">✕</span>' : ""}`;
-    b.onclick = (e) => {
-      if (e.target.classList.contains("x")) { removeStructure(k); return; }
-      S.active = k; renderStructures(); updateCounts();
-    };
-    box.appendChild(b);
-  });
-  const add = document.createElement("button");
-  add.className = "struct add";
-  add.textContent = "+ Structure";
-  add.title = "Segment another structure on the same slice, such as a second cell type";
-  add.onclick = () => {
-    const name = prompt("Name of the new structure", `Structure ${S.structures.length + 1}`);
-    if (!name) return;
-    S.structures.push({ name: name.trim().slice(0, 40), color: STRUCT_COLORS[S.structures.length % STRUCT_COLORS.length] });
-    S.active = S.structures.length - 1;
-    renderStructures(); updateCounts();
-  };
-  box.appendChild(add);
-  $("modePos").lastChild.textContent = isMulti() ? S.structures[S.active].name : "Object";
-  $("modePos").querySelector(".dot").style.background = S.structures[S.active].color;
-}
-
-function removeStructure(k) {
-  if (!confirm(`Remove ${S.structures[k].name} and its clicks on every slice?`)) return;
-  S.structures.splice(k, 1);
-  S.history = [];   // Structure numbers shift, so older undo entries would point at the wrong structure
-  for (const [kk, p] of Object.entries(S.points)) {
-    if (p.extra && p.extra.length >= k) { p.extra.splice(k - 1, 1); persistClicks(kk); }
-  }
-  S.active = Math.min(S.active, S.structures.length - 1);
-  renderStructures(); updateCounts(); draw();
-  if (S.result) scheduleSegment(0);
-}
-
-function structuresFromAnnotations(points) {
-  // Rebuild the structure list from saved clicks, in the order they were added
-  const out = [{ name: "Object", color: STRUCT_COLORS[0] }];
-  for (const p of Object.values(points)) {
-    (p.extra || []).forEach((e, i) => { if (!out[i + 1] && e.name) out[i + 1] = { name: e.name, color: safeColor(e.color) }; });
-  }
-  return out.filter(Boolean);
+  if (pts().pos.length) scheduleSegment();
 }

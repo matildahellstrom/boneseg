@@ -33,7 +33,7 @@ function bind() {
 
   $("channelSelect").onchange = async (e) => {
     S.c = +e.target.value;
-    if (S.ds) api(`/api/datasets/${S.ds.id}`, { method: "PATCH", body: { default_channel: S.c } }).then((d) => { S.ds.default_channel = d.default_channel; }).catch(() => {}); stopEditing(); renderLabels(); await refreshHead(); loadPlane(); if ($("showSide").checked) loadSide(); };
+    if (S.ds) api(`/api/datasets/${S.ds.id}`, { method: "PATCH", body: { default_channel: S.c } }).then((d) => { S.ds.default_channel = d.default_channel; }).catch(() => {}); stopEditing(); renderLabels(); await refreshHead(); loadPlane(); };
   $("zSlider").oninput = (e) => { S.z = +e.target.value; $("zValue").textContent = S.z; };
   $("zSlider").onchange = () => loadPlane();
   $("zPrev").onclick = () => stepZ(-1);
@@ -44,81 +44,16 @@ function bind() {
   $("undoBtn").onclick = undo;
   $("clearBtn").onclick = () => { S.points[key()] = { pos: [], neg: [] }; S.history = forgetHistory(S.history, key()); persistClicks(); S.layers.mask = S.layers.heat = S.layers.unc = S.layers.err = null; S.result = null; $("resultsSection").classList.add("hidden"); updateCounts(); draw(); };
   $("autoNegBtn").onclick = autoBackground;
-  $("copyNextBtn").onclick = () => {
-    if (!S.ds || S.z >= S.ds.n_z - 1) return;
-    const from = JSON.parse(JSON.stringify(pts()));
-    const nextKey = `${S.c}:${S.z + 1}`;
-    if ((S.points[nextKey]?.pos.length || S.points[nextKey]?.neg.length) && !confirm("The next slice already has clicks. Replace them?")) return;
-    S.points[nextKey] = from;
-    S.history = forgetHistory(S.history, nextKey);
-    persistClicks(nextKey);
-    S.z += 1;
-    loadPlane();
-    toast("Copied the clicks. Check they still sit on the right structures.");
-  };
-  $("profileSelect").onchange = () => {
-    $("deleteProfileBtn").classList.toggle("hidden", !$("profileSelect").value);
-    $("downloadProfileBtn").classList.toggle("hidden", !$("profileSelect").value);
-    const prof = S.profiles.find((p) => p.id === $("profileSelect").value);
-    if (prof && prof.backbone !== $("backboneSelect").value) { $("backboneSelect").value = prof.backbone; syncSettingLabels(); }
-    if (prof?.kind === "learned" && prof.vit_size) $("vitSize").value = prof.vit_size;
-    if (prof?.kind === "structures") {
-      // Take over the profile's structures so results, colours and stack runs line up with it
-      S.structures = prof.structures.map((st, k) => ({ name: st.name, color: safeColor(st.color || STRUCT_COLORS[k % STRUCT_COLORS.length]) }));
-      S.active = 0;
-      renderStructures();
-    }
-    if (prof || pts().pos.length) scheduleSegment(0);
-  };
-  $("exportHeadBtn").onclick = () => {
-    S.profileFromHead = true;
-    $("profileName").value = "";
-    $("profileDesc").value = S.ds ? `Learned from ${S.head.trained_on.length} labelled slices of ${S.ds.name}` : "";
-    $("profileDialog").showModal();
-  };
-  $("saveProfileBtn").onclick = () => {
-    S.profileFromHead = false;
-    if (!pts().pos.length && !(isMulti() && S.structures.some((_, k) => posList(pts(), k).length))) { toast("Add object clicks first"); return; }
-    $("profileName").value = "";
-    $("profileDesc").value = S.ds ? `${S.ds.channel_names[S.c]}` : "";
-    $("profileDialog").showModal();
-  };
-  $("profileSaveConfirm").onclick = saveProfile;
-  $("downloadProfileBtn").onclick = () => { window.location = `/api/profiles/${$("profileSelect").value}/download`; };
-  $("importProfile").onchange = async (e) => {
-    const f = e.target.files[0];
-    if (!f) return;
-    const fd = new FormData();
-    fd.append("file", f);
-    try {
-      const prof = await api("/api/profiles/import", { method: "POST", body: fd });
-      await refreshProfiles(prof.id);
-      toast(`Imported profile ${prof.name}`);
-      $("profileSelect").dispatchEvent(new Event("change"));
-    } catch (err) { toast(err.message, true); }
-    e.target.value = "";
-  };
-  $("profileCancel").onclick = () => $("profileDialog").close();
-  $("deleteProfileBtn").onclick = async () => {
-    const id = $("profileSelect").value;
-    if (!id || !confirm("Delete this profile?")) return;
-    await api(`/api/profiles/${id}`, { method: "DELETE" });
-    refreshProfiles("");
-  };
 
-  for (const id of ["thrMode", "topPercent", "manualThr", "lambda", "minObj", "fillHoles", "smooth", "vitSize", "layer", "backboneSelect", "strict", "edgeRefine", "shiftPasses", "refiner", "suggestMissed", "samRefine", "samModel"]) {
-    $(id).addEventListener("input", syncSettingLabels);
-    $(id).addEventListener("change", () => { rememberSettings(); if (S.result) scheduleSegment(0); });
-  }
-  $("uncToggle").onchange = () => { if (S.result) scheduleSegment(0); };
-  $("segmentBtn").onclick = () => runSegment();
-  for (const id of ["showMask", "showHeat", "showUnc", "showRef", "showErr", "showPoints", "opacity"]) $(id).addEventListener("input", draw);
+  $("minObj").addEventListener("input", syncSettingLabels);
+  $("minObj").addEventListener("change", () => { rememberSettings(); if (S.result) scheduleSegment(0); });
+  for (const id of ["showMask", "showRef", "showErr"]) $(id).addEventListener("input", draw);
   $("fitBtn").onclick = fitView;
   document.querySelectorAll("[data-export]").forEach((b) => {
     b.onclick = () => {
       const kind = b.dataset.export;
       const base = `/api/datasets/${S.ds.id}/export`;
-      window.location = kind === "csv" ? `${base}/objects.csv?c=${S.c}&z=${S.z}` : `${base}/mask?c=${S.c}&z=${S.z}&fmt=${kind}`;
+      window.location = `${base}/mask?c=${S.c}&z=${S.z}&fmt=${kind}`;
     };
   });
   $("stackBtn").onclick = runStack;
@@ -127,8 +62,6 @@ function bind() {
   $("editSave").onclick = () => saveLabel(true);
   $("editCancel").onclick = stopEditing;
   $("trainBtn").onclick = trainHead;
-  $("finetuneBtn").onclick = startFinetune;
-  $("finetuneCancel").onclick = () => S.finetuneJob && api(`/api/jobs/${S.finetuneJob}/cancel`, { method: "POST" }).catch(() => {});
   $("refLabelsBtn").onclick = async () => {
     busy(true, "Saving labels from the reference…");
     try {
@@ -138,36 +71,14 @@ function bind() {
       toast(`Labelled slices ${out.saved.join(", ")} from the reference. Train the model next.`);
     } catch (e) { toast(e.message, true); } finally { busy(false); }
   };
-  $("methodClicks").onclick = () => { setMethod("clicks"); if (pts().pos.length || $("profileSelect").value) scheduleSegment(0); };
+  $("methodClicks").onclick = () => { setMethod("clicks"); if (pts().pos.length) scheduleSegment(0); };
   $("methodLearned").onclick = () => { setMethod("learned"); scheduleSegment(0); };
-  $("methodMicrosam").onclick = () => { setMethod("microsam"); scheduleSegment(0); };
-  $("microsamExport").onclick = exportMicrosam;
-  $("microsamLoad").onclick = () => $("microsamFile").click();
-  $("microsamFile").onchange = (e) => { loadMicrosam(e.target.files[0]); e.target.value = ""; };
-  $("microsamRemove").onclick = removeMicrosam;
-  try { $("kaggleUser").value = localStorage.getItem("boneseg.kaggleUser") || ""; } catch (_) { /* storage blocked */ }
-  $("showLabel").addEventListener("input", draw);
-  $("showSide").addEventListener("input", loadSide);
-  $("sideImg").onload = placeSideZ;
-  $("sideImg").parentElement.onclick = (ev) => {
-    if (!S.ds) return;
-    const r = $("sideImg").getBoundingClientRect();
-    const z = Math.floor(((ev.clientY - r.top) / r.height) * S.ds.n_z);
-    S.z = Math.max(0, Math.min(S.ds.n_z - 1, z));
-    loadPlane();
-  };
-  $("studyBtn").onclick = openStudy;
   $("projectBtn").onclick = () => { window.location = `/api/datasets/${S.ds.id}/export/project.zip`; };
-  $("labelsExport").onclick = () => { window.location = `/api/datasets/${S.ds.id}/export/labels?c=${S.c}&z=${S.z}`; };
   $("themeBtn").onclick = () => {
     const light = document.documentElement.dataset.theme !== "light";
     document.documentElement.dataset.theme = light ? "light" : "dark";
     try { localStorage.setItem("boneseg-theme", light ? "light" : "dark"); } catch (_) { /* storage unavailable */ }
   };
-  $("studyMetric").onchange = loadStudy;
-  $("batchRun").onclick = runBatch;
-  $("batchChannelMode").onchange = () => $("batchChannelRow").classList.toggle("hidden", $("batchChannelMode").value === "own");
-  $("reportBtn").onclick = () => window.open(`/api/datasets/${S.ds.id}/report?c=${S.c}&z=${S.z}`, "_blank");
   $("cancelBtn").onclick = () => S.job && api(`/api/jobs/${S.job}/cancel`, { method: "POST" });
   $("helpBtn").onclick = () => $("helpDialog").showModal();
 
@@ -191,12 +102,9 @@ function bind() {
     else if (k === ".") stepZ(1);
     else if (k === "f") fitView();
     else if (k === "m") toggle("showMask");
-    else if (k === "h") toggle("showHeat");
-    else if (k === "u") toggle("showUnc");
     else if (k === "?") $("helpDialog").showModal();
     else if (k === "e") (S.editing ? stopEditing() : startEditing());
     else if (k === "escape" && S.editing) stopEditing();
-    else if (k === "tab" && isMulti()) { e.preventDefault(); S.active = (S.active + (e.shiftKey ? S.structures.length - 1 : 1)) % S.structures.length; setMode("pos"); renderStructures(); updateCounts(); }
   });
   window.addEventListener("keyup", (e) => { if (e.key === " ") S.space = false; });
 }
@@ -235,7 +143,6 @@ function bindCollapsibleSections() {
 async function init() {
   takeTokenFromUrl();
   bindCollapsibleSections();
-  renderStructures();
   try { if (localStorage.getItem("boneseg-theme") === "light") document.documentElement.dataset.theme = "light"; } catch (_) { /* storage unavailable */ }
   bind();
   showEmpty(true);
@@ -243,14 +150,9 @@ async function init() {
     S.health = await api("/api/health");
     $("version").textContent = `v${S.health.version}`;
     if (!S.health.allow_paths) $("pathInput").closest("details").classList.add("hidden");
-    $("devicePill").textContent = `Runs on ${S.health.device.toUpperCase()}`;
-    fillBackbones();
-    const d = S.health.default_settings;
-    $("backboneSelect").value = d.backbone;
-    $("thrMode").value = d.threshold_mode;
-    $("lambda").value = d.neg_weight;
+    S.backbone = S.health.default_settings.backbone;
     syncSettingLabels();
-    await Promise.all([refreshDatasets(), refreshProfiles()]);
+    await refreshDatasets();
     const view = wantedView(S.datasets);
     if (view) openDataset(view.id, view);
     else if (S.datasets.length) openDataset(S.datasets[0].id);

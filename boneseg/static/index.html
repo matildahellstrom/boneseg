@@ -12,9 +12,7 @@
     <div class="brand"><span class="logo"></span>boneseg <span class="muted small" id="version"></span></div>
     <div class="dataset-title" id="datasetTitle">No image loaded</div>
     <div class="topbar-right">
-      <span class="pill" id="devicePill" title="Where the model runs">…</span>
       <button class="ghost" id="themeBtn" title="Switch between dark and light" aria-label="Switch between dark and light theme">◐</button>
-      <button class="ghost" id="studyBtn" title="Compare stack results between groups of samples">Compare samples</button>
       <button class="ghost" id="helpBtn" title="Keyboard shortcuts and tips" aria-label="Help and keyboard shortcuts">?</button>
     </div>
   </header>
@@ -38,16 +36,17 @@
         <div class="dataset-list" id="datasetList"></div>
         <div class="disabled-until-data" id="imageNav">
           <label>Channel <select id="channelSelect"></select></label>
+          <div id="sliceNav">
           <label>Slice <span class="value" id="zValue">0</span>
             <input type="range" id="zSlider" min="0" max="0" value="0">
           </label>
           <div class="row small"><button class="ghost" id="zPrev" title="Previous slice (,)">‹ Prev</button><button class="ghost" id="zNext" title="Next slice (.)">Next ›</button></div>
+          </div>
         </div>
       </section>
 
       <section id="clickSection" class="disabled-until-data">
         <h2>2. Clicks</h2>
-        <div class="structs" id="structList" aria-label="Structures"></div>
         <div class="segmented" role="group" aria-label="Click mode">
           <button class="active" data-mode="pos" id="modePos" title="Mark the structure to segment (1)"><span class="dot pos"></span>Object</button>
           <button data-mode="neg" id="modeNeg" title="Mark background (2)"><span class="dot neg"></span>Background</button>
@@ -55,12 +54,7 @@
         <p class="muted small">Click the image to add points. Shift-click adds the other kind. Right-click removes the nearest point.</p>
         <div class="row small"><span><b id="nPos">0</b> object · <b id="nNeg">0</b> background</span></div>
         <p class="hint small" id="nextHint" aria-live="polite"></p>
-        <div class="row"><button class="ghost" id="undoBtn" title="Undo (Ctrl+Z)">Undo</button><button class="ghost" id="clearBtn">Clear</button><button class="ghost" id="autoNegBtn" title="Add background points along the image border">Auto background</button><button class="ghost" id="copyNextBtn" title="Copy this slice's clicks to the next slice and go there">Copy to next slice</button></div>
-        <label class="small">Profile
-          <select id="profileSelect"><option value="">None, use my clicks</option></select>
-        </label>
-        <div class="row"><button class="ghost" id="saveProfileBtn" title="Save these clicks as a reusable profile">Save as profile…</button><button class="ghost hidden" id="downloadProfileBtn" title="Download the profile to share it">Download</button><button class="ghost danger hidden" id="deleteProfileBtn">Delete</button></div>
-        <label class="small linkish">Import a shared profile <input type="file" id="importProfile" accept=".npz" hidden></label>
+        <div class="row"><button class="ghost" id="undoBtn" title="Undo (Ctrl+Z)">Undo</button><button class="ghost" id="clearBtn">Clear</button><button class="ghost" id="autoNegBtn" title="Add background points along the image border">Auto background</button></div>
       </section>
     </aside>
 
@@ -68,19 +62,8 @@
     <section class="viewer-wrap">
       <div class="viewer-toolbar">
         <label class="toggle" title="M"><input type="checkbox" id="showMask" checked> Mask</label>
-        <label class="toggle" title="H"><input type="checkbox" id="showHeat"> Heatmap</label>
-        <label class="toggle" title="U"><input type="checkbox" id="showUnc"> Uncertainty</label>
-        <label class="toggle"><input type="checkbox" id="showRef" checked> Reference</label>
-        <label class="toggle" title="Green: agrees with the reference. Red: extra. Yellow: missed"><input type="checkbox" id="showErr"> Errors</label>
-        <label class="toggle" title="A cut through all slices along one row. Alt-click the image to pick the row"><input type="checkbox" id="showSide"> Side view</label>
-        <details class="more">
-          <summary>More</summary>
-          <div class="more-menu">
-            <label class="toggle"><input type="checkbox" id="showPoints" checked> Points</label>
-            <label class="toggle"><input type="checkbox" id="showLabel" checked> Saved label</label>
-            <label class="small">Overlay opacity <input type="range" id="opacity" min="0" max="1" step="0.05" value="0.6"></label>
-          </div>
-        </details>
+        <label class="toggle hidden" id="refToggle" title="The expert mask stored in the file"><input type="checkbox" id="showRef" checked> Reference</label>
+        <label class="toggle hidden" id="errToggle" title="Green: agrees with the reference. Red: extra. Yellow: missed"><input type="checkbox" id="showErr"> Errors</label>
         <span class="spacer"></span>
         <span class="editbar hidden" id="editBar">
           <b>Correcting</b> · drag to paint, Shift-drag to erase, Ctrl+Z undo ·
@@ -105,10 +88,6 @@
         <div class="busy hidden" id="busy" role="status" aria-live="polite"><div class="spinner"></div><span id="busyText">Working…</span></div>
         <div class="cursor-info small" id="cursorInfo"></div>
       </div>
-      <div class="side hidden" id="sidePanel">
-        <div class="side-head small"><span id="sideLabel">Side view</span><span class="muted">Alt-click the image to move the cut · click here to jump to a slice</span></div>
-        <div class="side-img"><img id="sideImg" alt="Side view through all slices"><div class="side-z" id="sideZ"></div></div>
-      </div>
       <div class="statusbar small" id="statusbar" role="status" aria-live="polite">Ready</div>
     </section>
 
@@ -117,44 +96,10 @@
       <section id="settingsSection" class="disabled-until-data">
         <h2>3. Segmentation</h2>
         <div class="segmented" role="group" aria-label="Method">
-          <button class="active" id="methodClicks" title="Segment from the clicks on this slice or a profile">From clicks</button>
+          <button class="active" id="methodClicks" title="Segment from the clicks on this slice">From clicks</button>
           <button id="methodLearned" title="Use the model trained on your corrected masks" disabled>Learned model</button>
-          <button id="methodMicrosam" title="Use micro-SAM fine-tuned on your labels (section 5, on Kaggle)" disabled>micro-SAM</button>
         </div>
-        <label>Feature backbone <select id="backboneSelect"></select></label>
-        <p class="muted small" id="backboneHint"></p>
-        <label>Threshold
-          <select id="thrMode">
-            <option value="clicks">From my clicks (recommended)</option>
-            <option value="top_percent">Fixed share of the image</option>
-            <option value="manual">Manual</option>
-          </select>
-        </label>
-        <p class="muted small" id="thrHint">Placed halfway between the scores at your object and background clicks. Needs at least one background click.</p>
-        <label class="hidden" id="topPercentRow">Share of image <span class="value" id="topPercentValue">10%</span><input type="range" id="topPercent" min="1" max="60" step="1" value="10"></label>
-        <label class="hidden" id="manualRow">Threshold <span class="value" id="manualValue">0.50</span><input type="range" id="manualThr" min="0" max="1" step="0.01" value="0.5"></label>
-        <label>Background weight λ <span class="value" id="lambdaValue">0.8</span><input type="range" id="lambda" min="0" max="2" step="0.05" value="0.8"></label>
-        <details>
-          <summary class="small">Clean-up and advanced</summary>
-          <label>Remove objects smaller than <span class="value" id="minObjValue">0 µm²</span><input type="range" id="minObj" min="0" max="500" step="5" value="0"></label>
-          <label>Fill holes smaller than <span class="value" id="fillValue">0 µm²</span><input type="range" id="fillHoles" min="0" max="500" step="5" value="0"></label>
-          <label>Smooth edges <span class="value" id="smoothValue">0 px</span><input type="range" id="smooth" min="0" max="6" step="1" value="0"></label>
-          <label>Detail (backbone input size) <select id="vitSize"><option value="644">Fast · 644 px</option><option value="980" selected>Standard · 980 px</option><option value="1400">Fine · 1400 px</option></select></label>
-          <label>Transformer block from the end <select id="layer"><option>1</option><option>2</option><option>3</option><option>4</option></select></label>
-          <label title="Where the threshold sits between your background and object clicks. Higher gives a tighter mask. Auto uses 0.7 with up to five clicks of a kind and 0.9 with more, the values that tested best.">Strictness <select id="strict"><option value="-1" selected>Auto (recommended)</option><option value="0.5">0.5 · halfway</option><option value="0.6">0.6</option><option value="0.7">0.7</option><option value="0.8">0.8</option><option value="0.9">0.9 · tight</option></select></label>
-          <label title="Moves the mask boundary onto intensity edges in the image.">Snap edges to image <select id="edgeRefine"><option value="guided" selected>Guided filter (recommended)</option><option value="none">Off</option></select></label>
-          <label title="Extracts features at shifted positions for a finer feature grid. Slower.">Feature passes <select id="shiftPasses"><option value="1">1 · fastest</option><option value="2" selected>2 × 2 · finer (recommended)</option><option value="3">3 × 3 · slowest</option></select></label>
-          <label title="Marks regions that look like the structure but have no click and are left out of the mask. Off by default: in tests, following these marks helped less than clicking elsewhere."><input type="checkbox" id="suggestMissed"> Suggest possibly missed pieces</label>
-          <label title="A Segment Anything model gets the same clicks. 'Agree' keeps only what both call the structure: with SAM and 25 + 25 clicks on bone this raised Dice by 0.03 and removed the overestimate of bone area; with a handful of clicks it did not help. 'Use its mask' replaces boneseg's mask with the model's. Used for click segmentations of one structure.">Segment Anything on the clicks <select id="samRefine"><option value="off" selected>Off</option><option value="agree">Keep only what it agrees on</option><option value="replace">Use its mask instead</option></select></label>
-          <label title="SAM is Meta's original model (ViT-B). micro-SAM (Archit et al., Nature Methods 2025) is SAM fine-tuned on light microscopy images.">Model <select id="samModel"><option value="sam" selected>SAM ViT-B</option><option value="microsam">micro-SAM (light microscopy)</option></select></label>
-          <p class="muted small hidden" id="samHint"></p>
-          <label title="A small network trained on expert bone masks that sharpens the mask after your clicks.">Learned refiner <select id="refiner"><option value="">Off</option><option value="bundled">Bone (trained on Liu autofluorescence)</option></select></label>
-        </details>
-        <div class="row">
-          <label class="toggle small"><input type="checkbox" id="autoRun" checked> Update on every click</label>
-          <label class="toggle small"><input type="checkbox" id="uncToggle" checked> Suggest next click</label>
-        </div>
-        <button class="primary" id="segmentBtn">Segment slice</button>
+        <label>Remove objects smaller than <span class="value" id="minObjValue">0 µm²</span><input type="range" id="minObj" min="0" max="500" step="5" value="0"></label>
       </section>
 
       <section id="resultsSection" class="hidden">
@@ -162,19 +107,17 @@
         <div class="cards" id="statCards"></div>
         <div class="eval hidden" id="evalBox"></div>
         <div class="suggestion hidden" id="suggestionBox"></div>
-        <div class="suggestion hidden" id="missedBox"></div>
         <div class="row"><button class="ghost" id="editBtn" title="Paint or erase to correct the mask (E)">Correct mask</button><button class="ghost" id="saveLabelBtn" title="Save this mask as a label for training">Save as label</button></div>
-        <div class="row"><button class="ghost" data-export="png">Mask PNG</button><button class="ghost" data-export="tif">Mask TIFF</button><button class="ghost" data-export="csv">Objects CSV</button><button class="ghost hidden" id="labelsExport" title="Label image with one value per structure">Labels TIFF</button><button class="ghost" id="reportBtn" title="A self-contained HTML page with the image, numbers, settings and a methods paragraph">Report</button><button class="ghost" id="projectBtn" title="A zip with clicks, labels, models, profiles and stack results for this image">Project zip</button></div>
+        <div class="row"><button class="ghost" data-export="tif">Mask TIFF</button><button class="ghost" id="projectBtn" title="A zip with clicks, labels, models and stack results for this image">Project zip</button></div>
         <p class="muted small" id="timing"></p>
       </section>
 
       <section id="stackSection" class="disabled-until-data">
         <h2>4. Whole stack</h2>
-        <p class="muted small">Uses the clicks on this slice, the selected profile or the learned model, whichever is active, to segment a range of slices.</p>
+        <p class="muted small">Uses the clicks on this slice or the learned model, whichever is active, to segment a range of slices.</p>
         <div class="row">
           <label class="small">From <input type="number" id="zStart" min="0" value="0"></label>
           <label class="small">To <input type="number" id="zEnd" min="0" value="0"></label>
-          <label class="small">Every <input type="number" id="zStep" min="1" value="1"></label>
         </div>
         <p class="muted small">Scores are standardized per slice, so the threshold from your clicks carries over even when deeper slices are dimmer.</p>
         <div class="row"><button class="primary" id="stackBtn">Run stack</button><button class="ghost hidden" id="cancelBtn">Cancel</button></div>
@@ -193,25 +136,6 @@
         <button class="ghost hidden" id="refLabelsBtn" title="Use the expert mask of 5 evenly spaced slices as labels, then train a model that can segment files without expert masks">Label 5 slices from the reference</button>
         <button class="primary" id="trainBtn" disabled>Train model</button>
         <div class="small" id="trainResult"></div>
-        <button class="ghost hidden" id="exportHeadBtn" title="Reuse this model on other images and in batch runs">Save model as profile…</button>
-        <details id="finetuneBox">
-          <summary class="small">Fine-tune DINOv2 on these labels</summary>
-          <p class="muted small">Adapts the last layers of DINOv2 Small to your images, so clicks and the learned model see sharper features. In tests it helped most with few clicks (Dice +0.06 to +0.10 on bone, osteoclasts and plasma cells). Needs 2 labels, works best with 5 or more; one label in two checks the training. Takes several minutes, longer on the CPU.</p>
-          <div class="row"><button class="ghost" id="finetuneBtn">Fine-tune</button><button class="ghost hidden" id="finetuneCancel">Cancel</button></div>
-          <div class="job hidden" id="finetuneJob"><div class="bar"><span id="finetuneBar"></span></div><div class="small" id="finetuneText"></div></div>
-        </details>
-        <details id="microsamBox">
-          <summary class="small">Fine-tune micro-SAM on these labels (on Kaggle)</summary>
-          <p class="muted small">micro-SAM (Archit et al., Nature Methods 2025) is Segment Anything trained on light microscopy. Fine-tuned on your labels, it segments slices and stacks without clicks. Training needs a GPU, so it runs on Kaggle's free one: download the package, push it with the kaggle tool (steps in its README.txt, about 10 to 30 minutes), then load the model file here. Needs 2 labels, works best with 5 or more; one label in two checks the training.</p>
-          <div class="row">
-            <label class="small">Kaggle user name <input id="kaggleUser" placeholder="your-name" autocomplete="off" spellcheck="false"></label>
-            <label class="small" title="Full updates every weight (micro-SAM's default). LoRA trains small add-on matrices in the image encoder and keeps the rest frozen.">Training <select id="microsamRecipe"><option value="full" selected>Full (default)</option><option value="lora">LoRA</option></select></label>
-          </div>
-          <div class="row"><button class="ghost" id="microsamExport">Download Kaggle package</button>
-            <button class="ghost" id="microsamLoad">Load model file…</button><input type="file" id="microsamFile" accept=".pt" class="hidden">
-            <button class="ghost hidden" id="microsamRemove">Remove</button></div>
-          <div class="small" id="microsamText"></div>
-        </details>
       </section>
 
     </aside>
@@ -223,48 +147,15 @@
       <li><b>Click</b> adds a point of the current kind. <b>Shift-click</b> adds the other kind. <b>Right-click</b> removes the nearest point.</li>
       <li><b>1</b> and <b>2</b> switch between object and background. <b>Ctrl+Z</b> undoes the last point.</li>
       <li><b>,</b> and <b>.</b> move through slices. <b>F</b> fits the image. Scroll to zoom and drag with the middle mouse button or Space held down to pan.</li>
-      <li><b>M</b>, <b>H</b> and <b>U</b> toggle the mask, heatmap and uncertainty overlays.</li>
+      <li><b>M</b> shows or hides the mask.</li>
       <li><b>E</b> starts correcting the mask with a brush: drag to paint, Shift-drag to erase, <b>[</b> and <b>]</b> to change the brush, <b>Ctrl+Z</b> to undo a stroke, <b>Esc</b> to cancel. Saved corrections become labels that a small model can learn from.</li>
-      <li>The orange overlay shows where the mask is unstable. The dashed ring suggests where one more click helps most.</li>
-      <li>Save good clicks as a <b>profile</b> to segment new images of the same stain without clicking.</li>
-      <li><b>+ Structure</b> segments several things at once, such as cells and bone matrix. <b>Tab</b> switches which structure your object clicks go to.</li>
-      <li><b>Compare samples</b> (top right) runs a profile on every sample and compares groups with a rank test.</li>
+      <li>The dashed ring marks where one more click helps most.</li>
       <li>Everything you do is saved per image: clicks, labels and models. <b>Project zip</b> exports it.</li>
     </ul>
     <form method="dialog"><button class="primary">Got it</button></form>
   </dialog>
 
-  <dialog id="profileDialog">
-    <h2>Save profile</h2>
-    <p class="muted small">A profile stores the features under your clicks, so the same structures can be found in other images without new clicks.</p>
-    <label>Name <input type="text" id="profileName" placeholder="e.g. TRAP+ osteoclasts"></label>
-    <label>Description <input type="text" id="profileDesc" placeholder="Stain, channel, sample type"></label>
-    <div class="row"><button class="primary" id="profileSaveConfirm">Save</button><button class="ghost" id="profileCancel">Cancel</button></div>
-  </dialog>
 
-  <dialog id="studyDialog" class="wide">
-    <h2>Compare samples</h2>
-    <p class="muted small">Each sample uses its latest whole-stack run. Type a group for each sample, such as control or treated, then pick a measurement.</p>
-    <details class="small" id="batchBox">
-      <summary>Run a profile on every sample first</summary>
-      <div class="row" style="margin-top:6px">
-        <label class="small">Profile <select id="batchProfile"></select></label>
-        <label class="small">Channel <select id="batchChannelMode"><option value="own">Each sample's own (last chosen)</option><option value="fixed">The same number for all</option></select></label>
-        <label class="small hidden" id="batchChannelRow">Number <input type="number" id="batchChannel" min="0" value="0"></label>
-        <label class="small">Every n-th slice <input type="number" id="batchStep" min="1" value="1"></label>
-        <button class="primary" id="batchRun">Run on all samples</button>
-      </div>
-      <div class="bar" style="margin-top:6px"><span id="batchBar"></span></div>
-      <p class="muted small" id="batchText">Each sample gets a stack run with the profile, and the table below updates when they finish.</p>
-    </details>
-    <div class="row"><label class="small">Measurement <select id="studyMetric"></select></label><a href="/api/study.csv" download><button class="ghost">Download table</button></a></div>
-    <div class="study-grid">
-      <table class="study-table"><thead><tr><th>Sample</th><th>Group</th><th id="studyValueHead">Value</th></tr></thead><tbody id="studyRows"></tbody></table>
-      <div><svg id="studyPlot" class="chart" viewBox="0 0 320 220" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Measurement per group"></svg><p class="small" id="studyTest"></p></div>
-    </div>
-    <datalist id="groupNames"></datalist>
-    <form method="dialog"><button class="primary">Close</button></form>
-  </dialog>
 
   <div class="toast hidden" id="toast" role="alert" aria-live="assertive"></div>
   <script src="/static/js/core.js"></script>
@@ -272,7 +163,6 @@
   <script src="/static/js/segment.js"></script>
   <script src="/static/js/viewer.js"></script>
   <script src="/static/js/learn.js"></script>
-  <script src="/static/js/panels.js"></script>
   <script src="/static/js/jobs.js"></script>
   <script src="/static/js/main.js"></script>
 </body>

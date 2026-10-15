@@ -12,14 +12,12 @@ function startEditing() {
   const g = c.getContext("2d");
   // Start from the current mask, or the saved label if there is no result yet
   const src = S.layers.mask || S.layers.labelFill;
-  const multi = isMulti() && S.result?.multi;
   if (src) {
     g.drawImage(src, 0, 0, w, h);
     const d = g.getImageData(0, 0, w, h);
     for (let i = 0; i < d.data.length; i += 4) {
       const on = d.data[i + 3] > 0;
-      // With several structures each keeps its colour; a single mask is painted in yellow
-      if (!multi) { d.data[i] = 255; d.data[i + 1] = 216; d.data[i + 2] = 74; }
+      d.data[i] = 255; d.data[i + 1] = 216; d.data[i + 2] = 74;   // Painted in yellow
       d.data[i + 3] = on ? 255 : 0;
     }
     g.putImageData(d, 0, 0);
@@ -53,7 +51,7 @@ function paintAt(ev, erase, last) {
   const toImg = (e) => [(e.clientX - r.left - S.view.ox) / S.view.scale, (e.clientY - r.top - S.view.oy) / S.view.scale];
   const g = S.edit.getContext("2d");
   g.globalCompositeOperation = erase ? "destination-out" : "source-over";
-  g.strokeStyle = g.fillStyle = isMulti() && S.result?.multi ? safeColor(S.structures[S.active].color) : "rgb(255,216,74)";
+  g.strokeStyle = g.fillStyle = "rgb(255,216,74)";
   g.lineCap = "round";
   g.lineWidth = +$("brush").value;
   const [x, y] = toImg(ev);
@@ -64,32 +62,10 @@ function paintAt(ev, erase, last) {
   draw();
 }
 
-// A painted canvas with structure colours becomes an index map: red channel = structure number
-function editToIndexPng() {
-  const w = S.edit.width, h = S.edit.height;
-  const src = S.edit.getContext("2d").getImageData(0, 0, w, h).data;
-  const cols = S.structures.map((st) => { const c = safeColor(st.color).slice(1); const f = c.length === 3 ? c.split("").map((x) => x + x).join("") : c; return [0, 2, 4].map((i) => parseInt(f.slice(i, i + 2), 16)); });
-  const out = document.createElement("canvas");
-  out.width = w; out.height = h;
-  const og = out.getContext("2d");
-  const img = og.createImageData(w, h);
-  for (let i = 0; i < src.length; i += 4) {
-    if (src[i + 3] < 128) continue;
-    let best = 0, bd = Infinity;
-    cols.forEach(([r, g, b], k) => { const d = (src[i] - r) ** 2 + (src[i + 1] - g) ** 2 + (src[i + 2] - b) ** 2; if (d < bd) { bd = d; best = k; } });
-    img.data[i] = img.data[i + 1] = img.data[i + 2] = best + 1;
-    img.data[i + 3] = 255;
-  }
-  og.putImageData(img, 0, 0);
-  return out.toDataURL("image/png");
-}
-
 async function saveLabel(fromEdit) {
   try {
     const body = { channel: S.c, z: S.z };
-    const multi = isMulti() && S.result?.multi;
-    if (multi) body.structures = S.structures.map((st) => st.name);
-    if (fromEdit && S.edit) body.mask_png = multi ? editToIndexPng() : S.edit.toDataURL("image/png");
+    if (fromEdit && S.edit) body.mask_png = S.edit.toDataURL("image/png");
     else if (!S.result) { toast("Segment the slice or correct a mask first"); return; }
     const out = await api(`/api/datasets/${S.ds.id}/labels`, { method: "POST", body });
     S.labels = out.labels;
@@ -149,19 +125,10 @@ async function refreshHead() {
   $("methodLearned").disabled = !S.head;
   if (!S.head && S.method === "learned") setMethod("clicks");
   showHeadInfo();
-  refreshMicrosam();
 }
 
 function showHeadInfo() {
   const h = S.head;
-  if (h?.names?.length) {
-    // A model of several structures brings its structures along, keeping colours for names already present
-    const prev = Object.fromEntries(S.structures.map((st) => [st.name, st.color]));
-    S.structures = h.names.map((n, k) => ({ name: n, color: safeColor(prev[n] || STRUCT_COLORS[k % STRUCT_COLORS.length]) }));
-    S.active = Math.min(S.active, S.structures.length - 1);
-    renderStructures();
-  }
-  $("exportHeadBtn").classList.toggle("hidden", !h);
   if (!h) { $("trainResult").textContent = ""; return; }
   const cv = h.cv[h.cv.chosen];
   $("trainResult").innerHTML = `Model trained on ${h.trained_on.length} slice${h.trained_on.length > 1 ? "s" : ""} (${h.kind === "mlp" ? "small neural network" : "linear"}${h.context > 1 ? ", with neighbourhood features" : ""}${h.z_context ? `, seeing the slices ${h.z_context} above and below` : ""}).`
@@ -198,108 +165,5 @@ function setMethod(m) {
   S.method = m;
   $("methodClicks").classList.toggle("active", m === "clicks");
   $("methodLearned").classList.toggle("active", m === "learned");
-  $("methodMicrosam").classList.toggle("active", m === "microsam");
   updateHint();
-}
-
-// ---------------------------------------------------------------------------------------------
-// micro-SAM fine-tuned on the labels: trained on Kaggle (package download), then loaded back as a file
-async function refreshMicrosam() {
-  S.microsam = null;
-  if (S.ds) { try { S.microsam = await api(`/api/datasets/${S.ds.id}/microsam?c=${S.c}`); } catch (_) { S.microsam = null; } }
-  const m = S.microsam?.model;
-  $("methodMicrosam").disabled = !m;
-  if (!m && S.method === "microsam") setMethod("clicks");
-  $("microsamRemove").classList.toggle("hidden", !m);
-  if (S.microsam && !S.microsam.available) $("microsamText").textContent = "micro-SAM is not installed here: pip install micro-sam. The package can still be made.";
-  else if (m) $("microsamText").innerHTML = `Model loaded: ${esc(m.recipe === "lora" ? "LoRA" : "full")} fine-tuning`
-    + (m.n_train ? ` on ${m.n_train} slice${m.n_train > 1 ? "s" : ""}` : "")
-    + (m.val_dice != null ? `, Dice on ${m.n_val} check slice${m.n_val > 1 ? "s" : ""} <b>${(+m.val_dice).toFixed(3)}</b>` : "")
-    + ". Choose <b>micro-SAM</b> in section 3 to use it.";
-  else $("microsamText").textContent = "";
-}
-
-async function exportMicrosam() {
-  const user = $("kaggleUser").value.trim().toLowerCase();
-  if (!user) { toast("Enter your Kaggle user name first"); $("kaggleUser").focus(); return; }
-  try { localStorage.setItem("boneseg.kaggleUser", user); } catch (_) { /* storage blocked */ }
-  $("microsamExport").disabled = true;
-  $("microsamText").textContent = "Writing the package…";
-  try {
-    const res = await api(`/api/datasets/${S.ds.id}/microsam/kaggle`, { method: "POST", body: { channel: S.c, username: user, recipe: $("microsamRecipe").value, settings: settings() } });
-    const name = /filename="?([^";]+)/.exec(res.headers.get("content-disposition") || "")?.[1] || "boneseg-microsam.zip";
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(await res.blob()); a.download = name; a.click();
-    setTimeout(() => URL.revokeObjectURL(a.href), 10000);
-    $("microsamText").textContent = `Saved ${name}. Unzip it and follow README.txt; then load the model file here.`;
-  } catch (e) { $("microsamText").textContent = ""; toast(e.message, true); }
-  $("microsamExport").disabled = false;
-}
-
-async function loadMicrosam(file) {
-  if (!file) return;
-  $("microsamText").textContent = `Loading ${file.name}…`;
-  try {
-    // The raw file as the body: no form encoding, so a 400 MB model needs no extra copy
-    const res = await fetch(`/api/datasets/${S.ds.id}/microsam/model?c=${S.c}`, { method: "POST", body: file, headers: { "Content-Type": "application/octet-stream" } });
-    if (!res.ok) { let msg = res.statusText; try { msg = (await res.json()).detail || msg; } catch (_) { /* not JSON */ } throw new Error(msg); }
-    await refreshMicrosam();
-    toast("micro-SAM model loaded. Choose micro-SAM in section 3 to segment with it.");
-  } catch (e) { $("microsamText").textContent = ""; toast(e.message, true); }
-}
-
-async function removeMicrosam() {
-  if (!confirm("Remove the micro-SAM model of this channel?")) return;
-  try { await api(`/api/datasets/${S.ds.id}/microsam/model?c=${S.c}`, { method: "DELETE" }); } catch (e) { toast(e.message, true); }
-  refreshMicrosam();
-}
-
-// ---------------------------------------------------------------------------------------------
-// Fine-tuning DINOv2 on the labels, as a background job; the result becomes a backbone
-function fillBackbones() {
-  const sel = $("backboneSelect"), current = sel.value;
-  sel.innerHTML = S.health.backbones.map((b) => `<option value="${esc(b.id)}">${esc(b.label)}${b.ready ? "" : " · downloads on first use"}</option>`).join("");
-  if (S.health.backbones.some((b) => b.id === current)) sel.value = current;
-}
-
-async function startFinetune() {
-  const n = S.labels.filter((l) => l.channel === S.c).length;
-  if (n < 2) { toast("Save at least 2 labels on this channel first (5 or more work best)"); return; }
-  try {
-    const job = await api(`/api/datasets/${S.ds.id}/finetune`, { method: "POST", body: { channel: S.c, settings: settings() } });
-    S.finetuneJob = job.id;
-    $("finetuneJob").classList.remove("hidden");
-    $("finetuneBtn").disabled = true;
-    $("finetuneCancel").classList.remove("hidden");
-    pollFinetune(job.id);
-  } catch (e) { toast(e.message, true); }
-}
-
-async function pollFinetune(id) {
-  let job;
-  try { job = await api(`/api/jobs/${id}`); } catch (e) { toast(e.message, true); return; }
-  $("finetuneBar").style.width = `${100 * job.progress}%`;
-  if (job.status === "running" || job.status === "queued") {
-    $("finetuneText").textContent = job.message || "Starting…";
-    setTimeout(() => pollFinetune(id), 1500);
-    return;
-  }
-  $("finetuneBtn").disabled = false;
-  $("finetuneCancel").classList.add("hidden");
-  if (job.status === "failed") { $("finetuneText").textContent = `Failed: ${job.error}`; return; }
-  const r = job.result;
-  const better = r.val_dice_finetuned > r.val_dice_frozen;
-  $("finetuneText").innerHTML = `${job.status === "cancelled" ? "Stopped early; kept the best step so far." : "Done."} Trained on ${r.n_train} label${r.n_train > 1 ? "s" : ""}, checked on ${r.n_val}.`
-    + ` Dice on the check slices: fine-tuned <b>${r.val_dice_finetuned.toFixed(3)}</b>, learned model on the unchanged DINOv2 <b>${r.val_dice_frozen.toFixed(3)}</b>.`
-    + (better ? " Fine-tuning helped." : " Fine-tuning did not help here; more labels may change that.")
-    + ` <button class="ghost" id="useFinetuned">Use it as the backbone</button>`
-    + `<br><span class="muted">Saved as ${esc(r.file)}. Learned models and profiles made with another backbone need to be trained or made again.</span>`;
-  S.health = await api("/api/health");
-  fillBackbones();
-  $("useFinetuned").onclick = () => {
-    $("backboneSelect").value = r.backbone;
-    syncSettingLabels(); rememberSettings();
-    toast("Switched to the fine-tuned backbone. The first click on each slice computes its features again.");
-    if (S.result) scheduleSegment(0);
-  };
 }

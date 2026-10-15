@@ -40,7 +40,7 @@ Use the project venv (`.venv`, Python 3.14). A bare `python` is often not it, wh
 - Every router receives an `AppContext` (`api/context.py`) wrapping the `Store`.
 - GPU work is serialized with `store.compute_lock`.
 - Security middleware: TrustedHost, same-origin check on writes, optional token. Model files are loaded with `torch.load(weights_only=True)`.
-- Request bodies live in `api/models.py`. Settings travel as a dict and are validated by `SegmentationSettings.from_dict` (`segment.py`). A new setting needs: the dataclass field and validation check, the `settings()`/apply code in `static/js/core.js`, and the element id list in `main.js`.
+- Request bodies live in `api/models.py`. Settings travel as a dict and are validated by `SegmentationSettings.from_dict` (`segment.py`). The page exposes only `backbone` (no control; saved per image) and `min_object_um2`; `settings()` in `static/js/core.js` fills the rest from the server's defaults. A new setting needs the dataclass field and validation check, and, to show it, a control read in `settings()`/`applySettings()` and wired in `main.js`.
 
 **Front end.**
 - `boneseg/static/` is plain HTML, CSS and JavaScript with no bundler.

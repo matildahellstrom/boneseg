@@ -14,7 +14,6 @@ const S = {
   points: {},          // "c:z" -> {pos: [[y, x]], neg: [[y, x]]} in full-resolution pixels
   history: [],         // Undo stack of {key, kind}
   mode: "pos",
-  profiles: [],
   base: null,          // HTMLImageElement of the current plane at display resolution
   layers: {},          // mask, heat, unc, ref -> HTMLImageElement
   result: null,
@@ -23,11 +22,9 @@ const S = {
   job: null,
   space: false,
   method: "clicks",    // "clicks" or "learned"
+  backbone: null,      // Feature backbone id; the default from the server unless the image saved another
   labels: [],          // [{channel, z}] slices with a saved corrected mask
   head: null,          // Info about the learned model for the current channel
-  structures: [{ name: "Object", color: "#22d27a" }],
-  active: 0,           // Index of the structure that object clicks go to
-  sideY: null,         // Row of the side view, in full-resolution pixels
   editing: false,
   edit: null,          // Offscreen canvas with the mask being corrected, at display resolution
 };
@@ -80,23 +77,13 @@ function busy(on, text = "Working…") { $("busy").classList.toggle("hidden", !o
 const key = () => `${S.c}:${S.z}`;
 const pts = () => (S.points[key()] ||= { pos: [], neg: [] });
 
-// Structures: the first one uses p.pos, further ones live in p.extra[k - 1].pos
-const STRUCT_COLORS = ["#22d27a", "#ffa53a", "#c78bff", "#ff5ad2", "#ffe14a", "#5ad1ff"];
-function posList(p, k) {
-  if (!k) return p.pos;
-  p.extra ||= [];
-  p.extra[k - 1] ||= { pos: [] };
-  return p.extra[k - 1].pos;
-}
-const isMulti = () => S.structures.length > 1;
-
 // Clicks are saved on the server per slice, so a reload keeps them
 const saveTimers = {};
 function clickBody(k) {
   const [c, z] = k.split(":").map(Number);
   const p = S.points[k] || { pos: [], neg: [] };
-  const extra = S.structures.slice(1).map((st, i) => ({ name: st.name, color: st.color, pos: p.extra?.[i]?.pos || [] }));
-  return { channel: c, z, pos: p.pos, neg: p.neg, extra };
+  // Clicks of further structures, saved by older versions, are kept as they are
+  return { channel: c, z, pos: p.pos, neg: p.neg, extra: (p.extra || []).filter((e) => e?.name) };
 }
 
 function persistClicks(k = key()) {
@@ -137,7 +124,7 @@ function undoEntry(p, h, listOf) {
   }
 }
 
-// Drops undo entries for one slice, after its clicks were replaced wholesale (Clear, Copy to next slice)
+// Drops undo entries for one slice, after its clicks were replaced wholesale (Clear)
 function forgetHistory(history, k) { return history.filter((h) => h.key !== k); }
 
 function loadImage(src) {
@@ -170,7 +157,6 @@ function firstClickedSlice(points, c, nZ = Infinity) {
 const areaUnit = () => (S.ds?.voxel_size_known === false ? "px²" : "µm²");
 const lengthUnit = () => (S.ds?.voxel_size_known === false ? "px" : "µm");
 const volumeUnit = () => (S.ds?.voxel_size_known === false ? "voxels" : "µm³");
-const perArea = () => (S.ds?.voxel_size_known === false ? "per Mpx" : "per mm²");
 
 function fmt(v, digits = 1) {
   if (v === null || v === undefined || Number.isNaN(v)) return "–";
@@ -182,25 +168,13 @@ function fmt(v, digits = 1) {
 
 // ---------------------------------------------------------------------------------------------
 // Settings
+// Only the backbone and the smallest object size can change; everything else uses the server's defaults, the
+// values that tested best in the evaluation
 function settings() {
   return {
-    backbone: $("backboneSelect").value,
-    threshold_mode: $("thrMode").value,
-    top_percent: +$("topPercent").value,
-    manual_threshold: +$("manualThr").value,
-    neg_weight: +$("lambda").value,
+    ...(S.health?.default_settings || {}),
+    backbone: S.backbone || S.health?.default_settings.backbone,
     min_object_um2: +$("minObj").value,
-    fill_holes_um2: +$("fillHoles").value,
-    smooth_px: +$("smooth").value,
-    vit_size: +$("vitSize").value,
-    layer_from_end: +$("layer").value,
-    threshold_position: $("strict").value === "" ? -1 : +$("strict").value,
-    edge_refine: $("edgeRefine").value,
-    shift_passes: +$("shiftPasses").value,
-    refiner: $("refiner").value,
-    suggest_missed: $("suggestMissed").checked,
-    sam_refine: $("samRefine").value,
-    sam_model: $("samModel").value,
     clip_low: S.low,
     clip_high: S.high,
   };
@@ -215,46 +189,14 @@ function rememberSettings() {
   settingsTimer = setTimeout(() => api(`/api/datasets/${dsId}`, { method: "PATCH", body: { settings: settings() } }).catch(() => {}), 800);
 }
 
+// A saved backbone is kept only if the server still offers it, for example a fine-tuned one
 function applySettings(st) {
-  if (!st) return;
-  // A saved value that is no longer an option (such as the removed Otsu threshold) keeps the current choice
-  const set = (id, v) => {
-    const el = $(id);
-    if (v === undefined || v === null || !el) return;
-    if (el.tagName === "SELECT" && ![...el.options].some((o) => o.value === String(v))) return;
-    el.value = v;
-  };
-  set("backboneSelect", st.backbone); set("thrMode", st.threshold_mode); set("topPercent", st.top_percent);
-  set("manualThr", st.manual_threshold); set("lambda", st.neg_weight); set("minObj", st.min_object_um2);
-  set("fillHoles", st.fill_holes_um2); set("smooth", st.smooth_px); set("vitSize", st.vit_size); set("layer", st.layer_from_end);
-  set("strict", st.threshold_position); set("edgeRefine", st.edge_refine); set("shiftPasses", st.shift_passes); set("refiner", st.refiner);
-  set("samRefine", st.sam_refine);
-  if (st.sam_model) set("samModel", st.sam_model);
-  if (st.suggest_missed != null) $("suggestMissed").checked = !!st.suggest_missed;
+  S.backbone = S.health?.default_settings.backbone || null;
+  if (st?.backbone && S.health?.backbones.some((b) => b.id === st.backbone)) S.backbone = st.backbone;
+  if (st?.min_object_um2 != null) $("minObj").value = st.min_object_um2;
   syncSettingLabels();
 }
 
 function syncSettingLabels() {
-  const mode = $("thrMode").value;
-  $("topPercentRow").classList.toggle("hidden", mode !== "top_percent");
-  $("manualRow").classList.toggle("hidden", mode !== "manual");
-  $("thrHint").classList.toggle("hidden", mode !== "clicks");
-  $("topPercentValue").textContent = `${$("topPercent").value}%`;
-  $("manualValue").textContent = (+$("manualThr").value).toFixed(2);
-  $("lambdaValue").textContent = (+$("lambda").value).toFixed(2);
   $("minObjValue").textContent = `${$("minObj").value} ${areaUnit()}`;
-  $("fillValue").textContent = `${$("fillHoles").value} ${areaUnit()}`;
-  $("smoothValue").textContent = `${$("smooth").value} px`;
-  const sam = S.health?.sam;
-  $("samHint").classList.toggle("hidden", !sam || $("samRefine").value === "off");
-  $("samModel").closest("label").classList.toggle("hidden", $("samRefine").value === "off");
-  const micro = $("samModel").value === "microsam";
-  const cached = micro ? sam?.microsam_weights_cached : sam?.weights_cached;
-  if (sam) $("samHint").textContent = !sam.available ? "Needs the segment-anything package: pip install segment-anything"
-    : (cached ? "" : `The first use downloads ${micro ? "micro-SAM's" : "SAM's"} weights, 375 MB. `) + "Adds a few seconds on each new slice. Best with many clicks; ignored for the learned model, several structures and stack runs.";
-  const bb = S.health?.backbones.find((b) => b.id === $("backboneSelect").value);
-  $("backboneHint").textContent = !bb ? "" : bb.id === "classic"
-    ? "Hand-made intensity and texture features. Instant, but less accurate than DINOv2."
-    : bb.ready ? "Weights are downloaded. The first click on each slice computes features, later clicks are instant."
-      : "The weights download on first use, which can take a minute.";
 }

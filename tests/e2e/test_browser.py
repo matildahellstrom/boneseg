@@ -80,8 +80,9 @@ def open_demo(pg, url, data):
     pg.goto(url)
     pg.wait_for_function("S.health !== null", timeout=10000)
     pg.evaluate("api('/api/datasets/demo', {method: 'POST'}).then(d => refreshDatasets(d.id))")
-    pg.wait_for_function("S.ds && S.base && S.ds.name === 'demo_bone_stack.tif'", timeout=20000)
-    pg.select_option("#backboneSelect", "classic")
+    # The image shown must be the demo's own, not the one the page opened on start
+    pg.wait_for_function("S.ds && S.base && S.ds.name === 'demo_bone_stack.tif' && S.base.src.includes(S.ds.id)", timeout=20000)
+    pg.evaluate("S.backbone = 'classic'; rememberSettings()")   # Saved with the image, so a reload keeps it
     ds_id = pg.evaluate("S.ds.id")
     stack = tifffile.imread(glob.glob(str(data / "datasets" / ds_id / "*.tif"))[0])
     return stack
@@ -131,261 +132,42 @@ def test_correct_label_train_and_reload(page, server):
     assert not page.errors, page.errors
 
 
-def test_two_structures(page, server):
-    url, data = server
-    stack = open_demo(page, url, data)
-    page.on("dialog", lambda d: d.accept("Bone matrix"))
-    click_cells(page, stack)
-    wait_result(page)
-    page.click(".struct.add")
-    page.wait_for_function("S.structures.length === 2", timeout=5000)
-    assert page.evaluate("S.structures.map(s => s.name)") == ["Object", "Bone matrix"]
-    bone = ndi.gaussian_filter(stack[6, 0].astype(float), 3)
-    rng = np.random.default_rng(0)
-    hi = np.argwhere((bone > np.percentile(bone, 85)) & ~ndi.binary_dilation(stack[6, 2] > 0, iterations=10))
-    for y, x in hi[rng.choice(len(hi), 4, replace=False)]:
-        click_full(page, y, x)
-    page.wait_for_function("S.result && S.result.multi && document.querySelector('#busy').classList.contains('hidden')", timeout=30000)
-    cards = page.inner_text("#statCards")
-    assert "Object" in cards and "Bone matrix" in cards
-    assert page.is_visible("#labelsExport") and page.is_visible("#editBtn")
-    page.reload()
-    page.wait_for_function("S.ds && S.base", timeout=20000)
-    page.wait_for_timeout(500)
-    assert page.evaluate("S.structures.map(s => s.name)") == ["Object", "Bone matrix"]
-    assert not page.errors, page.errors
-
-
-def test_names_from_files_and_profiles_cannot_inject_html(page, server):
-    """A shared profile or a channel name with markup in it must show as text and never run."""
+def test_names_from_files_cannot_inject_html(page, server):
+    """A file name with markup in it must show as text and never run."""
     import io as _io
 
     import httpx
 
-    from boneseg.segment import Profile
-
     url, data = server
     evil = '<img src=x onerror="window.__pwned = 1">'
-    buf = _io.BytesIO()
-    import tempfile
-    with tempfile.NamedTemporaryFile(suffix=".npz") as tmp:
-        Profile(name=evil, backbone="classic", layer_from_end=1, pos=np.zeros((1, 64), np.float32), neg=np.zeros((0, 64), np.float32),
-                settings={}, description=evil, source=evil).save(tmp.name)
-        buf.write(open(tmp.name, "rb").read())
-    r = httpx.post(f"{url}/api/profiles/import", files={"file": ("p.npz", buf.getvalue(), "application/octet-stream")})
-    assert r.status_code == 200
     arr = _io.BytesIO()
     np.save(arr, np.random.default_rng(0).random((64, 64)).astype(np.float32))
     r = httpx.post(f"{url}/api/datasets/stream", params={"filename": evil + ".npy"}, content=arr.getvalue())
     assert r.status_code == 200, r.text
     open_demo(page, url, data)
-    ds_id = page.evaluate("S.ds.id")
-    httpx.patch(f"{url}/api/datasets/{ds_id}", json={"group": evil})
-    page.reload()
-    page.wait_for_function("S.ds && S.base", timeout=20000)
-    page.click("#studyBtn")
     page.wait_for_timeout(800)
     assert page.evaluate("window.__pwned") is None
-    assert evil in page.inner_text("#profileSelect")
     assert evil + ".npy" in page.inner_text("#datasetList")
     assert not page.errors, page.errors
 
 
-def test_stack_with_two_structures_in_browser(page, server):
-    url, data = server
-    stack = open_demo(page, url, data)
-    page.on("dialog", lambda d: d.accept("Bone matrix"))
-    click_cells(page, stack)
-    wait_result(page)
-    page.click(".struct.add")
-    page.wait_for_function("S.structures.length === 2", timeout=5000)
-    bone = ndi.gaussian_filter(stack[6, 0].astype(float), 3)
-    rng = np.random.default_rng(1)
-    hi = np.argwhere((bone > np.percentile(bone, 85)) & ~ndi.binary_dilation(stack[6, 2] > 0, iterations=10))
-    for y, x in hi[rng.choice(len(hi), 4, replace=False)]:
-        click_full(page, y, x)
-    page.wait_for_function("S.result && S.result.multi && document.querySelector('#busy').classList.contains('hidden')", timeout=30000)
-    page.click("#stackBtn")
-    page.wait_for_function("document.querySelector('#jobText').textContent.startsWith('Done')", timeout=60000)
-    text = page.inner_text("#jobText")
-    assert "Object" in text and "Bone matrix" in text and "objects in 3D" in text
-    assert "labels.tif" in page.inner_text("#jobDownloads")
-    assert not page.errors, page.errors
+def test_minimal_interface(page, server, tmp_path):
+    """The cut controls stay gone, and stack-only controls hide for a single image without a reference."""
+    from PIL import Image as PILImage
 
-
-def test_multi_structure_profile_in_browser(page, server):
-    url, data = server
-    stack = open_demo(page, url, data)
-    page.on("dialog", lambda d: d.accept("Bone matrix"))
-    click_cells(page, stack)
-    wait_result(page)
-    page.click(".struct.add")
-    page.wait_for_function("S.structures.length === 2", timeout=5000)
-    bone = ndi.gaussian_filter(stack[6, 0].astype(float), 3)
-    rng = np.random.default_rng(2)
-    hi = np.argwhere((bone > np.percentile(bone, 85)) & ~ndi.binary_dilation(stack[6, 2] > 0, iterations=10))
-    for y, x in hi[rng.choice(len(hi), 4, replace=False)]:
-        click_full(page, y, x)
-    page.wait_for_function("S.result && S.result.multi && document.querySelector('#busy').classList.contains('hidden')", timeout=30000)
-    page.click("#saveProfileBtn")
-    page.fill("#profileName", "Cells and bone")
-    page.click("#profileSaveConfirm")
-    page.wait_for_function("S.profiles.some(p => p.kind === 'structures')", timeout=10000)
-    # A fresh dataset, no clicks: picking the profile brings both structures
-    page.evaluate("api('/api/datasets/demo', {method: 'POST'}).then(d => refreshDatasets(d.id))")
-    page.wait_for_function("S.ds && S.base && Object.keys(S.points).length === 0", timeout=20000)
-    page.select_option("#backboneSelect", "classic")
-    pid = page.evaluate("S.profiles.find(p => p.kind === 'structures').id")
-    page.select_option("#profileSelect", pid)
-    page.wait_for_function("S.result && S.result.multi && document.querySelector('#busy').classList.contains('hidden')", timeout=30000)
-    assert page.evaluate("S.structures.map(s => s.name)") == ["Object", "Bone matrix"]
-    cards = page.inner_text("#statCards")
-    assert "Object" in cards and "Bone matrix" in cards
-    assert not page.errors, page.errors
-
-
-def test_batch_from_compare_dialog(page, server):
-    url, data = server
-    stack = open_demo(page, url, data)
-    click_cells(page, stack)
-    wait_result(page)
-    page.click("#saveProfileBtn")
-    page.fill("#profileName", "Batch cells")
-    page.click("#profileSaveConfirm")
-    page.wait_for_function("S.profiles.some(p => p.name === 'Batch cells')", timeout=10000)
-    page.click("#studyBtn")
-    page.click("#batchBox summary")
-    pid = page.evaluate("S.profiles.find(p => p.name === 'Batch cells').id")
-    page.select_option("#batchProfile", pid)
-    page.fill("#batchStep", "4")
-    page.click("#batchRun")
-    page.wait_for_function("document.querySelector('#batchText').textContent.startsWith('Done')", timeout=120000)
-    text = page.inner_text("#batchText")
-    assert "failed" not in text
-    # Samples without the channel (a one-channel file from another test) are skipped and keep no stack run
-    import re
-    m = re.search(r"(\d+) skipped", text)
-    assert page.inner_text("#studyRows").count("no stack run") == (int(m.group(1)) if m else 0)
-    assert not page.errors, page.errors
-
-
-
-def test_teach_several_structures(page, server):
-    url, data = server
-    stack = open_demo(page, url, data)
-    page.on("dialog", lambda d: d.accept("Bone matrix"))
-    for i, z in enumerate((3, 8)):
-        page.evaluate(f"S.z = {z}; loadPlane()")
-        page.wait_for_timeout(500)
-        if i == 0:
-            click_cells(page, stack, z)
-            wait_result(page)
-            page.click(".struct.add")
-            page.wait_for_function("S.structures.length === 2", timeout=5000)
-        else:
-            page.evaluate("S.active = 0; renderStructures()")
-            click_cells(page, stack, z)
-            page.evaluate("S.active = 1; renderStructures()")
-        bone = ndi.gaussian_filter(stack[z, 0].astype(float), 3)
-        rng = np.random.default_rng(z)
-        hi = np.argwhere((bone > np.percentile(bone, 85)) & ~ndi.binary_dilation(stack[z, 2] > 0, iterations=10))
-        for y, x in hi[rng.choice(len(hi), 4, replace=False)]:
-            click_full(page, y, x)
-        page.wait_for_function("S.result && S.result.multi && document.querySelector('#busy').classList.contains('hidden')", timeout=30000)
-        # Correct with the brush in the active structure's colour, then save as a label
-        page.keyboard.press("e")
-        r = page.evaluate("canvas.getBoundingClientRect().toJSON()")
-        page.mouse.move(r["x"] + r["width"] / 2 - 30, r["y"] + r["height"] / 2)
-        page.mouse.down()
-        page.mouse.move(r["x"] + r["width"] / 2 + 30, r["y"] + r["height"] / 2, steps=4)
-        page.mouse.up()
-        page.click("#editSave")
-        page.wait_for_function(f"S.labels.some(l => l.z === {z})", timeout=10000)
-    page.click("#trainBtn")
-    page.wait_for_function("S.head && S.head.names && S.head.names.length === 2 && S.method === 'learned'", timeout=60000)
-    page.evaluate("S.z = 6; loadPlane()")
-    page.wait_for_function("S.result && S.result.multi && S.z === 6 && document.querySelector('#busy').classList.contains('hidden')", timeout=30000)
-    cards = page.inner_text("#statCards")
-    assert "Object" in cards and "Bone matrix" in cards
-    assert not page.errors, page.errors
-
-
-def test_sam_setting_and_finetune_panel(page, server, monkeypatch):
-    import boneseg.finetune as fmod
-
-    class Fake:
-        info = {"best_val_dice": 0.8, "best_step": 50}
-
-        def save(self, path):
-            path.write_bytes(b"x")
-
-    def fake_finetune(train, val, train_blocks, steps, progress, cancelled, **kwargs):
-        progress(1.0, "done")
-        return Fake()
-
-    monkeypatch.setattr(fmod, "finetune", fake_finetune)
     url, data = server
     open_demo(page, url, data)
-    page.click("text=Clean-up and advanced")
-    page.select_option("#samRefine", "agree")
-    assert page.is_visible("#samHint") and page.evaluate("settings().sam_refine") == "agree"
-    page.select_option("#samRefine", "off")
-    page.evaluate("api(`/api/datasets/${S.ds.id}/labels/from-reference`, {method: 'POST', body: {channel: S.c, n: 3}}).then(() => refreshLabels())")
-    page.wait_for_function("S.labels.length === 3", timeout=20000)
-    page.click("text=Fine-tune DINOv2 on these labels")
-    page.click("#finetuneBtn")
-    page.wait_for_selector("#useFinetuned", timeout=60000)
-    assert "fine-tuned 0.800" in page.inner_text("#finetuneText")
-    assert page.evaluate("[...document.querySelectorAll('#backboneSelect option')].some(o => o.value.includes('dinov2_s14_demo'))")
+    for gone in ["#backboneSelect", "#thrMode", "#showHeat", "#showSide", "#profileSelect", "#studyBtn", "#methodMicrosam",
+                 "#finetuneBox", ".struct.add", "#segmentBtn"]:
+        assert page.locator(gone).count() == 0, gone
+    assert page.is_visible("#refToggle") and page.is_visible("#sliceNav") and page.is_visible("#stackSection")
+    grey = tmp_path / "single.png"
+    PILImage.fromarray((np.random.default_rng(1).random((120, 160)) * 255).astype(np.uint8)).save(grey)
+    other = _open_path(page, grey)
+    page.evaluate(f"openDataset('{other}')")
+    page.wait_for_function(f"S.ds && S.ds.id === '{other}' && S.base", timeout=20000)
+    assert page.is_hidden("#refToggle") and page.is_hidden("#sliceNav") and page.is_hidden("#stackSection")
     assert not page.errors, page.errors
-
-
-def test_microsam_panel_kaggle_package_model_and_stack(page, server, monkeypatch, tmp_path):
-    import zipfile
-
-    import torch
-
-    from boneseg import microsam
-
-    url, data = server
-    stack = open_demo(page, url, data)
-    # Click model choice appears with Segment Anything switched on
-    page.click("text=Clean-up and advanced")
-    assert not page.is_visible("#samModel")
-    page.select_option("#samRefine", "replace")
-    page.select_option("#samModel", "microsam")
-    assert page.evaluate("settings().sam_model") == "microsam" and page.is_visible("#samModel") and page.is_visible("#samHint")
-    page.select_option("#samRefine", "off")
-    page.evaluate("api(`/api/datasets/${S.ds.id}/labels/from-reference`, {method: 'POST', body: {channel: S.c, n: 3}}).then(() => refreshLabels())")
-    page.wait_for_function("S.labels.length === 3", timeout=20000)
-    assert page.is_disabled("#methodMicrosam")
-    page.click("text=Fine-tune micro-SAM on these labels")
-    page.fill("#kaggleUser", "Tester")
-    with page.expect_download() as dl:
-        page.click("#microsamExport")
-    path = tmp_path / dl.value.suggested_filename
-    dl.value.save_as(path)
-    assert path.suffix == ".zip" and any(n.endswith("notebook.ipynb") for n in zipfile.ZipFile(path).namelist())
-    assert "README.txt" in page.inner_text("#microsamText")
-    # Load a model file (weights only, tiny) and segment with a stub of micro-SAM's decoder
-    model = tmp_path / "microsam_demo.pt"
-    torch.save({"model_state": {"sam.x": torch.zeros(1)}, "decoder_state": {}, "boneseg": {"recipe": "full", "val_dice": 0.77, "n_train": 2, "n_val": 1}}, model)
-    monkeypatch.setattr(microsam, "foreground", lambda path, img: np.where(stack[0, 2] > 0, 0.9, 0.1).astype(np.float32))
-    monkeypatch.setattr(microsam, "require", lambda: None)
-    page.set_input_files("#microsamFile", str(model))
-    page.wait_for_function("!document.querySelector('#methodMicrosam').disabled", timeout=20000)
-    assert "0.770" in page.inner_text("#microsamText")
-    page.click("#methodMicrosam")
-    wait_result(page)
-    assert page.evaluate("S.method") == "microsam" and page.evaluate("S.result.threshold") == 0.5
-    page.click("#stackBtn")
-    page.wait_for_function("document.querySelector('#jobText').textContent.startsWith('Done')", timeout=60000)
-    assert "12 slices" in page.inner_text("#jobText")
-    page.on("dialog", lambda d: d.accept())
-    page.click("#microsamRemove")
-    page.wait_for_function("document.querySelector('#methodMicrosam').disabled && S.method === 'clicks'", timeout=20000)
-    assert not page.errors, page.errors
-
 
 def _open_path(pg, path):
     """Opens a file on disk through the API from inside the page, then selects it in the full app."""
@@ -434,8 +216,7 @@ def test_bugfixes_full_app_clicks_undo_and_slices(page, server, tmp_path):
     page.on("dialog", lambda d: d.accept())
     page.locator(".dataset-item.active button").click()
     page.wait_for_function("S.ds === null", timeout=10000)
-    assert page.is_hidden("#jobBox") and page.is_hidden("#sidePanel")
-    page.evaluate("document.getElementById('sideImg').parentElement.click()")
+    assert page.is_hidden("#jobBox")
     assert not page.errors, page.errors
 
 
