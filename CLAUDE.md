@@ -10,7 +10,7 @@ Use the project venv (`.venv`, Python 3.14). A bare `python` is often not it, wh
 
 ```bash
 .venv/bin/pip install -e . --no-deps          # Installs the package and the `boneseg` command; extras: .[sam], .[microsam], .[dev]
-.venv/bin/python -m boneseg serve --open      # App at http://127.0.0.1:8000; --simple for the one-page mode; --data-dir (default projects/)
+.venv/bin/python -m boneseg serve --open      # App at http://127.0.0.1:8000; --data-dir (default projects/)
 .venv/bin/python -m pytest tests --ignore=tests/e2e -q        # Unit + API tests (about 1 min)
 .venv/bin/python -m pytest tests/test_api.py -k agree_with_sam  # A single test
 .venv/bin/python -m pytest tests/e2e -q       # Playwright browser tests; Chromium only launches with the sandbox disabled
@@ -45,10 +45,10 @@ Use the project venv (`.venv`, Python 3.14). A bare `python` is often not it, wh
 **Front end.**
 - `boneseg/static/` is plain HTML, CSS and JavaScript with no bundler.
 - `js/*.js` are classic scripts loaded in order (`core.js` first). They share globals: the state object `S`, `$`, `api()` and `settings()`.
-- `simple.html`/`simple.js` is the minimal mode and shares `core.js`.
 
 **Paper evaluation (`paper/`).**
 - Separate from the app, it evaluates the method frozen at git tags.
+- Bone measures for the evaluation (B.Ar/T.Ar etc.) are in `paper/histo.py`; histomorphometry is no longer part of the app.
 - `common.py:load_sample` gives the fixed development and test slices of the Liu samples A, C, D, E and F. Sample D is read remotely from Kaggle via `remote_d.py`, with slices cached in `data/liudata/D_slices.npz`.
 - `methods.py` wraps every compared method. `analyze.py:hier_boot` gives hierarchical bootstrap CIs.
 - Results go to `paper/results/*.csv|md` and figures to `paper/figures/`. paper/README.md documents the protocol and results.

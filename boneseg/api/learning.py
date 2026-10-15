@@ -232,7 +232,7 @@ def router(ctx: AppContext) -> APIRouter:
             ft = finetune(train, val, train_blocks=req.blocks, steps=req.steps, step_lock=store.compute_lock,
                           progress=lambda p, m: (setattr(job, "progress", 0.97 * p), setattr(job, "message", m)), cancelled=job.cancel.is_set)
             ft.save(out_path)
-            # The same labels and validation slices with DINOv2 left frozen: the learned model of section 6
+            # The same labels and validation slices with DINOv2 left frozen: the learned model of section 5
             job.message = "Comparing with the frozen features"
             st = SegmentationSettings.from_dict({**req.settings, "backbone": "dinov2_s14"})
             with store.compute_lock:

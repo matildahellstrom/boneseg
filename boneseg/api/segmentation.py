@@ -35,7 +35,7 @@ def router(ctx: AppContext) -> APIRouter:
 
                 path = ctx.microsam_path(ds_id, req.channel)
                 if not path.exists():
-                    raise ValueError("No micro-SAM model for this channel yet: fine-tune one on Kaggle (section 6) and load its file")
+                    raise ValueError("No micro-SAM model for this channel yet: fine-tune one on Kaggle (section 5) and load its file")
                 img = store.color_plane(ds_id, req.channel, req.z, *microsam.clip_for(path, settings))
                 res = microsam.segment(path, img, settings, ds.volume.pixel_um)
                 t_embed = time.time() - t0
@@ -76,7 +76,7 @@ def router(ctx: AppContext) -> APIRouter:
             t_sam = round(time.time() - t1, 3)
         roi = store.roi_mask(ds_id)
         if roi is not None:
-            # Keep the unclipped mask for histomorphometry, where the region's edge is not a bone surface
+            # Keep the unclipped mask, so a changed region can clip it again
             res.extra["unclipped"] = res.mask
             res.mask = res.mask & roi
         ds.results[(req.channel, req.z)] = res
@@ -238,7 +238,7 @@ def router(ctx: AppContext) -> APIRouter:
 
             path = ctx.microsam_path(ds_id, req.channel)
             if not path.exists():
-                raise ValueError("No micro-SAM model for this channel yet: fine-tune one on Kaggle (section 6) and load its file")
+                raise ValueError("No micro-SAM model for this channel yet: fine-tune one on Kaggle (section 5) and load its file")
             microsam.require()
             c, clip = req.channel, microsam.clip_for(path, settings)
 
@@ -347,7 +347,7 @@ def router(ctx: AppContext) -> APIRouter:
     @r.get("/api/jobs/{job_id}/files/{name}")
     def job_file(job_id: str, name: str):
         job = store.get_job(job_id)
-        if name not in ("masks.tif", "labels.tif", "labels_3d.tif", "slices.csv", "summary.json", "objects_3d.csv", "histomorphometry.csv"):  # noqa: E501
+        if name not in ("masks.tif", "labels.tif", "labels_3d.tif", "slices.csv", "summary.json", "objects_3d.csv"):
             raise HTTPException(404, "Unknown file")
         path = job.out_dir / name
         if not path.exists():

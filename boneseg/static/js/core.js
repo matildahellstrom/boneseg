@@ -27,7 +27,6 @@ const S = {
   head: null,          // Info about the learned model for the current channel
   structures: [{ name: "Object", color: "#22d27a" }],
   active: 0,           // Index of the structure that object clicks go to
-  roiDraft: null,      // Corners of a region being drawn, in full-resolution pixels
   sideY: null,         // Row of the side view, in full-resolution pixels
   editing: false,
   edit: null,          // Offscreen canvas with the mask being corrected, at display resolution
@@ -106,7 +105,6 @@ function persistClicks(k = key()) {
 
 // Saving is delayed by 400 ms so quick clicking sends one request. Each dataset and slice has its own timer, and the
 // request body is copied now: switching dataset or slice before the timer fires cannot change what gets saved.
-// Both pages (index.html and simple.html) use these helpers.
 function scheduleSave(dsId, body) {
   const id = `${dsId}|${body.channel}:${body.z}`;
   clearTimeout(saveTimers[id]?.timer);
@@ -151,8 +149,8 @@ function loadImage(src) {
   });
 }
 
-// Which image to open when a page loads: the one named in the link (?ds=, from the other page's switch button),
-// else the last one opened in this browser, else none. Both pages remember the image they open.
+// Which image to open when the page loads: the one named in the link (?ds=&c=&z=), else the last one opened in this
+// browser, else none.
 function rememberDataset(id) { try { localStorage.setItem("boneseg-last-ds", id); } catch (_) { /* storage blocked */ } }
 function wantedView(datasets) {
   const q = new URL(window.location.href).searchParams;
@@ -219,7 +217,13 @@ function rememberSettings() {
 
 function applySettings(st) {
   if (!st) return;
-  const set = (id, v) => { if (v !== undefined && v !== null && $(id)) $(id).value = v; };
+  // A saved value that is no longer an option (such as the removed Otsu threshold) keeps the current choice
+  const set = (id, v) => {
+    const el = $(id);
+    if (v === undefined || v === null || !el) return;
+    if (el.tagName === "SELECT" && ![...el.options].some((o) => o.value === String(v))) return;
+    el.value = v;
+  };
   set("backboneSelect", st.backbone); set("thrMode", st.threshold_mode); set("topPercent", st.top_percent);
   set("manualThr", st.manual_threshold); set("lambda", st.neg_weight); set("minObj", st.min_object_um2);
   set("fillHoles", st.fill_holes_um2); set("smooth", st.smooth_px); set("vitSize", st.vit_size); set("layer", st.layer_from_end);
@@ -227,8 +231,6 @@ function applySettings(st) {
   set("samRefine", st.sam_refine);
   if (st.sam_model) set("samModel", st.sam_model);
   if (st.suggest_missed != null) $("suggestMissed").checked = !!st.suggest_missed;
-  if (st.clip_low != null) { S.low = st.clip_low; $("lowSlider").value = st.clip_low; }
-  if (st.clip_high != null) { S.high = st.clip_high; $("highSlider").value = st.clip_high; }
   syncSettingLabels();
 }
 

@@ -1,6 +1,6 @@
 # boneseg
 
-Segment structures in bone microscopy images with a few clicks. boneseg turns the DINO few-shot segmentation from the notebook in `notebooks/` into a web app. You open an Imaris, TIFF or PNG file, click a few cells and a few background spots, and get a mask with measurements in micrometres. From there you can run the whole z-stack, correct masks and train a small model on them, measure bone histomorphometry, and compare samples between groups.
+Segment structures in bone microscopy images with a few clicks. boneseg turns the DINO few-shot segmentation from the notebook in `notebooks/` into a web app. You open an Imaris, TIFF or PNG file, click a few cells and a few background spots, and get a mask with measurements in micrometres. From there you can run the whole z-stack, correct masks and train a small model on them, and compare samples between groups.
 
 ![boneseg segmenting osteoclast-like cells and bone matrix as two structures on the demo stack](docs/screenshot.png)
 
@@ -12,9 +12,8 @@ Segment structures in bone microscopy images with a few clicks. boneseg turns th
 - **Whole stacks.** Run every slice from one annotated slice, with measurements per slice, objects counted in 3D, and a side view through the stack.
 - **A second opinion from SAM.** Optionally, Segment Anything gets the same clicks and the mask keeps only what both agree on: with 25 + 25 clicks on bone, Dice rose by 0.03 and the bone-area overestimate disappeared.
 - **Learn from corrections.** Fix a mask with a brush, save it as a label, and train a small model: seconds on small images, a few minutes on large stacks, where computing the labelled slices' features takes most of the time (progress is shown). It reports its accuracy on slices it has not seen, sets its own threshold on them, and in a stack also looks at the neighbouring slices. From 5 labelled slices it measured whole Liu stacks within 5% of the experts' bone volume fraction and within about 1% of their trabecular number and separation.
-- **Bone histomorphometry.** B.Ar/T.Ar, B.Pm, Oc.Pm/B.Pm and N.Oc/B.Pm per slice or across a stack, following the ASBMR nomenclature.
 - **Compare samples.** Run a profile on every sample, put samples in groups, and compare them with a dot plot and a rank test.
-- **Check against experts.** Pick an expert mask channel to score every result with Dice, IoU and HD95, and see where the mask is wrong.
+- **Check against experts.** A file's expert mask channel (named like "segmentation", "mask" or "surface") scores every result with Dice, IoU and HD95 and shows where the mask is wrong.
 - **Reuse and share.** Profiles carry clicks, learned models or several structures to new images, to other users and to batch runs.
 - **Keep a record.** Export masks, label images and CSV tables, write an HTML report with a draft methods paragraph, or zip the whole project.
 
@@ -28,8 +27,6 @@ python -m boneseg serve --open
 ```
 
 The app opens at http://127.0.0.1:8000. Click **Try a synthetic demo image** to explore it without your own data. The first time you pick a DINOv2 backbone, its weights download from Meta, about 85 MB for Small.
-
-**Simple mode** is a single page with only the essentials: open an image, click bone and background, run the whole stack, and download the masks (TIFF) and per-slice measurements (CSV). Start it with `python -m boneseg serve --simple --open`, or open http://127.0.0.1:8000/simple; "Full app" in its top bar switches to everything else, keeping your clicks. It uses the default settings and leaves out the learned model, several structures, histomorphometry and reports, so for long stacks, where clicks on one slice drift, the full app's learned model is the more accurate route.
 
 The app runs on an NVIDIA GPU, an Apple Silicon GPU or the CPU, whichever it finds. Small and Base are comfortable on a laptop. Giant needs a large GPU.
 
@@ -46,14 +43,12 @@ Add `-e BONESEG_TOKEN=some-secret` to require an access token, then open http://
 
 ## How to use it
 
-1. **Open an image.** Drop a file on the left panel. Multi-gigabyte Imaris files open in place with "Open a large file from disk instead". Set the pixel size under "Pixel size" if the file has none.
-2. **Set up the view.** Pick the channel that shows the structure. Optionally draw a region of interest (R), for example trabecular bone without the cortex. If the file has an expert segmentation channel, pick it as the reference mask; channels named "segmentation", "mask" or "surface" are picked up automatically.
-3. **Click.** Click a few examples of the structure, then shift-click a few background spots. For several structures, click "+ Structure" and give each its own clicks; background clicks are shared.
-4. **Refine.** Follow the hint under the click counts. Orange areas depend on single clicks, and the dashed ring marks where one more click helps most. With a reference mask, "Errors" shows extra pixels in red and missed ones in yellow. Once you have clicked a fair amount, "Agree with SAM" under "Clean-up and advanced" trims the mask to what SAM also finds.
-5. **Correct and teach.** If the file already has expert masks, "Label 5 slices from the reference" turns them into labels, so the model learns from the experts and can then segment files that have no expert masks. Otherwise: press E to fix the mask with a brush and save it as a label. With several structures, the brush paints in the active structure's colour (Tab switches). After one or more labels, "Train model" fits a small classifier in the background (seconds on small images, minutes on large stacks) and reports its Dice on held-out slices. A label saved while a region of interest is set only counts inside the region. Switch to "Learned model" to segment new slices, with one or several structures, without clicks. To adapt DINOv2 itself to your images, open "Fine-tune DINOv2 on these labels": it takes several minutes, reports whether it beat the learned model on held-out labels, and adds the result to the backbone menu.
-6. **Measure bone.** "Bone histomorphometry" combines a bone mask and a cell mask. Each mask can come from the current result, a structure, a profile, the learned model, a saved label or the reference channel. A multi-structure stack run with a structure named like bone or matrix also measures histomorphometry on every slice.
-7. **Scale up.** "Run stack" segments a range of slices. "Save as profile" keeps the clicks, a learned model or all structures for other images. "Compare samples" at the top runs a profile on every sample and compares groups.
-8. **Export.** Masks as PNG or TIFF, label images, per-object CSV with each object's intensity in every channel, stack outputs, an HTML report, or a project zip with everything except the image.
+1. **Open an image.** Drop a file on the left panel. Multi-gigabyte Imaris files open in place with "Open a large file from disk instead". Pick the channel that shows the structure and the slice under the file list. The pixel size comes from the file (files without one are measured in pixels), and an expert segmentation channel named "segmentation", "mask" or "surface" is picked up as the reference mask that results are scored against.
+2. **Click.** Click a few examples of the structure, then shift-click a few background spots. For several structures, click "+ Structure" and give each its own clicks; background clicks are shared.
+3. **Refine.** Follow the hint under the click counts. Orange areas depend on single clicks, and the dashed ring marks where one more click helps most. With a reference mask, "Errors" shows extra pixels in red and missed ones in yellow. Once you have clicked a fair amount, "Segment Anything on the clicks" under "Clean-up and advanced" trims the mask to what SAM or micro-SAM also finds, or uses their mask instead.
+4. **Correct and teach.** If the file already has expert masks, "Label 5 slices from the reference" turns them into labels, so the model learns from the experts and can then segment files that have no expert masks. Otherwise: press E to fix the mask with a brush and save it as a label. With several structures, the brush paints in the active structure's colour (Tab switches). After one or more labels, "Train model" fits a small classifier in the background (seconds on small images, minutes on large stacks) and reports its Dice on held-out slices. Switch to "Learned model" to segment new slices, with one or several structures, without clicks. To adapt DINOv2 itself to your images, open "Fine-tune DINOv2 on these labels": it takes several minutes, reports whether it beat the learned model on held-out labels, and adds the result to the backbone menu.
+5. **Scale up.** "Run stack" segments a range of slices. "Save as profile" keeps the clicks, a learned model or all structures for other images. "Compare samples" at the top runs a profile on every sample and compares groups.
+6. **Export.** Masks as PNG or TIFF, label images, per-object CSV with each object's intensity in every channel, stack outputs, an HTML report, or a project zip with everything except the image.
 
 ### Recipes
 
@@ -69,11 +64,6 @@ Add `-e BONESEG_TOKEN=some-secret` to require an access token, then open http://
 2. Press E to correct it, save it as a label, and repeat on two or three more slices spread through the stack ("Copy to next slice" helps).
 3. "Train model", check the held-out Dice, and run the stack or a batch with the learned model.
 
-**Osteoclast surface per sample.**
-1. On a channel where both osteoclasts and bone are visible, click osteoclasts, then add a structure named "Bone matrix" and click bone. If they are on different channels, save a profile on each channel, pick them as the bone and cell sources under "Bone histomorphometry" and click "Measure the whole stack".
-2. "Save as profile", then in "Compare samples" run it on every sample. Each run measures histomorphometry on every slice.
-3. Compare Oc.Pm/B.Pm or N.Oc/B.Pm between groups.
-
 ### Keyboard shortcuts
 
 | Key | Action |
@@ -88,7 +78,6 @@ Add `-e BONESEG_TOKEN=some-secret` to require an access token, then open http://
 | M, H, U | Toggle the mask, heatmap and uncertainty overlays |
 | E, Esc | Start and cancel correcting the mask with a brush |
 | [ and ], Ctrl+Z | While correcting: smaller or larger brush, undo the last stroke |
-| R, Enter | Draw a region of interest and finish it |
 | Alt-click | Move the side-view cut to this row |
 | Scroll, drag | Zoom, pan |
 
@@ -178,12 +167,11 @@ python scripts/benchmark_transfer.py "A=data/liudata/10-26-40_6_Blaze_crop2 quan
 
 ## Using it from Python
 
-Every step is a plain function. `notebooks/boneseg_quickstart.ipynb` walks through loading a stack, segmenting from clicks, measuring, running the stack, histomorphometry and training the learned model. The web API is documented at http://127.0.0.1:8000/docs while the app runs.
+Every step is a plain function. `notebooks/boneseg_quickstart.ipynb` walks through loading a stack, segmenting from clicks, measuring, running the stack and training the learned model. The web API is documented at http://127.0.0.1:8000/docs while the app runs.
 
 ## References
 
 - Oquab M, et al. DINOv2: Learning robust visual features without supervision. Transactions on Machine Learning Research (2024). The backbone.
-- Dempster DW, et al. Standardized nomenclature, symbols, and units for bone histomorphometry: a 2012 update of the report of the ASBMR Histomorphometry Nomenclature Committee. J Bone Miner Res 28:2–17 (2013). The histomorphometry names and definitions.
 
 ## Project layout
 
@@ -194,7 +182,7 @@ Every step is a plain function. `notebooks/boneseg_quickstart.ipynb` walks throu
 | `boneseg/segment.py` | Prototypes, scores, thresholds, clean-up, uncertainty, several structures and profiles |
 | `boneseg/head.py` | The learned model trained on corrected masks |
 | `boneseg/pipeline.py`, `batch.py` | Whole-stack runs and command-line batch runs |
-| `boneseg/quantify.py`, `metrics.py`, `histo.py` | Measurements in micrometres, 3D objects, Dice, IoU, HD95 and histomorphometry |
+| `boneseg/quantify.py`, `metrics.py` | Measurements in micrometres, 3D objects, Dice, IoU and HD95 |
 | `boneseg/study.py`, `report.py` | Group comparisons and HTML reports |
 | `boneseg/api/`, `store.py` | The web server, one module per area, and its storage |
 | `boneseg/static/` | The browser interface: plain HTML, CSS and JavaScript files in `js/`, loaded in order without a build step |

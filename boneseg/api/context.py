@@ -10,7 +10,6 @@ from ..backbone import BACKBONE_LABELS
 from ..head import Head, head_from_profile, head_input, segment_with_head
 from ..segment import SegmentationSettings, prototypes, segment_with_prototypes
 from ..store import Store
-from .models import MaskSpec
 
 
 def attachment(filename: str) -> dict:
@@ -107,43 +106,3 @@ class AppContext:
             raise HTTPException(404, "Segment this slice first")
         return res
 
-    def mask_from_spec(self, ds_id: str, z: int, spec: MaskSpec, settings: SegmentationSettings) -> np.ndarray:
-        ds = self.store.get(ds_id)
-        if spec.source == "current":
-            res = ds.results.get((spec.channel, z))
-            if res is None:
-                raise ValueError(f"Segment channel {spec.channel} on slice {z} first, or pick another source")
-            return res.extra.get("unclipped", res.mask)
-        if spec.source.startswith("structure:"):
-            # One structure from the last multi-structure result on this channel and slice
-            res = ds.results.get(("multi", spec.channel, z))
-            if res is None:
-                raise ValueError(f"Segment several structures on channel {spec.channel}, slice {z} first")
-            k = int(spec.source.split(":", 1)[1])
-            if not 0 <= k < len(res["names"]):
-                raise ValueError("That structure is not in the last result")
-            return res["labels"] == k + 1
-        if spec.source == "label":
-            m = self.store.load_label(ds_id, spec.channel, z)
-            if m is None:
-                raise ValueError(f"No saved label for channel {spec.channel} on slice {z}")
-            return m
-        if spec.source == "reference":
-            ref = ds.meta.get("reference_channel")
-            if ref is None:
-                raise ValueError("No reference channel is set")
-            return self.store.raw_plane(ds_id, int(ref), z) > 0
-        with self.store.compute_lock:
-            emb = self.store.embedding(ds_id, spec.channel, z, settings)
-            if spec.source == "learned":
-                h = self.load_head(ds_id, spec.channel, settings)
-                return segment_with_head(h, self.head_embedding(ds_id, spec.channel, z, settings, h), settings, ds.volume.pixel_um).mask
-            if spec.source == "profile":
-                if not spec.profile_id:
-                    raise ValueError("Pick a profile")
-                ph = self.learned_profile_head(spec.profile_id, settings)
-                if ph is not None:
-                    return segment_with_head(ph, self.head_embedding(ds_id, spec.channel, z, settings, ph), settings, ds.volume.pixel_um).mask
-                pos, neg, thr = self.prototypes_for(ds_id, spec.channel, z, [], [], spec.profile_id, settings)
-                return segment_with_prototypes(emb, pos, neg, settings, ds.volume.pixel_um, raw_threshold=thr).mask
-        raise ValueError(f"Unknown mask source {spec.source}")

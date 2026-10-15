@@ -131,37 +131,6 @@ def test_correct_label_train_and_reload(page, server):
     assert not page.errors, page.errors
 
 
-def test_region_and_histomorphometry(page, server):
-    url, data = server
-    stack = open_demo(page, url, data)
-    # Bone on channel 0
-    page.select_option("#channelSelect", "0")
-    page.wait_for_timeout(700)
-    m = ndi.gaussian_filter(stack[6, 0].astype(float), 3)
-    rng = np.random.default_rng(0)
-    hi, lo = np.argwhere(m > np.percentile(m, 85)), np.argwhere(m < np.percentile(m, 15))
-    for y, x in hi[rng.choice(len(hi), 4, replace=False)]:
-        click_full(page, y, x)
-    for y, x in lo[rng.choice(len(lo), 4, replace=False)]:
-        click_full(page, y, x, shift=True)
-    wait_result(page)
-    # Cells on channel 1
-    page.select_option("#channelSelect", "1")
-    page.wait_for_timeout(700)
-    click_cells(page, stack)
-    wait_result(page)
-    page.keyboard.press("r")
-    for y, x in [(30, 30), (30, 480), (350, 480), (350, 30)]:
-        click_full(page, y, x)
-    page.keyboard.press("Enter")
-    page.wait_for_function("S.ds.roi && S.ds.roi.length === 4", timeout=10000)
-    wait_result(page)
-    page.click("#histoBtn")
-    page.wait_for_function("!document.querySelector('#histoCards').classList.contains('hidden')", timeout=30000)
-    assert "B.Ar/T.Ar" in page.inner_text("#histoCards")
-    assert not page.errors, page.errors
-
-
 def test_two_structures(page, server):
     url, data = server
     stack = open_demo(page, url, data)
@@ -341,35 +310,6 @@ def test_teach_several_structures(page, server):
     assert not page.errors, page.errors
 
 
-def test_histomorphometry_whole_stack(page, server):
-    url, data = server
-    stack = open_demo(page, url, data)
-    page.select_option("#channelSelect", "0")
-    page.wait_for_timeout(700)
-    m = ndi.gaussian_filter(stack[6, 0].astype(float), 3)
-    rng = np.random.default_rng(5)
-    hi, lo = np.argwhere(m > np.percentile(m, 85)), np.argwhere(m < np.percentile(m, 15))
-    for y, x in hi[rng.choice(len(hi), 4, replace=False)]:
-        click_full(page, y, x)
-    for y, x in lo[rng.choice(len(lo), 4, replace=False)]:
-        click_full(page, y, x, shift=True)
-    wait_result(page)
-    page.click("#saveProfileBtn")
-    page.fill("#profileName", "Demo bone")
-    page.click("#profileSaveConfirm")
-    page.wait_for_function("S.profiles.some(p => p.name === 'Demo bone')", timeout=10000)
-    pid = page.evaluate("S.profiles.find(p => p.name === 'Demo bone').id")
-    page.select_option("#hBoneC", "0")
-    page.select_option("#hBoneSrc", f"profile:{pid}")
-    page.select_option("#hCellC", "1")
-    page.select_option("#hCellSrc", "reference")
-    page.fill("#zStep", "3")
-    page.click("#histoStackBtn")
-    page.wait_for_function("document.querySelector('#histoStackText').textContent.includes('slices:')", timeout=60000)
-    assert "Oc.Pm/B.Pm" in page.inner_text("#histoStackText")
-    assert not page.errors, page.errors
-
-
 def test_sam_setting_and_finetune_panel(page, server, monkeypatch):
     import boneseg.finetune as fmod
 
@@ -447,64 +387,6 @@ def test_microsam_panel_kaggle_package_model_and_stack(page, server, monkeypatch
     assert not page.errors, page.errors
 
 
-def test_simple_mode(page, server):
-    import urllib.request
-
-    url, data = server
-    page.goto(url + "/simple")
-    page.wait_for_selector("#demoBtn")
-    page.click("#demoBtn")
-    page.wait_for_function("P.ds && P.img && P.ds.name === 'demo_bone_stack.tif'", timeout=20000)
-    ds_id = page.evaluate("P.ds.id")
-    stack = tifffile.imread(glob.glob(str(data / "datasets" / ds_id / "*.tif"))[0])
-    page.locator("#stage").scroll_into_view_if_needed()   # Mouse clicks only land inside the visible window
-    page.evaluate("P.z = 6; document.getElementById('slice').value = 6; loadSlice(true)")
-    page.wait_for_timeout(500)
-    assert page.is_hidden("#drop") and "demo_bone_stack" in page.inner_text("#openedName")   # Step 1 collapsed
-
-    def click(y, x, button="left"):
-        pos = page.evaluate(f"(() => {{ const r = canvas.getBoundingClientRect(); const f = fullPerImg(); "
-                            f"return [r.left + (P.view.ox + {x} / f * P.view.scale) / devicePixelRatio, r.top + (P.view.oy + {y} / f * P.view.scale) / devicePixelRatio]; }})()")
-        page.mouse.click(*pos, button=button)
-
-    gt = stack[6, 2] > 0
-    lab, k = ndi.label(gt)
-    for cy, cx in ndi.center_of_mass(gt, lab, range(1, k + 1))[:3]:
-        click(cy, cx)
-    page.keyboard.press("2")
-    for y, x in [(20, 20), (360, 40), (30, 480), (200, 15)]:
-        click(y, x)
-    page.wait_for_function("P.mask !== null", timeout=30000)
-    assert "Bone area" in page.inner_text("#numbers") and "mask is wrong" in page.inner_text("#hint")
-    # Right-click removes the nearest click; Ctrl+Z brings exactly that click back; the next Ctrl+Z undoes the last added
-    count = lambda: page.evaluate("[P.clicks['1:6'].pos.length, P.clicks['1:6'].neg.length]")  # noqa: E731
-    click(200, 15, "right")
-    assert count() == [3, 3]
-    page.keyboard.press("Control+z")
-    assert count() == [3, 4] and page.evaluate("P.clicks['1:6'].neg.some(([y, x]) => Math.abs(y - 200) < 3 && Math.abs(x - 15) < 3)")
-    page.keyboard.press("Control+z")
-    page.wait_for_timeout(300)
-    assert count() == [3, 3]
-    # Another slice is segmented with the clicked slice's clicks
-    page.evaluate("P.z = 3; document.getElementById('slice').value = 3; loadSlice()")
-    page.wait_for_function("P.mask !== null && document.getElementById('numbers').textContent.includes('slice 6')", timeout=30000)
-    # Whole stack, then both downloads work
-    page.click("#stackBtn")
-    page.wait_for_selector("#downloads a", timeout=60000)
-    assert "12" in page.inner_text("#stackNumbers")
-    for href in page.eval_on_selector_all("#downloads a", "as => as.map(a => a.href)"):
-        assert urllib.request.urlopen(href).status == 200
-    # The full app finds the same clicks; the phone layout has no sideways scrolling
-    page.set_viewport_size({"width": 390, "height": 800})
-    assert not page.evaluate("document.documentElement.scrollWidth > document.documentElement.clientWidth")
-    page.set_viewport_size({"width": 1440, "height": 900})
-    page.wait_for_timeout(600)   # The clicks are saved 400 ms after the last change
-    page.goto(url + "/")
-    page.wait_for_function("S.ds && S.base", timeout=20000)
-    assert page.evaluate("S.points['1:6'].pos.length") == 3
-    assert not page.errors, page.errors
-
-
 def _open_path(pg, path):
     """Opens a file on disk through the API from inside the page, then selects it in the full app."""
     return pg.evaluate(f"api('/api/datasets/from-path', {{method: 'POST', body: {{path: {str(path)!r}}}}}).then(d => d.id)")
@@ -557,25 +439,17 @@ def test_bugfixes_full_app_clicks_undo_and_slices(page, server, tmp_path):
     assert not page.errors, page.errors
 
 
-def test_bugfixes_switching_pages_keeps_the_image(page, server):
+def test_bugfixes_reload_keeps_the_image(page, server):
+    # BUG-08: a reload or a link with ?ds=&c=&z= opens the same image, channel and slice
     url, data = server
-    page.goto(url + "/simple")
-    page.click("#demoBtn")
-    page.wait_for_function("P.ds && P.img", timeout=20000)
-    ds_id = page.evaluate("P.ds.id")
-    page.evaluate("P.z = 4; document.getElementById('slice').value = 4; loadSlice()")
-    page.wait_for_timeout(400)
-    # BUG-08: "Full app" opens the same image, channel and slice
-    page.click("#fullLink")
-    page.wait_for_function("S.ds && S.base", timeout=20000)
-    assert page.evaluate("[S.ds.id, S.c, S.z]") == [ds_id, page.evaluate("S.c"), 4] and page.evaluate("S.ds.id") == ds_id
-    # And back: simple mode opens it too, also on a plain reload
+    open_demo(page, url, data)
+    ds_id = page.evaluate("S.ds.id")
     page.evaluate("S.z = 7; loadPlane()")
-    page.wait_for_timeout(300)
-    page.click("#simpleLink")
-    page.wait_for_function("P.ds && P.img", timeout=20000)
-    assert page.evaluate("[P.ds.id, P.z]") == [ds_id, 7]
-    page.goto(url + "/simple")
-    page.wait_for_function("P.ds && P.img", timeout=20000)
-    assert page.evaluate("P.ds.id") == ds_id
+    page.wait_for_timeout(400)
+    page.reload()
+    page.wait_for_function("S.ds && S.base", timeout=20000)
+    assert page.evaluate("S.ds.id") == ds_id
+    page.goto(f"{url}/?ds={ds_id}&c=1&z=4")
+    page.wait_for_function("S.ds && S.base", timeout=20000)
+    assert page.evaluate("[S.ds.id, S.c, S.z]") == [ds_id, 1, 4]
     assert not page.errors, page.errors

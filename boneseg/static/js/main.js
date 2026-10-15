@@ -37,39 +37,7 @@ function bind() {
   $("zSlider").oninput = (e) => { S.z = +e.target.value; $("zValue").textContent = S.z; };
   $("zSlider").onchange = () => loadPlane();
   $("zPrev").onclick = () => stepZ(-1);
-  // A second channel on top only changes the picture; the current result stays
-  const redrawBase = async () => {
-    if (!S.ds) return;
-    const ov = $("overlaySelect").value;
-    try {
-      S.base = await loadImage(`/api/datasets/${S.ds.id}/plane?c=${S.c}&z=${S.z}&low=${S.low}&high=${S.high}`
-        + (ov !== "" && +ov !== S.c ? `&overlay=${ov}&color=${$("overlayColor").value.slice(1)}` : ""));
-      draw();
-    } catch (e) { toast(e.message, true); }
-  };
-  $("overlaySelect").onchange = redrawBase;
-  let notesTimer = null;
-  $("notesInput").addEventListener("input", () => {
-    clearTimeout(notesTimer);
-    const dsId = S.ds?.id;
-    notesTimer = setTimeout(() => dsId && api(`/api/datasets/${dsId}`, { method: "PATCH", body: { notes: $("notesInput").value.slice(0, 4000) } }).catch((e) => toast(e.message, true)), 600);
-  });
-  $("overlayColor").onchange = redrawBase;
   $("zNext").onclick = () => stepZ(1);
-  const contrast = () => { S.low = +$("lowSlider").value; S.high = +$("highSlider").value; rememberSettings(); loadPlane(); };
-  $("lowSlider").onchange = contrast;
-  $("highSlider").onchange = contrast;
-  $("refSelect").onchange = async (e) => {
-    const v = e.target.value === "" ? null : +e.target.value;
-    try {
-      S.ds = await api(`/api/datasets/${S.ds.id}`, { method: "PATCH", body: { reference_channel: v } });
-      $("refHint").textContent = v == null ? "Pick a channel that holds an expert mask to score results with Dice." : "Every result is scored against this expert mask.";
-      await loadReference();
-      fillHistoControls();
-      draw();
-      if (S.result) scheduleSegment(0);
-    } catch (err) { toast(err.message, true); }
-  };
 
   $("modePos").onclick = () => setMode("pos");
   $("modeNeg").onclick = () => setMode("neg");
@@ -99,7 +67,6 @@ function bind() {
       S.structures = prof.structures.map((st, k) => ({ name: st.name, color: safeColor(st.color || STRUCT_COLORS[k % STRUCT_COLORS.length]) }));
       S.active = 0;
       renderStructures();
-      fillHistoControls();
     }
     if (prof || pts().pos.length) scheduleSegment(0);
   };
@@ -180,10 +147,8 @@ function bind() {
   $("microsamRemove").onclick = removeMicrosam;
   try { $("kaggleUser").value = localStorage.getItem("boneseg.kaggleUser") || ""; } catch (_) { /* storage blocked */ }
   $("showLabel").addEventListener("input", draw);
-  $("showHisto").addEventListener("input", draw);
   $("showSide").addEventListener("input", loadSide);
   $("sideImg").onload = placeSideZ;
-  $("simpleLink").onclick = (e) => { if (S.ds) { e.preventDefault(); window.location.href = `/simple?ds=${S.ds.id}&c=${S.c}&z=${S.z}`; } };
   $("sideImg").parentElement.onclick = (ev) => {
     if (!S.ds) return;
     const r = $("sideImg").getBoundingClientRect();
@@ -191,11 +156,6 @@ function bind() {
     S.z = Math.max(0, Math.min(S.ds.n_z - 1, z));
     loadPlane();
   };
-  $("histoBtn").onclick = runHisto;
-  $("histoStackBtn").onclick = runHistoStack;
-  $("roiBtn").onclick = () => (S.roiDraft ? finishRoi() : startRoi());
-  $("roiClear").onclick = () => saveRoi(null);
-  $("voxelSave").onclick = saveVoxel;
   $("studyBtn").onclick = openStudy;
   $("projectBtn").onclick = () => { window.location = `/api/datasets/${S.ds.id}/export/project.zip`; };
   $("labelsExport").onclick = () => { window.location = `/api/datasets/${S.ds.id}/export/labels?c=${S.c}&z=${S.z}`; };
@@ -208,8 +168,6 @@ function bind() {
   $("batchRun").onclick = runBatch;
   $("batchChannelMode").onchange = () => $("batchChannelRow").classList.toggle("hidden", $("batchChannelMode").value === "own");
   $("reportBtn").onclick = () => window.open(`/api/datasets/${S.ds.id}/report?c=${S.c}&z=${S.z}`, "_blank");
-  $("hContact").oninput = () => { $("hContactValue").textContent = `${$("hContact").value} ${lengthUnit()}`; };
-  $("histoCsv").onclick = () => { window.location = `/api/datasets/${S.ds.id}/histomorphometry/cells.csv?z=${S.histoZ ?? S.z}`; };
   $("cancelBtn").onclick = () => S.job && api(`/api/jobs/${S.job}/cancel`, { method: "POST" });
   $("helpBtn").onclick = () => $("helpDialog").showModal();
 
@@ -238,9 +196,6 @@ function bind() {
     else if (k === "?") $("helpDialog").showModal();
     else if (k === "e") (S.editing ? stopEditing() : startEditing());
     else if (k === "escape" && S.editing) stopEditing();
-    else if (k === "escape" && S.roiDraft) cancelRoi();
-    else if (k === "enter" && S.roiDraft) finishRoi();
-    else if (k === "r") (S.roiDraft ? finishRoi() : startRoi());
     else if (k === "tab" && isMulti()) { e.preventDefault(); S.active = (S.active + (e.shiftKey ? S.structures.length - 1 : 1)) % S.structures.length; setMode("pos"); renderStructures(); updateCounts(); }
   });
   window.addEventListener("keyup", (e) => { if (e.key === " ") S.space = false; });

@@ -117,7 +117,7 @@ def methods_text(info: dict, settings: dict, source: str, n_pos: int, n_neg: int
                          (f"placed {pos_:.0%} of the way from the scores at the background clicks to those at the object clicks" if pos_ >= 0 else
                           "placed 70% (with five or fewer clicks of a kind) or 90% (with more) of the way from the scores at the background "
                           "clicks to those at the object clicks"),
-               "otsu": "chosen with Otsu's method", "top_percent": f"set to keep the top {settings['top_percent']}% of pixels",
+               "top_percent": f"set to keep the top {settings['top_percent']}% of pixels",
                "manual": f"set manually to {settings['manual_threshold']}"}.get(settings["threshold_mode"], settings["threshold_mode"])
         how = (f"Prototypes were taken from the patches under {clicks}. Each patch was scored by its mean cosine similarity to the "
                f"object prototypes minus {settings['neg_weight']} times its mean similarity to the background prototypes, and the "
@@ -154,7 +154,7 @@ def methods_text(info: dict, settings: dict, source: str, n_pos: int, n_neg: int
 
 
 def build_report(info: dict, c: int, z: int, image_png: bytes, stats: dict | None, evaluation: dict | None, settings: dict,
-                 threshold: dict | None, histo: dict | None, stack: dict | None, methods: str, structures: list | None = None) -> str:
+                 threshold: dict | None, stack: dict | None, methods: str, structures: list | None = None) -> str:
     now = dt.datetime.now().strftime("%Y-%m-%d %H:%M")
     ch = info["channel_names"][c] if c < len(info["channel_names"]) else f"Channel {c}"
     parts = [f"<h1>{html.escape(info['name'])}</h1>",
@@ -188,26 +188,10 @@ def build_report(info: dict, c: int, z: int, image_png: bytes, stats: dict | Non
     if evaluation:
         parts += [f"<h2>Against {html.escape(evaluation.get('against', 'the reference mask'))}</h2>",
                   _table([("Dice", f"{evaluation['dice']:.3f}"), ("IoU", f"{evaluation['iou']:.3f}"), ("HD95", f"{_fmt(evaluation['hd95_um'], 1)} µm")])]
-    if histo:
-        labels = {"T.Ar_mm2": ("Tissue area, T.Ar", "mm²", 4), "B.Ar_mm2": ("Bone area, B.Ar", "mm²", 4), "B.Ar/T.Ar_%": ("Bone area fraction, B.Ar/T.Ar", "%", 1),
-                  "B.Pm_mm": ("Bone perimeter, B.Pm", "mm", 3), "Oc.Pm/B.Pm_%": ("Osteoclast surface, Oc.Pm/B.Pm", "%", 1),
-                  "Oc.Pm_mm": ("Osteoclast perimeter, Oc.Pm", "mm", 3), "N.Oc": ("Osteoclasts on bone, N.Oc", "", 0),
-                  "N.Oc/B.Pm_per_mm": ("Osteoclast number, N.Oc/B.Pm", "/mm", 1), "N.Oc/T.Ar_per_mm2": ("Osteoclast density, N.Oc/T.Ar", "/mm²", 1),
-                  "cells_total": ("Cells in total", "", 0), "cells_on_bone_%": ("Cells on bone", "%", 1),
-                  "median_distance_to_bone_um": ("Median distance to bone", "µm", 1), "contact_um": ("Contact distance", "µm", 1)}
-        rows = []
-        for k, v in histo.items():
-            label, unit, digits = labels.get(k, (k, "", 2))
-            rows.append((label, f"{_fmt(float(v), digits) if digits else int(v)} {unit}".strip()))
-        parts += ["<h2>Bone histomorphometry</h2>", _table(rows)]
     if stack and (stack.get("summary") or {}).get("structures"):
         s = stack["summary"]
         rows = [(name, f"volume {_fmt(st.get('volume_um3'), 0)} µm³ · mean area {100 * (st.get('mean_area_fraction') or 0):.2f}% · "
                        f"{st.get('n_objects_3d', '–')} objects in 3D") for name, st in s["structures"].items()]
-        hm = s.get("histomorphometry")
-        if hm:
-            rows.append(("Histomorphometry", f"B.Ar/T.Ar {_fmt(hm.get('B.Ar/T.Ar_%'))}% · Oc.Pm/B.Pm {_fmt(hm.get('Oc.Pm/B.Pm_%'))}% · "
-                                             f"N.Oc/B.Pm {_fmt(hm.get('N.Oc/B.Pm_per_mm'))} /mm"))
         parts += [f"<h2>Latest stack run ({s.get('n_slices')} slices)</h2>", _table(rows)]
     elif stack:
         s = stack["summary"]
@@ -222,9 +206,7 @@ def build_report(info: dict, c: int, z: int, image_png: bytes, stats: dict | Non
               "<h2>Methods</h2>", f"<p>{html.escape(methods)}</p>",
               "<p class='small'>Generated automatically. Check the numbers and adapt the text before using it in a publication.</p>",
               "<h2>References</h2><ul class='small'>"
-              "<li>Oquab M, et al. DINOv2: Learning robust visual features without supervision. Transactions on Machine Learning Research (2024).</li>"
-              "<li>Dempster DW, et al. Standardized nomenclature, symbols, and units for bone histomorphometry: a 2012 update of the report of the "
-              "ASBMR Histomorphometry Nomenclature Committee. J Bone Miner Res 28:2–17 (2013).</li></ul>"]
+              "<li>Oquab M, et al. DINOv2: Learning robust visual features without supervision. Transactions on Machine Learning Research (2024).</li></ul>"]
     css = """body{font:15px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;max-width:860px;margin:32px auto;padding:0 16px;color:#16202e;background:#fff}
 h1{font-size:22px;margin-bottom:0}h2{font-size:15px;margin-top:28px;border-bottom:1px solid #dde3ec;padding-bottom:4px}
 img,svg{max-width:100%;border-radius:6px}table{border-collapse:collapse;width:100%}th,td{text-align:left;padding:5px 8px;border-bottom:1px solid #eef1f5;vertical-align:top}

@@ -1,4 +1,4 @@
-"""Reports and bone histomorphometry."""
+"""Reports and the project export."""
 from __future__ import annotations
 
 import io
@@ -12,7 +12,6 @@ from .. import render
 from ..head import Head
 from ..segment import SegmentationSettings
 from .context import AppContext, attachment
-from .models import HistoRequest, HistoStackRequest
 
 
 def router(ctx: AppContext) -> APIRouter:
@@ -45,8 +44,7 @@ def router(ctx: AppContext) -> APIRouter:
         methods = rep_mod.methods_text(ds.info(), settings, x.get("method", "clicks"), x.get("n_pos", 0), x.get("n_neg", 0), profile, head,
                                        stack=job is not None)
         page = rep_mod.build_report(ds.info(), c, z, png, x.get("stats"), x.get("evaluation"), settings,
-                                    {"value": res.threshold, "source": res.threshold_source}, ds.results.get(("histo_summary", z)),
-                                    job.result if job else None, methods)
+                                    {"value": res.threshold, "source": res.threshold_source}, job.result if job else None, methods)
         headers = attachment(f"{Path(ds.volume.name).stem}_c{c}_z{z}_report.html") if download else {}
         return HTMLResponse(page, headers=headers)
 
@@ -61,39 +59,10 @@ def router(ctx: AppContext) -> APIRouter:
         job = store.latest_job(ds.id)
         source = "learned structures" if m.get("method") == "learned" else "structures"
         methods = rep_mod.methods_text(ds.info(), settings, source, n_pos, len(m.get("neg", [])), None, head, stack=job is not None)
-        page = rep_mod.build_report(ds.info(), c, z, png, None, None, settings, None, ds.results.get(("histo_summary", z)),
-                                    job.result if job else None, methods, structures=m.get("stats"))
+        page = rep_mod.build_report(ds.info(), c, z, png, None, None, settings, None, job.result if job else None, methods,
+                                    structures=m.get("stats"))
         headers = attachment(f"{Path(ds.volume.name).stem}_c{c}_z{z}_report.html") if download else {}
         return HTMLResponse(page, headers=headers)
-
-    @r.post("/api/datasets/{ds_id}/histomorphometry")
-    def histomorphometry_endpoint(ds_id: str, req: HistoRequest):
-        from .. import histo
-
-        ds = store.get(ds_id)
-        settings = SegmentationSettings.from_dict(req.settings)
-        bone = ctx.mask_from_spec(ds_id, req.z, req.bone, settings)
-        cells = ctx.mask_from_spec(ds_id, req.z, req.cells, settings)
-        roi = store.roi_mask(ds_id)
-        summary, table = histo.histomorphometry(bone, cells, ds.volume.pixel_um, req.contact_um, roi)
-        ds.results[("histo", req.z)] = table
-        ds.results[("histo_summary", req.z)] = summary
-        from PIL import Image
-
-        rgba = histo.overlay(bone, cells, ds.volume.pixel_um, req.contact_um, roi)
-        h, w = render.display_shape(*bone.shape, req.max_side)
-        img = Image.fromarray(rgba, "RGBA").resize((w, h), Image.NEAREST)
-        return {"summary": summary, "overlay_png": render.data_url(render.to_png_bytes(img)),
-                "cells": json.loads(table.head(500).to_json(orient="records"))}
-
-    @r.get("/api/datasets/{ds_id}/histomorphometry/cells.csv")
-    def histo_cells(ds_id: str, z: int = 0):
-        ds = store.get(ds_id)
-        table = ds.results.get(("histo", z))
-        if table is None:
-            raise HTTPException(404, "Run histomorphometry on this slice first")
-        stem = f"{Path(ds.volume.name).stem}_z{z}_histomorphometry_cells"
-        return Response(table.to_csv(index=False), media_type="text/csv", headers=attachment(f"{stem}.csv"))
 
     @r.get("/api/datasets/{ds_id}/export/project.zip")
     def export_project(ds_id: str, include_masks: bool = False):
@@ -146,51 +115,6 @@ def router(ctx: AppContext) -> APIRouter:
                 + (" with mask stacks" if include_masks else " (mask stacks left out; add ?include_masks=true)") + "\n"))
         return FileResponse(tmp.name, media_type="application/zip", headers=attachment(f"{Path(ds.volume.name).stem}_boneseg_project.zip"),
                             background=BackgroundTask(lambda: Path(tmp.name).unlink(missing_ok=True)))
-
-    @r.post("/api/datasets/{ds_id}/histomorphometry/stack")
-    def histo_stack(ds_id: str, req: HistoStackRequest):
-        """Histomorphometry on every slice of a range, with bone and cells from any channels. Each mask comes from a
-        profile, the learned model or the reference channel, since those work on slices without clicks."""
-        import pandas as pd
-
-        from .. import histo
-
-        ds = store.get(ds_id)
-        for spec in (req.bone, req.cells):
-            if spec.source not in ("profile", "learned", "reference"):
-                raise ValueError("For a whole stack, take each mask from a profile, the learned model or the reference channel")
-        settings = SegmentationSettings.from_dict(req.settings)
-        last = ds.volume.n_z - 1 if req.z_end is None else min(req.z_end, ds.volume.n_z - 1)
-        zs = list(range(max(0, req.z_start), last + 1, max(1, req.z_step)))
-        if not zs:
-            raise ValueError("The slice range is empty")
-        ctx.mask_from_spec(ds_id, zs[0], req.bone, settings)  # Fail fast on a wrong profile or missing model
-        ctx.mask_from_spec(ds_id, zs[0], req.cells, settings)
-        roi = store.roi_mask(ds_id)
-
-        def work(job):
-            rows = []
-            for i, z in enumerate(zs):
-                if job.cancel.is_set():
-                    break
-                job.progress, job.message = i / len(zs), f"Slice {z} ({i + 1}/{len(zs)})"
-                bone = ctx.mask_from_spec(ds_id, z, req.bone, settings)
-                cells = ctx.mask_from_spec(ds_id, z, req.cells, settings)
-                hm, _ = histo.histomorphometry(bone, cells, ds.volume.pixel_um, req.contact_um, roi)
-                rows.append({"z": z, **hm})
-            df = pd.DataFrame(rows)
-            df.to_csv(job.out_dir / "histomorphometry.csv", index=False)
-            b_pm = df["B.Pm_mm"].sum() if len(df) else 0
-            summary = {"n_slices": len(df), "z_processed": [int(z) for z in df["z"]] if len(df) else [], "histomorphometry": {
-                "B.Ar/T.Ar_%": float(100 * df["B.Ar_mm2"].sum() / df["T.Ar_mm2"].sum()) if len(df) and df["T.Ar_mm2"].sum() else None,
-                "Oc.Pm/B.Pm_%": float(100 * df["Oc.Pm_mm"].sum() / b_pm) if b_pm else None,
-                "N.Oc/B.Pm_per_mm": float(df["N.Oc"].sum() / b_pm) if b_pm else None,
-                "B.Pm_mm_total": float(b_pm), "contact_um": req.contact_um}}
-            (job.out_dir / "summary.json").write_text(json.dumps(summary, indent=1))
-            return {"summary": summary, "slices": json.loads(df.to_json(orient="records")) if len(df) else []}
-
-        job = store.start_job("histo", work, meta={"dataset_id": ds_id, "n_slices": len(zs), "channel": req.cells.channel})
-        return job.info()
 
     return r
 

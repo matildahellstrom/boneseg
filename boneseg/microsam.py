@@ -74,7 +74,7 @@ for img, lab in va:
     dice.append(2 * (m & g).sum() / max(1, m.sum() + g.sum()))
 out = MC.export(ck, f"/kaggle/working/{split['output']}", split["recipe"], val_dice=float(np.mean(dice)),
                 n_train=len(tr), n_val=len(va), source=split["source"], channel=split["channel"], clip=split["clip"])
-print(f"Validation Dice {np.mean(dice):.3f}. Load {out.name} in boneseg: section 6, micro-SAM, Load model file")
+print(f"Validation Dice {np.mean(dice):.3f}. Load {out.name} in boneseg: section 5, micro-SAM, Load model file")
 '''
 
 
@@ -135,7 +135,7 @@ Needs the kaggle command-line tool (pip install kaggle) and an API token (kaggle
      kaggle kernels status {username}/{_slug(title, 50)}
 4. Download the model file:
      kaggle kernels output {username}/{_slug(title, 50)} -p {tag}/output
-5. In boneseg, section 6, micro-SAM: Load model file, and choose {tag}/output/{out_name}
+5. In boneseg, section 5, micro-SAM: Load model file, and choose {tag}/output/{out_name}
 """)
     zpath = tmp / f"{tag}.zip"
     with zipfile.ZipFile(zpath, "w", zipfile.ZIP_DEFLATED) as zf:

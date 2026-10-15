@@ -138,3 +138,11 @@ micro-SAM (Archit et al., Nature Methods 2025), Segment Anything trained on ligh
 - MIT licence, `CITATION.cff`, and a "Data" section in `paper/README.md` on how to get each dataset and its terms.
 - Kaggle notebooks run under any account: `python scripts/set_kaggle_user.py NAME` (or `KAGGLE_USERNAME`, `BONESEG_LIU_DATASET`).
 - Figures that show microscopy crops of the Liu data were removed from the repository and its history, and stay local (git-ignored).
+
+## 15 October 2026
+
+### A smaller interface
+- Simple mode (`/simple`, `--simple`) was removed; the full app is the one page.
+- Section 2 (View) was removed. Channel and slice moved under "1. Image". Pixel size and the reference mask channel come from the file (the reference by channel name). Contrast (fixed at the 1st–99.5th percentiles), the second-channel overlay, the region of interest and notes are gone from the interface; the API still accepts a region.
+- The "Automatic (Otsu)" threshold option was removed; settings saved with it use the threshold from the clicks.
+- Bone histomorphometry was removed from the app: section 7, its API, stack-run outputs, Compare samples columns and report section. The bone measures the paper evaluation needs moved to `paper/histo.py`.

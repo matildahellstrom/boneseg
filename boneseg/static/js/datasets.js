@@ -32,7 +32,7 @@ function showEmpty(on) {
     $("datasetTitle").textContent = "No image loaded";
     $("resultsSection").classList.add("hidden");
     // Panels that belonged to the closed image
-    for (const el of ["sidePanel", "jobBox", "histoCards", "histoDownloads"]) $(el)?.classList.add("hidden");
+    for (const el of ["sidePanel", "jobBox"]) $(el)?.classList.add("hidden");
     S.lastJob = null;
     S.job = null;
     S.base = null;
@@ -52,14 +52,6 @@ async function openDataset(id, view = {}) {
   $("datasetTitle").textContent = `${d.name} · ${d.width}×${d.height} px · ${d.n_z} slice${d.n_z === 1 ? "" : "s"} · ${d.voxel_size_known ? `${d.voxel_um[2].toFixed(3)} µm/px` : "pixel size unknown"}`;
   const cs = $("channelSelect");
   cs.innerHTML = d.channel_names.map((n, i) => `<option value="${i}">${i}: ${esc(n)}</option>`).join("");
-  const rs = $("refSelect");
-  rs.innerHTML = `<option value="">None</option>` + d.channel_names.map((n, i) => `<option value="${i}">${i}: ${esc(n)}</option>`).join("");
-  rs.value = d.reference_channel ?? "";
-  $("notesInput").value = d.notes || "";
-  $("overlaySelect").innerHTML = `<option value="">None</option>` + d.channel_names.map((n, i) => `<option value="${i}">${i}: ${esc(n)}</option>`).join("");
-  $("refHint").textContent = d.reference_channel != null
-    ? (d.reference_guessed ? "Guessed from the channel name. Every result is scored against it." : "Every result is scored against this expert mask.")
-    : "Pick a channel that holds an expert mask to score results with Dice.";
   // Start on a channel that is not the reference mask
   if (d.default_channel != null) S.c = d.default_channel;
   else if (d.rgb_channel != null) S.c = d.rgb_channel;   // Colour images start in colour, which DINOv2 reads best
@@ -88,15 +80,9 @@ async function openDataset(id, view = {}) {
   await refreshDatasets();
   await refreshLabels();
   await refreshHead();
-  fillHistoControls();
-  histoDefaults();
-  cancelRoi();
-  showVoxel();
   S.sideY = null;
   S.lastJob = null;
   if ($("showSide").checked) loadSide();
-  $("histoCards").classList.add("hidden");
-  $("histoDownloads").classList.add("hidden");
   await loadPlane(true);
   resumeJobs(id);
 }
@@ -134,10 +120,7 @@ async function loadPlane(fit = false) {
   const seq = ++planeSeq;
   $("zSlider").value = S.z;
   $("zValue").textContent = `${S.z} / ${S.ds.n_z - 1}${S.ds.voxel_size_known ? ` · ${(S.z * S.ds.voxel_um[0]).toFixed(1)} µm` : ""}`;
-  $("contrastValue").textContent = `${S.low}–${S.high}%`;
-  const ov = $("overlaySelect").value;
-  const url = `/api/datasets/${S.ds.id}/plane?c=${S.c}&z=${S.z}&low=${S.low}&high=${S.high}`
-    + (ov !== "" && +ov !== S.c ? `&overlay=${ov}&color=${$("overlayColor").value.slice(1)}` : "");
+  const url = `/api/datasets/${S.ds.id}/plane?c=${S.c}&z=${S.z}&low=${S.low}&high=${S.high}`;
   canvas.setAttribute("aria-label", `${S.ds.name}, channel ${S.c} (${S.ds.channel_names[S.c]}), slice ${S.z} of ${S.ds.n_z - 1}. Click to add points.`);
   busy(true, "Loading slice…");
   let img;

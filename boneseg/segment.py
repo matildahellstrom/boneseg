@@ -25,7 +25,7 @@ class SegmentationSettings:
     vit_size: int = 980              # Longest side of the backbone input, a multiple of 14
     layer_from_end: int = 1          # Transformer block counted from the end
     neg_weight: float = 0.8          # Lambda in pos - lambda * neg
-    threshold_mode: str = "clicks"   # "clicks", "otsu", "top_percent" or "manual"
+    threshold_mode: str = "clicks"   # "clicks", "top_percent" or "manual"
     top_percent: float = 10.0
     manual_threshold: float = 0.5    # On the heatmap rescaled to [0, 1]
     min_object_um2: float = 0.0      # Objects smaller than this are removed
@@ -53,7 +53,10 @@ class SegmentationSettings:
         """Settings from a request or a saved profile. Unknown keys are ignored; values are converted to the field's
         type and checked, so a bad value gives a clear error (HTTP 400) instead of failing deep inside a computation."""
         out = {}
-        for k, v in (d or {}).items():
+        d = dict(d or {})
+        if d.get("threshold_mode") == "otsu":   # The Otsu option was removed; settings saved with it use the clicks
+            d["threshold_mode"] = "clicks"
+        for k, v in d.items():
             f = cls.__dataclass_fields__.get(k)
             if f is None:
                 continue
@@ -91,7 +94,7 @@ class SegmentationSettings:
             (self.threshold_position == -1 or 0 <= self.threshold_position <= 1, "threshold_position must be -1 (auto) or between 0 and 1"),
             (self.min_object_um2 >= 0 and self.fill_holes_um2 >= 0 and self.smooth_px >= 0, "Clean-up sizes cannot be negative"),
             (self.guided_eps > 0, "guided_eps must be positive"),
-            (self.threshold_mode in ("clicks", "otsu", "top_percent", "manual"), f"Unknown threshold mode {self.threshold_mode}"),
+            (self.threshold_mode in ("clicks", "top_percent", "manual"), f"Unknown threshold mode {self.threshold_mode}"),
             (self.score_norm in ("robust", "none"), f"Unknown score normalisation {self.score_norm}"),
             (self.edge_refine in ("guided", "none"), f"Unknown edge refinement {self.edge_refine}"),
             (self.sam_refine in ("off", "agree", "replace"), f"Unknown sam_refine value {self.sam_refine}"),
@@ -268,9 +271,9 @@ def rescale01(a: np.ndarray) -> np.ndarray:
 
 def threshold_heatmap(heat: np.ndarray, settings: SegmentationSettings) -> tuple[np.ndarray, float]:
     """Binary mask from a heatmap already rescaled to [0, 1], for the modes that need no clicks.
-    Returns the mask and the threshold used. The "clicks" mode falls back to Otsu here."""
+    Returns the mask and the threshold used. The "clicks" mode, without background clicks, falls back to Otsu here."""
     mode = settings.threshold_mode
-    if mode in ("otsu", "clicks"):
+    if mode == "clicks":
         thr = float(threshold_otsu(heat)) if np.ptp(heat) > 0 else 1.0
     elif mode == "top_percent":
         thr = float(np.percentile(heat, 100 - settings.top_percent))

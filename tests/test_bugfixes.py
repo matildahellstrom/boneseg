@@ -20,17 +20,6 @@ def wait(client, job, statuses=("done", "failed", "cancelled")):
     raise AssertionError(f"job still {job['status']}")
 
 
-def test_bug03_region_after_histomorphometry(client):
-    # A histomorphometry table among the results used to break drawing a region (HTTP 500)
-    did = client.post("/api/datasets/demo").json()["id"]
-    s = {"backbone": "classic", "vit_size": 252}
-    for c in (0, 1):
-        assert client.post(f"/api/datasets/{did}/segment", json={"channel": c, "z": 6, "pos": [[100, 100]], "neg": [[10, 10]], "settings": s}).status_code == 200
-    assert client.post(f"/api/datasets/{did}/histomorphometry", json={"z": 6, "bone": {"channel": 0}, "cells": {"channel": 1}, "settings": s}).status_code == 200
-    assert client.put(f"/api/datasets/{did}/roi", json={"polygon": [[0, 0], [0, 200], [200, 200], [200, 0]]}).status_code == 200
-    assert client.put(f"/api/datasets/{did}/roi", json={"polygon": None}).status_code == 200
-
-
 def test_bug09_cancelled_work_is_not_done(tmp_path):
     from boneseg.store import Store
 

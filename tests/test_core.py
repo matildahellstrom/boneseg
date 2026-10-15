@@ -195,8 +195,17 @@ def test_objects_3d_counts_each_cell_once():
     assert obj.iloc[1]["touches_stack_edge"] and obj.iloc[1]["z_first"] == 10
 
 
+def _paper_histo():
+    """paper/histo.py: 2D bone measures used by the evaluation (no longer part of the app)."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("paper_histo", Path(__file__).resolve().parents[1] / "paper" / "histo.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
 def test_histomorphometry():
-    from boneseg import histo
+    histo = _paper_histo()
 
     bone = np.zeros((100, 100), bool)
     bone[30:70, 30:70] = True              # A 40x40 px bone square, perimeter about 160 px

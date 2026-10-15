@@ -178,35 +178,6 @@ def test_annotations_labels_and_learned_model(client):
     assert client.delete(f"/api/datasets/{did}/labels", params={"c": 0, "z": 1}).json()["labels"] == [{"channel": 0, "z": 0}]
 
 
-def test_histomorphometry_endpoint(client):
-    ds = client.post("/api/datasets/demo").json()
-    did = ds["id"]
-    import glob
-    from pathlib import Path
-    stack = tifffile.imread(glob.glob(str(Path(client.app.state.store.root) / "datasets" / did / "*.tif"))[0])
-    z = 6
-    gt_cells = stack[z, 2] > 0
-    bone = stack[z, 0] > np.percentile(stack[z, 0], 60)
-    ys, xs = np.nonzero(gt_cells)
-    by, bx = np.nonzero(bone & ~gt_cells)
-    ny, nx = np.nonzero(~bone & ~gt_cells)
-    pick = lambda a, b, k: [[int(a[i]), int(b[i])] for i in np.linspace(0, len(a) - 1, k).astype(int)]
-    s = {"backbone": "classic", "vit_size": 252}
-    # Segment bone on channel 0 and cells on channel 1, then measure
-    assert client.post(f"/api/datasets/{did}/segment", json={"channel": 0, "z": z, "pos": pick(by, bx, 8), "neg": pick(ny, nx, 8), "settings": s}).status_code == 200
-    assert client.post(f"/api/datasets/{did}/segment", json={"channel": 1, "z": z, "pos": pick(ys, xs, 6), "neg": pick(ny, nx, 8), "settings": s}).status_code == 200
-    r = client.post(f"/api/datasets/{did}/histomorphometry", json={"z": z, "bone": {"channel": 0}, "cells": {"channel": 1}, "settings": s})
-    assert r.status_code == 200, r.text
-    out = r.json()
-    assert 0 < out["summary"]["B.Ar/T.Ar_%"] < 100 and out["summary"]["B.Pm_mm"] > 0
-    assert out["overlay_png"].startswith("data:image/png")
-    assert client.get(f"/api/datasets/{did}/histomorphometry/cells.csv", params={"z": z}).text.startswith("label,")
-    # Reference channel as the cell source, and a clear error for a missing result
-    assert client.post(f"/api/datasets/{did}/histomorphometry", json={"z": z, "bone": {"channel": 0}, "cells": {"channel": 1, "source": "reference"}, "settings": s}).status_code == 200
-    r = client.post(f"/api/datasets/{did}/histomorphometry", json={"z": 2, "bone": {"channel": 0}, "cells": {"channel": 1}, "settings": s})
-    assert r.status_code == 400 and "Segment channel" in r.json()["detail"]
-
-
 def test_region_of_interest(client):
     ds, gt, centers = upload_stack(client, n_z=2)
     did = ds["id"]
@@ -227,7 +198,8 @@ def test_region_of_interest(client):
 
 
 def test_histomorphometry_roi_edge_is_not_surface():
-    from boneseg import histo
+    from tests.test_core import _paper_histo
+    histo = _paper_histo()
 
     bone = np.zeros((100, 100), bool)
     bone[:, :60] = True
@@ -429,23 +401,6 @@ def test_multi_structure_endpoint(client):
     assert client.get(f"/api/datasets/{did}/annotations").json()["0:0"]["extra"][0]["pos"] == [[3, 4]]
 
 
-def test_histomorphometry_from_structures(client):
-    ds, gt, centers = upload_stack(client, n_z=1, with_reference=False)
-    did = ds["id"]
-    ys, xs = np.nonzero(~ndi_dilate(gt))
-    bone_like = [[int(ys[i]), int(xs[i])] for i in np.linspace(0, len(ys) - 1, 4).astype(int)]
-    body = {"channel": 0, "z": 0, "neg": bg_points(gt)[:3], "settings": SETTINGS,
-            "structures": [{"name": "cells", "pos": [list(c) for c in centers[:3]]}, {"name": "bone", "pos": bone_like}]}
-    assert client.post(f"/api/datasets/{did}/segment_multi", json=body).status_code == 200
-    r = client.post(f"/api/datasets/{did}/histomorphometry", json={"z": 0, "bone": {"channel": 0, "source": "structure:1"},
-                                                                  "cells": {"channel": 0, "source": "structure:0"}, "settings": SETTINGS})
-    assert r.status_code == 200, r.text
-    assert r.json()["summary"]["B.Pm_mm"] >= 0 and r.json()["summary"]["cells_total"] >= 1
-    r = client.post(f"/api/datasets/{did}/histomorphometry", json={"z": 0, "bone": {"channel": 0, "source": "structure:5"},
-                                                                  "cells": {"channel": 0, "source": "structure:0"}, "settings": SETTINGS})
-    assert r.status_code == 400
-
-
 def ndi_dilate(m):
     import scipy.ndimage as ndi
     return ndi.binary_dilation(m, iterations=6)
@@ -480,12 +435,7 @@ def test_stack_with_two_structures(client):
     assert labels.shape == (3, *gt.shape) and set(np.unique(labels)) <= {0, 1, 2}
     assert client.get(f"/api/jobs/{job['id']}/files/objects_3d.csv").text.startswith("structure,label")
     assert client.get(f"/api/datasets/{did}/xz", params={"c": 0, "y": 40, "job_id": job["id"]}).status_code == 200
-    # A structure named like bone ("matrix") turns on stack-level histomorphometry, which Compare samples can use
-    hm = s["histomorphometry"]
-    assert hm["bone"] == "matrix" and hm["cells"] == "cells" and hm["Oc.Pm/B.Pm_%"] is not None
-    assert client.get(f"/api/jobs/{job['id']}/files/histomorphometry.csv").text.startswith("z,")
-    row = [r for r in client.get("/api/study", params={"metric": "Oc.Pm/B.Pm_%"}).json()["rows"] if r["dataset_id"] == did][0]
-    assert row["Oc.Pm/B.Pm_%"] == pytest.approx(hm["Oc.Pm/B.Pm_%"])
+    assert "histomorphometry" not in s   # Histomorphometry was removed from the app
 
 
 def test_project_export(client):
@@ -533,7 +483,6 @@ def test_multi_structure_profile(client, tmp_path):
             break
         time.sleep(0.05)
     assert job["status"] == "done" and set(job["result"]["summary"]["structures"]) == {"cells", "bone matrix"}
-    assert "histomorphometry" in job["result"]["summary"]
     # Using it as a single-structure profile gives a clear error
     r = client.post(f"/api/datasets/{ds2['id']}/segment", json={"channel": 0, "z": 0, "profile_id": prof["id"], "settings": SETTINGS})
     assert r.status_code == 400 and "several structures" in r.json()["detail"]
@@ -544,7 +493,7 @@ def test_multi_structure_profile(client, tmp_path):
     main(["batch", str(src), "--profile", prof["id"], "--channel", "0", "--out", str(tmp_path / "o"), "--data-dir", str(root)])
     import pandas as pd
     out = pd.read_csv(tmp_path / "o" / "summary.csv")
-    assert out["status"].iloc[0] == "ok" and "cells_volume_um3" in out and "Oc.Pm/B.Pm_%" in out
+    assert out["status"].iloc[0] == "ok" and "cells_volume_um3" in out and "Oc.Pm/B.Pm_%" not in out
 
 
 def test_batch_from_the_app_feeds_compare(client):
@@ -616,7 +565,7 @@ def test_labels_and_learned_model_with_several_structures(client, tmp_path):
             break
         time.sleep(0.05)
     assert job["status"] == "done", job
-    assert set(job["result"]["summary"]["structures"]) == {"cells", "matrix"} and "histomorphometry" in job["result"]["summary"]
+    assert set(job["result"]["summary"]["structures"]) == {"cells", "matrix"}
     # Exported as a profile, it segments other files in batch
     prof = client.post(f"/api/datasets/{did}/head/export", json={"channel": 0, "name": "learned two"}).json()
     from boneseg.__main__ import main
@@ -644,37 +593,6 @@ def test_labels_from_reference(client):
     assert client.post(f"/api/datasets/{did}/labels/from-reference", json={"channel": 1, "n": 2}).status_code == 400
     info = client.post(f"/api/datasets/{did}/head", json={"channel": 0, "settings": SETTINGS}).json()
     assert info["reference_check"]["mean_dice"] > 0.5
-
-
-def test_histomorphometry_stack_across_channels(client):
-    ds = client.post("/api/datasets/demo").json()
-    did = ds["id"]
-    import glob
-    from pathlib import Path
-    stack = tifffile.imread(glob.glob(str(Path(client.app.state.store.root) / "datasets" / did / "*.tif"))[0])
-    z = 6
-    s = {"backbone": "classic", "vit_size": 252}
-    m = stack[z, 0].astype(float)
-    hi, lo = np.argwhere(m > np.percentile(m, 85)), np.argwhere(m < np.percentile(m, 15))
-    rng = np.random.default_rng(0)
-    bone_prof = client.post("/api/profiles", json={"name": "bone", "dataset_id": did, "channel": 0, "z": z,
-                                                   "pos": hi[rng.choice(len(hi), 6)].tolist(), "neg": lo[rng.choice(len(lo), 6)].tolist(), "settings": s}).json()
-    client.patch(f"/api/datasets/{did}", json={"group": "control"})
-    body = {"bone": {"channel": 0, "source": "profile", "profile_id": bone_prof["id"]}, "cells": {"channel": 1, "source": "reference"},
-            "z_step": 3, "settings": s}
-    assert client.post(f"/api/datasets/{did}/histomorphometry/stack", json={**body, "cells": {"channel": 1, "source": "current"}}).status_code == 400
-    job = client.post(f"/api/datasets/{did}/histomorphometry/stack", json=body).json()
-    for _ in range(200):
-        job = client.get(f"/api/jobs/{job['id']}").json()
-        if job["status"] in ("done", "failed"):
-            break
-        time.sleep(0.05)
-    assert job["status"] == "done", job
-    hm = job["result"]["summary"]["histomorphometry"]
-    assert hm["Oc.Pm/B.Pm_%"] is not None and job["result"]["summary"]["n_slices"] == 4
-    assert client.get(f"/api/jobs/{job['id']}/files/histomorphometry.csv").text.startswith("z,")
-    row = [r for r in client.get("/api/study", params={"metric": "Oc.Pm/B.Pm_%"}).json()["rows"] if r["dataset_id"] == did][0]
-    assert row["Oc.Pm/B.Pm_%"] == pytest.approx(hm["Oc.Pm/B.Pm_%"])
 
 
 def test_plane_with_second_channel(client):
@@ -713,7 +631,7 @@ def test_report_for_several_structures(client):
             break
         time.sleep(0.05)
     page = client.get(f"/api/datasets/{did}/report", params={"c": 0, "z": 0}).text
-    for text in ("<h2>Structures</h2>", "bone matrix", "Several structures were segmented together", "Latest stack run (2 slices)", "Histomorphometry"):
+    for text in ("<h2>Structures</h2>", "bone matrix", "Several structures were segmented together", "Latest stack run (2 slices)"):
         assert text in page, text
     # A single-structure segmentation afterwards makes the report about that one again
     client.post(f"/api/datasets/{did}/segment", json={"channel": 0, "z": 0, "pos": [list(c) for c in centers], "neg": bg_points(gt), "settings": SETTINGS})
@@ -894,8 +812,8 @@ def test_learned_model_sees_neighbouring_slices(client):
     assert head_input(dataclasses.replace(h, z_context=0), embed, 5, 7).grid.shape[-1] == 3
 
 
-def test_simple_page_and_clicks_from_another_slice(client):
-    assert "boneseg simple" in client.get("/simple").text
+def test_clicks_from_another_slice(client):
+    assert client.get("/simple").status_code == 404   # Simple mode was removed
     ds, gt, centers = upload_stack(client, n_z=4)
     did = ds["id"]
     body = {"channel": 0, "pos": [list(c) for c in centers[:3]], "neg": bg_points(gt), "settings": SETTINGS}

@@ -129,7 +129,6 @@ function showMultiResults(out) {
   $("labelsExport").classList.remove("hidden");
   $("editBtn").classList.remove("hidden");
   $("saveLabelBtn").classList.remove("hidden");
-  histoFromStructures();
   $("timing").textContent = S.method === "learned" ? "Each pixel takes the structure the learned model finds most likely." : "Each pixel goes to the structure it resembles most, if it clears that structure's threshold. Correct with the brush in each structure's colour (Tab switches) and save as a label to train a model of all structures.";
   updateHint();
 }
@@ -237,7 +236,7 @@ function renderStructures() {
     if (!name) return;
     S.structures.push({ name: name.trim().slice(0, 40), color: STRUCT_COLORS[S.structures.length % STRUCT_COLORS.length] });
     S.active = S.structures.length - 1;
-    renderStructures(); updateCounts(); fillHistoControls();
+    renderStructures(); updateCounts();
   };
   box.appendChild(add);
   $("modePos").lastChild.textContent = isMulti() ? S.structures[S.active].name : "Object";

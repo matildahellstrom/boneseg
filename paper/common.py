@@ -17,7 +17,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from boneseg import io as bio  # noqa: E402
-from boneseg.histo import histomorphometry  # noqa: E402
+from histo import histomorphometry  # noqa: E402  (bone measures for the evaluation; no longer part of the app)
 
 DATA = ROOT / "data" / "liudata"
 # Short name -> (file, image channel). The expert mask is always the last channel.

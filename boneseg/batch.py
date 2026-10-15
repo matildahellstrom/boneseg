@@ -93,7 +93,6 @@ def run_batch(files: list[str | Path], profile: Profile, channel: int | None, ou
                 for name, st in s["structures"].items():
                     row.update({f"{name}_volume_um3": st.get("volume_um3"), f"{name}_n_objects_3d": st.get("n_objects_3d"),
                                 f"{name}_mean_area_fraction": st.get("mean_area_fraction")})
-                row.update({k: v for k, v in (s.get("histomorphometry") or {}).items() if k not in ("bone", "cells")})
                 log(f"{f.name}: {s['n_slices']} slices, structures {', '.join(s['structures'])} ({row['seconds']} s)")
                 rows.append(row)
                 continue

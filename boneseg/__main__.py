@@ -14,7 +14,6 @@ def main(argv=None):
     serve.add_argument("--port", type=int, default=8000)
     serve.add_argument("--data-dir", default=os.environ.get("BONESEG_DATA_DIR", "projects"))
     serve.add_argument("--open", action="store_true", help="Open the app in the browser")
-    serve.add_argument("--simple", action="store_true", help="Start in simple mode: open, click, run the stack, download")
     serve.add_argument("--token", default=os.environ.get("BONESEG_TOKEN"),
                        help="Require this access token for the API; share http://HOST:PORT/?token=... with users")
     serve.add_argument("--allowed-host", action="append", default=None,
@@ -103,8 +102,7 @@ def main(argv=None):
         app = create_app(args.data_dir, allow_paths=local or args.allow_paths, token=args.token, allowed_hosts=hosts)
         from urllib.parse import quote
 
-        page = "/simple" if args.simple else "/"
-        link = f"{page}?token={quote(args.token)}" if args.token else page   # The token survives & or # in it
+        link = f"/?token={quote(args.token)}" if args.token else "/"   # The token survives & or # in it
         if args.token:
             print(f"Access link: http://{args.host if local else '<this-computer>'}:{args.port}{link}", flush=True)
         elif not local:

@@ -119,7 +119,7 @@ def router(ctx: AppContext) -> APIRouter:
         roi = store.roi_mask(ds_id)
         # Re-clip cached results to the new region, so masks on other channels stay usable
         for key, res in list(ds.results.items()):
-            # Only segmentation results carry a mask; histomorphometry tables (pandas, whose .mask is a method) do not
+            # Only single-structure segmentation results carry a mask to clip
             if not isinstance(res, SegmentationResult):
                 continue
             full = res.extra.get("unclipped", res.mask)

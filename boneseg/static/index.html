@@ -14,7 +14,6 @@
     <div class="topbar-right">
       <span class="pill" id="devicePill" title="Where the model runs">…</span>
       <button class="ghost" id="themeBtn" title="Switch between dark and light" aria-label="Switch between dark and light theme">◐</button>
-      <a href="/simple" id="simpleLink"><button class="ghost" title="A minimal page: open, click, run the stack, download">Simple mode</button></a>
       <button class="ghost" id="studyBtn" title="Compare stack results between groups of samples">Compare samples</button>
       <button class="ghost" id="helpBtn" title="Keyboard shortcuts and tips" aria-label="Help and keyboard shortcuts">?</button>
     </div>
@@ -37,41 +36,17 @@
           <div class="row"><input type="text" id="pathInput" placeholder="/path/to/file.ims" aria-label="Full path of a file on this computer"><button id="pathBtn">Open</button></div>
         </details>
         <div class="dataset-list" id="datasetList"></div>
-      </section>
-
-      <section id="viewSection" class="disabled-until-data">
-        <h2>2. View</h2>
-        <label>Channel <select id="channelSelect"></select></label>
-        <label class="small">Show a second channel on top
-          <span class="row"><select id="overlaySelect"><option value="">None</option></select><input type="color" id="overlayColor" value="#ff00ff" aria-label="Colour of the second channel" style="width:44px;padding:2px"></span>
-        </label>
-        <label>Slice <span class="value" id="zValue">0</span>
-          <input type="range" id="zSlider" min="0" max="0" value="0">
-        </label>
-        <div class="row small"><button class="ghost" id="zPrev" title="Previous slice (,)">‹ Prev</button><button class="ghost" id="zNext" title="Next slice (.)">Next ›</button></div>
-        <label>Contrast <span class="value" id="contrastValue">1–99.5%</span></label>
-        <div class="row"><input type="range" id="lowSlider" min="0" max="20" step="0.5" value="1"><input type="range" id="highSlider" min="90" max="100" step="0.1" value="99.5"></div>
-        <details id="voxelDetails">
-          <summary class="small" id="voxelSummary">Pixel size</summary>
-          <p class="muted small" id="voxelHint"></p>
-          <div class="row">
-            <label class="small">XY µm/px <input type="number" id="pxInput" min="0" step="0.001"></label>
-            <label class="small">Z µm/slice <input type="number" id="pzInput" min="0" step="0.01"></label>
-          </div>
-          <button class="ghost" id="voxelSave">Use this pixel size</button>
-        </details>
-        <label>Region of interest</label>
-        <div class="row"><button class="ghost" id="roiBtn" title="Click corners, double-click or Enter to finish (R)">Draw region</button><button class="ghost hidden" id="roiClear">Clear</button></div>
-        <p class="muted small" id="roiHint">Measurements cover the whole image.</p>
-        <label class="small">Notes <textarea id="notesInput" rows="2" placeholder="Stain, sample, anything unusual. Saved with the image and shown in the report." style="width:100%;background:var(--bg);color:var(--text);border:1px solid var(--line);border-radius:6px;padding:6px 8px;font:inherit;resize:vertical"></textarea></label>
-        <label>Reference mask channel
-          <select id="refSelect"><option value="">None</option></select>
-        </label>
-        <p class="muted small" id="refHint"></p>
+        <div class="disabled-until-data" id="imageNav">
+          <label>Channel <select id="channelSelect"></select></label>
+          <label>Slice <span class="value" id="zValue">0</span>
+            <input type="range" id="zSlider" min="0" max="0" value="0">
+          </label>
+          <div class="row small"><button class="ghost" id="zPrev" title="Previous slice (,)">‹ Prev</button><button class="ghost" id="zNext" title="Next slice (.)">Next ›</button></div>
+        </div>
       </section>
 
       <section id="clickSection" class="disabled-until-data">
-        <h2>3. Clicks</h2>
+        <h2>2. Clicks</h2>
         <div class="structs" id="structList" aria-label="Structures"></div>
         <div class="segmented" role="group" aria-label="Click mode">
           <button class="active" data-mode="pos" id="modePos" title="Mark the structure to segment (1)"><span class="dot pos"></span>Object</button>
@@ -103,7 +78,6 @@
           <div class="more-menu">
             <label class="toggle"><input type="checkbox" id="showPoints" checked> Points</label>
             <label class="toggle"><input type="checkbox" id="showLabel" checked> Saved label</label>
-            <label class="toggle"><input type="checkbox" id="showHisto" checked> Histomorphometry</label>
             <label class="small">Overlay opacity <input type="range" id="opacity" min="0" max="1" step="0.05" value="0.6"></label>
           </div>
         </details>
@@ -141,18 +115,17 @@
     <!-- Right: settings, results and stack processing -->
     <aside class="panel right" id="rightPanel">
       <section id="settingsSection" class="disabled-until-data">
-        <h2>4. Segmentation</h2>
+        <h2>3. Segmentation</h2>
         <div class="segmented" role="group" aria-label="Method">
           <button class="active" id="methodClicks" title="Segment from the clicks on this slice or a profile">From clicks</button>
           <button id="methodLearned" title="Use the model trained on your corrected masks" disabled>Learned model</button>
-          <button id="methodMicrosam" title="Use micro-SAM fine-tuned on your labels (section 6, on Kaggle)" disabled>micro-SAM</button>
+          <button id="methodMicrosam" title="Use micro-SAM fine-tuned on your labels (section 5, on Kaggle)" disabled>micro-SAM</button>
         </div>
         <label>Feature backbone <select id="backboneSelect"></select></label>
         <p class="muted small" id="backboneHint"></p>
         <label>Threshold
           <select id="thrMode">
             <option value="clicks">From my clicks (recommended)</option>
-            <option value="otsu">Automatic (Otsu)</option>
             <option value="top_percent">Fixed share of the image</option>
             <option value="manual">Manual</option>
           </select>
@@ -196,7 +169,7 @@
       </section>
 
       <section id="stackSection" class="disabled-until-data">
-        <h2>5. Whole stack</h2>
+        <h2>4. Whole stack</h2>
         <p class="muted small">Uses the clicks on this slice, the selected profile or the learned model, whichever is active, to segment a range of slices.</p>
         <div class="row">
           <label class="small">From <input type="number" id="zStart" min="0" value="0"></label>
@@ -214,7 +187,7 @@
         </div>
       </section>
       <section id="learnSection" class="disabled-until-data">
-        <h2>6. Learn from corrections</h2>
+        <h2>5. Learn from corrections</h2>
         <p class="muted small">Correct a few masks with the brush and save them as labels. A small model then learns the structure from the backbone features and segments new slices without clicks.</p>
         <div class="labels" id="labelList"><span class="muted small">No labels yet.</span></div>
         <button class="ghost hidden" id="refLabelsBtn" title="Use the expert mask of 5 evenly spaced slices as labels, then train a model that can segment files without expert masks">Label 5 slices from the reference</button>
@@ -241,17 +214,6 @@
         </details>
       </section>
 
-      <section id="histoSection" class="disabled-until-data">
-        <h2>7. Bone histomorphometry</h2>
-        <p class="muted small">Combines a bone mask and a cell mask on this slice into the standard 2D measurements: bone area, bone perimeter, and how much of it osteoclasts cover.</p>
-        <label class="small">Bone <span class="row"><select id="hBoneC"></select><select id="hBoneSrc"></select></span></label>
-        <label class="small">Osteoclasts or cells <span class="row"><select id="hCellC"></select><select id="hCellSrc"></select></span></label>
-        <label class="small">Contact distance <span class="value" id="hContactValue">3 µm</span><input type="range" id="hContact" min="0" max="15" step="0.5" value="3"></label>
-        <div class="row"><button class="primary" id="histoBtn">Measure this slice</button><button class="ghost" id="histoStackBtn" title="Every slice in the range of section 5. Each mask must come from a profile, the learned model or the reference">Measure the whole stack</button></div>
-        <div class="small" id="histoStackText"></div>
-        <div class="cards hidden" id="histoCards"></div>
-        <div class="row hidden" id="histoDownloads"><button class="ghost" id="histoCsv">Cells CSV</button></div>
-      </section>
     </aside>
   </main>
 
@@ -262,13 +224,12 @@
       <li><b>1</b> and <b>2</b> switch between object and background. <b>Ctrl+Z</b> undoes the last point.</li>
       <li><b>,</b> and <b>.</b> move through slices. <b>F</b> fits the image. Scroll to zoom and drag with the middle mouse button or Space held down to pan.</li>
       <li><b>M</b>, <b>H</b> and <b>U</b> toggle the mask, heatmap and uncertainty overlays.</li>
-      <li><b>R</b> draws a region of interest: click its corners, then double-click or press Enter. Masks, measurements and exports stay inside it.</li>
       <li><b>E</b> starts correcting the mask with a brush: drag to paint, Shift-drag to erase, <b>[</b> and <b>]</b> to change the brush, <b>Ctrl+Z</b> to undo a stroke, <b>Esc</b> to cancel. Saved corrections become labels that a small model can learn from.</li>
       <li>The orange overlay shows where the mask is unstable. The dashed ring suggests where one more click helps most.</li>
       <li>Save good clicks as a <b>profile</b> to segment new images of the same stain without clicking.</li>
       <li><b>+ Structure</b> segments several things at once, such as cells and bone matrix. <b>Tab</b> switches which structure your object clicks go to.</li>
       <li><b>Compare samples</b> (top right) runs a profile on every sample and compares groups with a rank test.</li>
-      <li>Everything you do is saved per image: clicks, labels, models, region and pixel size. <b>Project zip</b> exports it.</li>
+      <li>Everything you do is saved per image: clicks, labels and models. <b>Project zip</b> exports it.</li>
     </ul>
     <form method="dialog"><button class="primary">Got it</button></form>
   </dialog>

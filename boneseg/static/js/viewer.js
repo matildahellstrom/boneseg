@@ -42,41 +42,10 @@ function draw() {
   else if ($("showMask").checked) layer(S.layers.mask, Math.min(1, op + 0.3));
   if ($("showRef").checked) layer(S.layers.ref, 0.9);
   if ($("showLabel").checked && !S.editing) layer(S.layers.label, 0.95);
-  if ($("showHisto").checked && !S.editing && S.histoZ === S.z) layer(S.layers.histo, 1);
   $("zoomLabel").textContent = `${Math.round(scale * fullToDisp() * 100)}%`;
 
   const f = fullToDisp();
   const toScreen = ([y, x]) => [ox + x * f * scale, oy + y * f * scale];
-  const roi = S.ds?.roi;
-  if (roi && roi.length >= 3) {
-    ctx.save();
-    ctx.beginPath();
-    ctx.rect(ox, oy, w, h);
-    roi.forEach((p, i) => { const [sx, sy] = toScreen(p); i ? ctx.lineTo(sx, sy) : ctx.moveTo(sx, sy); });
-    ctx.closePath();
-    ctx.fillStyle = "rgba(5, 9, 16, 0.55)";
-    ctx.fill("evenodd");
-    ctx.setLineDash([6, 4]);
-    ctx.strokeStyle = "#e6edf7";
-    ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    roi.forEach((p, i) => { const [sx, sy] = toScreen(p); i ? ctx.lineTo(sx, sy) : ctx.moveTo(sx, sy); });
-    ctx.closePath();
-    ctx.stroke();
-    ctx.restore();
-  }
-  if (S.roiDraft) {
-    ctx.save();
-    ctx.strokeStyle = "#ffd84a";
-    ctx.fillStyle = "#ffd84a";
-    ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    S.roiDraft.forEach((p, i) => { const [sx, sy] = toScreen(p); i ? ctx.lineTo(sx, sy) : ctx.moveTo(sx, sy); });
-    if (S.roiCursor) ctx.lineTo(S.roiCursor[0], S.roiCursor[1]);
-    ctx.stroke();
-    for (const p of S.roiDraft) { const [sx, sy] = toScreen(p); ctx.fillRect(sx - 3, sy - 3, 6, 6); }
-    ctx.restore();
-  }
   if (S.editing && S.brushAt) {
     ctx.beginPath();
     ctx.arc(S.brushAt[0], S.brushAt[1], (+$("brush").value / 2) * scale, 0, Math.PI * 2);
@@ -165,11 +134,6 @@ window.addEventListener("mousemove", (ev) => {
       ? `x ${Math.round(x)} · y ${Math.round(y)}${S.ds.voxel_size_known ? ` · ${(x * S.ds.voxel_um[2]).toFixed(1)}, ${(y * S.ds.voxel_um[1]).toFixed(1)} µm` : ""}`
       : "";
   }
-  if (S.roiDraft && ev.target === canvas) {
-    const r = canvas.getBoundingClientRect();
-    S.roiCursor = [ev.clientX - r.left, ev.clientY - r.top];
-    if (!drag) draw();
-  }
   if (S.editing && ev.target === canvas) {
     const r = canvas.getBoundingClientRect();
     S.brushAt = [ev.clientX - r.left, ev.clientY - r.top];
@@ -199,17 +163,12 @@ window.addEventListener("mouseup", (ev) => {
   const p = screenToFull(ev);
   if (!inside(p)) return;
   if (ev.altKey && d.button === 0) { S.sideY = Math.round(p[0]); $("showSide").checked = true; loadSide(); draw(); return; }
-  if (S.roiDraft) {
-    if (d.button === 0) { S.roiDraft.push([Math.round(p[0]), Math.round(p[1])]); draw(); }
-    return;
-  }
   if (d.button === 2) { removeNearest(...p); return; }
   if (d.button !== 0) return;
   const kind = ev.shiftKey ? (S.mode === "pos" ? "neg" : "pos") : S.mode;
   addPoint(kind, ...p);
 });
 canvas.addEventListener("contextmenu", (e) => e.preventDefault());
-canvas.addEventListener("dblclick", () => { if (S.roiDraft) finishRoi(); });
 canvas.addEventListener("wheel", (ev) => {
   if (!S.base) return;
   ev.preventDefault();
